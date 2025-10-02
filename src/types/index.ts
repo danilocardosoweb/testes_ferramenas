@@ -20,27 +20,23 @@ export interface Matrix {
   folder?: string;
 }
 
-export type EventType = 
+export type EventType =
   | "Recebimento"
-  | "Teste Inicial"
-  | "Ajuste"
-  | "Teste Final"
+  | "Testes"
+  | "Limpeza Saída"
+  | "Limpeza Entrada"
+  | "Correção Externa Saída"
+  | "Correção Externa Entrada"
   | "Aprovado"
-  | "Reprovado"
-  | "Manutenção"
-  | "Limpeza"
-  | "Correção Externa"
   | "Outro";
 
 export const EVENT_TYPES: EventType[] = [
   "Recebimento",
-  "Teste Inicial",
-  "Ajuste",
-  "Teste Final",
+  "Testes",
+  "Limpeza Saída",
+  "Limpeza Entrada",
+  "Correção Externa Saída",
+  "Correção Externa Entrada",
   "Aprovado",
-  "Reprovado",
-  "Manutenção",
-  "Limpeza",
-  "Correção Externa",
   "Outro",
 ];

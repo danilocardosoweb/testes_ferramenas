@@ -16,6 +16,7 @@ import {
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 import { MatrixSidebar } from "@/components/MatrixSidebar";
 import { FlowView } from "@/components/FlowView";
+import { MatrixSheet, SheetMilestone } from "@/components/MatrixSheet";
 import { MatrixForm } from "@/components/MatrixForm";
 import { EventForm } from "@/components/EventForm";
 import { ImportExport } from "@/components/ImportExport";
@@ -36,6 +37,7 @@ const Index = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
+  const [mainView, setMainView] = useState<"timeline" | "sheet">("timeline");
   const STALE_DAYS = 10;
   const [eventDetailDialog, setEventDetailDialog] = useState<{
     open: boolean;
@@ -229,17 +231,90 @@ const Index = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Flow View */}
-        <div className="flex-1">
-          <FlowView
-            matrices={filteredMatrices}
-            onEventClick={handleEventClick}
-            onBlankClick={() => setSelectedMatrix(null)}
-          />
+      <div className={`flex-1 flex ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
+        {/* Left: main view */}
+        <div className="flex-1 flex flex-col">
+          <div className="p-3 border-b flex items-center gap-2">
+            <button
+              className={`px-3 py-1 rounded ${mainView === "timeline" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => setMainView("timeline")}
+            >Timeline</button>
+            <button
+              className={`px-3 py-1 rounded ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => setMainView("sheet")}
+            >Planilha</button>
+            <div className="ml-auto text-sm text-muted-foreground">{filteredMatrices.length} matriz(es)</div>
+          </div>
+          <div className={`flex-1 ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
+            {mainView === "timeline" ? (
+              <FlowView
+                matrices={filteredMatrices}
+                onEventClick={handleEventClick}
+                onBlankClick={() => setSelectedMatrix(null)}
+              />
+            ) : (
+              <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
+                <MatrixSheet
+                  matrices={filteredMatrices}
+                  onSelectMatrix={(m) => setSelectedMatrix(m)}
+                  onSetDate={async (matrixId: string, milestone: SheetMilestone, date: string) => {
+                    try {
+                      const eventType = (() => {
+                        switch (milestone) {
+                          case "test1": return "1º teste";
+                          case "test2": return "2º teste";
+                          case "test3": return "3º teste";
+                          case "clean_send1":
+                          case "clean_return1":
+                          case "clean_send2":
+                          case "clean_return2":
+                            return "Limpeza";
+                          case "corr_send1":
+                          case "corr_return1":
+                          case "corr_send2":
+                          case "corr_return2":
+                            return "Correção Externa";
+                          case "approval":
+                            return "Aprovado";
+                          default:
+                            return "Outro";
+                        }
+                      })();
+                      const comment = (() => {
+                        switch (milestone) {
+                          case "clean_send1": return "Enviada para limpeza (ciclo 1)";
+                          case "clean_return1": return "Retornou da limpeza (ciclo 1)";
+                          case "corr_send1": return "Enviada para correção (ciclo 1)";
+                          case "corr_return1": return "Retornou da correção (ciclo 1)";
+                          case "clean_send2": return "Enviada para limpeza (ciclo 2)";
+                          case "clean_return2": return "Retornou da limpeza (ciclo 2)";
+                          case "corr_send2": return "Enviada para correção (ciclo 2)";
+                          case "corr_return2": return "Retornou da correção (ciclo 2)";
+                          case "test1": return "1º teste";
+                          case "test2": return "2º teste";
+                          case "test3": return "3º teste";
+                          case "approval": return "Aprovação";
+                          default: return "";
+                        }
+                      })();
+                      const newEvent: MatrixEvent = { id: crypto.randomUUID(), date, type: eventType, comment };
+                      await sbCreateEvent(matrixId, newEvent);
+                      setMatrices((prev) => prev.map((m) => (m.id === matrixId ? { ...m, events: [...m.events, newEvent] } : m)));
+                      if (selectedMatrix?.id === matrixId) {
+                        setSelectedMatrix((prev) => (prev ? { ...prev, events: [...prev.events, newEvent] } : prev));
+                      }
+                      toast({ title: "Data registrada", description: `${eventType} em ${new Date(date).toLocaleDateString("pt-BR")}` });
+                    } catch (err: any) {
+                      console.error(err);
+                      toast({ title: "Erro ao registrar data", description: String(err?.message || err), variant: "destructive" });
+                    }
+                  }}
+                />
+              </div>
+            )}
+          </div>
         </div>
-
-        {/* Right Panel - Forms (cards recolhíveis) */}
+        {/* Right Panel - Forms */}
         {selectedMatrix && (
           <div className="w-96 border-l border-border bg-background flex-shrink-0">
             <ScrollArea className="h-full">
