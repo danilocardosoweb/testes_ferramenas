@@ -1,0 +1,231 @@
+import { useState } from "react";
+import { Matrix, MatrixEvent } from "@/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Calendar, MapPin, Tag, Upload, X } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+
+interface EventDetailDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  matrix: Matrix | null;
+  event: MatrixEvent | null;
+  onUpdateEvent: (matrixId: string, eventId: string, updates: Partial<MatrixEvent>) => void;
+}
+
+export const EventDetailDialog = ({
+  open,
+  onOpenChange,
+  matrix,
+  event,
+  onUpdateEvent,
+}: EventDetailDialogProps) => {
+  const [observations, setObservations] = useState(event?.observations || "");
+  const [images, setImages] = useState<string[]>(event?.images || []);
+  const [responsible, setResponsible] = useState(event?.responsible || "");
+  const [files, setFiles] = useState<{ name: string; type: string; dataUrl: string }[]>(event?.files || []);
+  const { toast } = useToast();
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImages((prev) => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files;
+    if (!picked) return;
+    Array.from(picked).forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFiles((prev) => [
+          ...prev,
+          { name: file.name, type: file.type, dataUrl: reader.result as string },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSave = () => {
+    if (!matrix || !event) return;
+
+    onUpdateEvent(matrix.id, event.id, {
+      observations,
+      images,
+      responsible: responsible.trim() || undefined,
+      files,
+    });
+
+    toast({
+      title: "Atualizado",
+      description: "Observações e imagens foram salvas com sucesso.",
+    });
+
+    onOpenChange(false);
+  };
+
+  if (!event || !matrix) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Detalhes do Evento</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="bg-muted/30 p-4 rounded-lg space-y-2">
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-primary" />
+              <span className="font-semibold">{event.type}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Calendar className="h-3 w-3" />
+              {new Date(event.date).toLocaleDateString("pt-BR")}
+            </div>
+            {event.location && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <MapPin className="h-3 w-3" />
+                {event.location}
+              </div>
+            )}
+            <p className="text-sm mt-2">{event.comment}</p>
+          </div>
+
+          <div>
+            <Label htmlFor="responsible">Responsável</Label>
+            <Input
+              id="responsible"
+              value={responsible}
+              onChange={(e) => setResponsible(e.target.value)}
+              placeholder="Operador/Responsável pelo evento"
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="observations">Observações Adicionais</Label>
+            <Textarea
+              id="observations"
+              value={observations}
+              onChange={(e) => setObservations(e.target.value)}
+              placeholder="Adicione observações detalhadas sobre este evento..."
+              className="mt-2 min-h-[120px]"
+            />
+          </div>
+
+          <div>
+            <Label>Imagens</Label>
+            <div className="mt-2 space-y-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  id="image-upload"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => document.getElementById("image-upload")?.click()}
+                  className="w-full"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Adicionar Imagens
+                </Button>
+              </div>
+
+              {images.length > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  {images.map((image, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={image}
+                        alt={`Imagem ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg border"
+                      />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => handleRemoveImage(index)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <Label>Documentos (PDF, DOC, XLS...)</Label>
+            <div className="mt-2 space-y-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  id="doc-upload"
+                  type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => document.getElementById("doc-upload")?.click()}
+                  className="w-full"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Adicionar Documentos
+                </Button>
+              </div>
+
+              {files.length > 0 && (
+                <div className="space-y-2">
+                  {files.map((f, idx) => (
+                    <div key={idx} className="flex items-center justify-between rounded border p-2">
+                      <a href={f.dataUrl} download={f.name} className="text-sm underline truncate max-w-[220px]" title={f.name}>
+                        {f.name}
+                      </a>
+                      <Button type="button" variant="destructive" size="sm" onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}>
+                        Remover
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-4">
+            <Button onClick={handleSave} className="flex-1">
+              Salvar
+            </Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
