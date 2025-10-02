@@ -23,7 +23,8 @@ create table if not exists public.matrices (
   folder_id uuid null references public.folders(id) on delete set null,
   priority text check (priority in ('normal','medium','critical')),
   responsible text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_matrices_folder on public.matrices(folder_id);
@@ -39,7 +40,8 @@ create table if not exists public.events (
   comment text,
   location text,
   responsible text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_events_matrix on public.events(matrix_id);
@@ -54,7 +56,8 @@ create table if not exists public.event_files (
   mime_type text,
   file_size bigint,
   url text not null, -- URL pública (pode apontar para bucket do Supabase Storage)
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_event_files_event on public.event_files(event_id);
@@ -69,10 +72,40 @@ alter table public.events enable row level security;
 alter table public.event_files enable row level security;
 
 -- Políticas básicas (anon pode tudo). Ajuste depois conforme necessidade.
-create policy if not exists folders_anon_all on public.folders for all using (true) with check (true);
-create policy if not exists matrices_anon_all on public.matrices for all using (true) with check (true);
-create policy if not exists events_anon_all on public.events for all using (true) with check (true);
-create policy if not exists event_files_anon_all on public.event_files for all using (true) with check (true);
+drop policy if exists folders_anon_all on public.folders;
+create policy folders_anon_all on public.folders for all using (true) with check (true);
+
+drop policy if exists matrices_anon_all on public.matrices;
+create policy matrices_anon_all on public.matrices for all using (true) with check (true);
+
+drop policy if exists events_anon_all on public.events;
+create policy events_anon_all on public.events for all using (true) with check (true);
+
+drop policy if exists event_files_anon_all on public.event_files;
+create policy event_files_anon_all on public.event_files for all using (true) with check (true);
+
+-- Triggers de updated_at
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists t_matrices_updated_at on public.matrices;
+create trigger t_matrices_updated_at before update on public.matrices
+for each row execute function public.set_updated_at();
+
+drop trigger if exists t_events_updated_at on public.events;
+create trigger t_events_updated_at before update on public.events
+for each row execute function public.set_updated_at();
+
+drop trigger if exists t_event_files_updated_at on public.event_files;
+create trigger t_event_files_updated_at before update on public.event_files
+for each row execute function public.set_updated_at();
 
 -- Opcional: seeds iniciais
 -- insert into public.folders (name) values ('Outubro'), ('Setembro') on conflict do nothing;

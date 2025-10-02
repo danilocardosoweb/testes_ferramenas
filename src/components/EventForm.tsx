@@ -32,15 +32,6 @@ export const EventForm = ({ onSubmit, defaultDate, minDate }: EventFormProps) =>
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!comment.trim()) return;
-    // Validação: não permitir data anterior ao último evento
-    if (minDate) {
-      const newD = new Date(date).getTime();
-      const minD = new Date(minDate).getTime();
-      if (newD < minD) {
-        alert(`A data do novo evento não pode ser anterior a ${new Date(minDate).toLocaleDateString("pt-BR")}.`);
-        return;
-      }
-    }
 
     const newEvent: MatrixEvent = {
       id: uuidv4(),
@@ -78,8 +69,12 @@ export const EventForm = ({ onSubmit, defaultDate, minDate }: EventFormProps) =>
               onChange={(e) => setDate(e.target.value)}
               required
               className="mt-1"
-              min={minDate}
             />
+            {minDate && new Date(date).getTime() < new Date(minDate).getTime() && (
+              <p className="mt-1 text-xs text-amber-600">
+                Atenção: a data informada é anterior ao último evento.
+              </p>
+            )}
           </div>
 
           <div>

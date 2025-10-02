@@ -1,6 +1,18 @@
 import { useState, useEffect } from "react";
 import { Matrix, MatrixEvent } from "@/types";
-import { loadMatrices, saveMatrices, loadFolders, saveFolders } from "@/utils/storage";
+// Supabase services
+import {
+  listMatrices as sbListMatrices,
+  listFolders as sbListFolders,
+  createMatrix as sbCreateMatrix,
+  updateMatrix as sbUpdateMatrix,
+  deleteMatrix as sbDeleteMatrix,
+  createEvent as sbCreateEvent,
+  updateEvent as sbUpdateEvent,
+  deleteEvent as sbDeleteEvent,
+  getFolderIdByName,
+  createFolder as sbCreateFolder,
+} from "@/services/db";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 import { MatrixSidebar } from "@/components/MatrixSidebar";
 import { FlowView } from "@/components/FlowView";
@@ -33,34 +45,50 @@ const Index = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    const loaded = loadMatrices();
-    setMatrices(loaded);
-    const loadedFolders = loadFolders();
-    setFolders(loadedFolders);
+    const bootstrap = async () => {
+      try {
+        const [mats, flds] = await Promise.all([sbListMatrices(), sbListFolders()]);
+        setMatrices(mats);
+        setFolders(flds);
+      } catch (err: any) {
+        console.error(err);
+        toast({ title: "Erro ao carregar dados", description: String(err?.message || err), variant: "destructive" });
+      }
+    };
+    bootstrap();
   }, []);
 
-  useEffect(() => {
-    saveMatrices(matrices);
-  }, [matrices]);
-
-  useEffect(() => {
-    saveFolders(folders);
-  }, [folders]);
-
-  const handleNewMatrix = (matrix: Matrix) => {
-    setMatrices((prev) => [...prev, matrix]);
-    setSelectedMatrix(matrix);
-    setShowNewMatrixForm(false);
-    toast({
-      title: "Matriz criada",
-      description: `Matriz ${matrix.code} foi criada com sucesso.`,
-    });
+  const handleNewMatrix = async (matrix: Matrix) => {
+    try {
+      const folderId = matrix.folder ? await getFolderIdByName(matrix.folder) : null;
+      const newId = await sbCreateMatrix({
+        code: matrix.code,
+        receivedDate: matrix.receivedDate,
+        folderId,
+        priority: matrix.priority ?? null,
+        responsible: matrix.responsible ?? null,
+      });
+      const created: Matrix = { ...matrix, id: newId };
+      setMatrices((prev) => [...prev, created]);
+      setSelectedMatrix(created);
+      setShowNewMatrixForm(false);
+      toast({ title: "Matriz criada", description: `Matriz ${matrix.code} foi criada com sucesso.` });
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Erro ao criar matriz", description: String(err?.message || err), variant: "destructive" });
+    }
   };
 
-  const handleCreateFolder = (name: string) => {
+  const handleCreateFolder = async (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setFolders((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    try {
+      await sbCreateFolder(trimmed);
+      setFolders((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Erro ao criar pasta", description: String(err?.message || err), variant: "destructive" });
+    }
   };
 
   const handleSelectFolder = (name: string | null) => {
@@ -68,49 +96,67 @@ const Index = () => {
     setSelectedMatrix(null);
   };
 
-  const handleMoveMatrixFolder = (matrixId: string, newFolder: string | null) => {
-    setMatrices((prev) =>
-      prev.map((m) => (m.id === matrixId ? { ...m, folder: newFolder || undefined } : m)),
-    );
-    if (newFolder && !folders.includes(newFolder)) {
-      setFolders((prev) => [...prev, newFolder]);
+  const handleMoveMatrixFolder = async (matrixId: string, newFolder: string | null) => {
+    try {
+      const folderId = newFolder ? await getFolderIdByName(newFolder) : null;
+      await sbUpdateMatrix(matrixId, { folderId });
+      setMatrices((prev) => prev.map((m) => (m.id === matrixId ? { ...m, folder: newFolder || undefined } : m)));
+      if (newFolder && !folders.includes(newFolder)) {
+        setFolders((prev) => [...prev, newFolder]);
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Erro ao mover pasta", description: String(err?.message || err), variant: "destructive" });
     }
   };
 
-  const handleDeleteMatrix = (matrixId: string) => {
+  const handleDeleteMatrix = async (matrixId: string) => {
     const matrix = matrices.find((m) => m.id === matrixId);
     const code = matrix?.code || "";
     const ok = window.confirm(`Excluir a matriz ${code}? Esta ação não pode ser desfeita.`);
     if (!ok) return;
-    setMatrices((prev) => prev.filter((m) => m.id !== matrixId));
-    if (selectedMatrix?.id === matrixId) setSelectedMatrix(null);
+    try {
+      await sbDeleteMatrix(matrixId);
+      setMatrices((prev) => prev.filter((m) => m.id !== matrixId));
+      if (selectedMatrix?.id === matrixId) setSelectedMatrix(null);
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Erro ao excluir matriz", description: String(err?.message || err), variant: "destructive" });
+    }
     // opcional: remover pasta vazia não é feito automaticamente
   };
 
-  const handleAddEvent = (event: MatrixEvent) => {
+  const handleAddEvent = async (event: MatrixEvent) => {
     if (!selectedMatrix) return;
-
-    setMatrices((prev) =>
-      prev.map((m) =>
-        m.id === selectedMatrix.id
-          ? { ...m, events: [...m.events, event] }
-          : m
-      )
-    );
-
-    setSelectedMatrix((prev) =>
-      prev ? { ...prev, events: [...prev.events, event] } : null
-    );
-
-    toast({
-      title: "Evento adicionado",
-      description: "O evento foi adicionado à matriz com sucesso.",
-    });
+    try {
+      await sbCreateEvent(selectedMatrix.id, event);
+      setMatrices((prev) => prev.map((m) => (m.id === selectedMatrix.id ? { ...m, events: [...m.events, event] } : m)));
+      setSelectedMatrix((prev) => (prev ? { ...prev, events: [...prev.events, event] } : null));
+      toast({ title: "Evento adicionado", description: "O evento foi adicionado à matriz com sucesso." });
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Erro ao adicionar evento", description: String(err?.message || err), variant: "destructive" });
+    }
   };
 
   const handleImport = (importedMatrices: Matrix[]) => {
-    setMatrices(importedMatrices);
-    setSelectedMatrix(null);
+    (async () => {
+      try {
+        const { importMatrices: sbImportMatrices } = await import("@/services/db");
+        const res = await sbImportMatrices(importedMatrices);
+        const [mats, flds] = await Promise.all([sbListMatrices(), sbListFolders()]);
+        setMatrices(mats);
+        setFolders(flds);
+        setSelectedMatrix(null);
+        toast({
+          title: "Importação concluída",
+          description: `${res.matrices} matriz(es) e ${res.events} evento(s) enviados ao banco.`,
+        });
+      } catch (err: any) {
+        console.error(err);
+        toast({ title: "Erro ao importar para o banco", description: String(err?.message || err), variant: "destructive" });
+      }
+    })();
   };
 
   const handleEventClick = (matrixId: string, event: MatrixEvent) => {
@@ -120,23 +166,27 @@ const Index = () => {
     }
   };
 
-  const handleUpdateEvent = (
+  const handleUpdateEvent = async (
     matrixId: string,
     eventId: string,
     updates: Partial<MatrixEvent>
   ) => {
-    setMatrices((prev) =>
-      prev.map((m) =>
-        m.id === matrixId
-          ? {
-              ...m,
-              events: m.events.map((e) =>
-                e.id === eventId ? { ...e, ...updates } : e
-              ),
-            }
-          : m
-      )
-    );
+    try {
+      await sbUpdateEvent(eventId, updates);
+      setMatrices((prev) =>
+        prev.map((m) =>
+          m.id === matrixId
+            ? {
+                ...m,
+                events: m.events.map((e) => (e.id === eventId ? { ...e, ...updates } : e)),
+              }
+            : m
+        )
+      );
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Erro ao atualizar evento", description: String(err?.message || err), variant: "destructive" });
+    }
   };
 
   let filteredMatrices = selectedFolder ? matrices.filter((m) => m.folder === selectedFolder) : matrices;

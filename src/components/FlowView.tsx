@@ -33,7 +33,7 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
   matrices.forEach((matrix) => {
     if (matrix.events.length === 0) return;
     
-    // Add matrix label node
+    // Nó de cabeçalho da matriz
     nodes.push({
       id: `matrix-${matrix.id}`,
       type: "default",
@@ -55,8 +55,13 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
       draggable: false,
     });
     
+    // Ordena eventos por data asc antes de renderizar
+    const eventsSorted = [...matrix.events].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
     // Add event nodes
-    matrix.events.forEach((event, index) => {
+    eventsSorted.forEach((event, index) => {
       const colorMap: Record<string, { border: string; bg: string; text: string }> = {
         "Teste Inicial": { border: "#3b82f6", bg: "#eff6ff", text: "#0f172a" }, // azul
         "Teste Final": { border: "#3b82f6", bg: "#eff6ff", text: "#0f172a" },
@@ -114,8 +119,8 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
       // Add edges between events
       if (index > 0) {
         edges.push({
-          id: `${matrix.events[index - 1].id}-${event.id}`,
-          source: matrix.events[index - 1].id,
+          id: `${eventsSorted[index - 1].id}-${event.id}`,
+          source: eventsSorted[index - 1].id,
           target: event.id,
           animated: true,
           style: { stroke: "hsl(var(--primary))", strokeWidth: 2 },
