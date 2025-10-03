@@ -91,6 +91,69 @@ export function MatrixDashboard({ matrices, staleDaysThreshold = 10 }: MatrixDas
 
     const avgStaleDays = staleCount ? Math.round(avgStale / staleCount) : 0;
 
+    // === Novos Indicadores ===
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const inMonth = (d: Date) => d >= monthStart && d < nextMonthStart;
+
+    const approvalsThisMonth = scoped.reduce((acc, m) => acc + m.events.filter(e => e.type === 'Aprovado' && inMonth(new Date(e.date))).length, 0);
+
+    // Média de tempo de Aprovação (recebimento -> primeira aprovação)
+    let sumApprovalDays = 0, countApproval = 0;
+    // Lead recebimento -> 1º teste
+    let sumRecvToFirstTest = 0, countRecvToFirstTest = 0;
+    // Lead entre Correção Ext. Saída -> Entrada
+    let sumCorrLead = 0, countCorrLead = 0;
+    // Lead entre Limpeza Saída -> Entrada
+    let sumCleanLead = 0, countCleanLead = 0;
+    // Média de testes até aprovação
+    let sumTestsToApproval = 0, countTestsToApproval = 0;
+
+    const daysBetween = (a: Date, b: Date) => Math.max(0, Math.round((b.getTime() - a.getTime()) / 86400000));
+
+    for (const m of scoped) {
+      const received = new Date(m.receivedDate);
+      const testsList = m.events.filter(e => e.type === 'Testes').sort((a, b) => a.date.localeCompare(b.date));
+      const firstTest = testsList[0] ? new Date(testsList[0].date) : null;
+      if (firstTest) { sumRecvToFirstTest += daysBetween(received, firstTest); countRecvToFirstTest += 1; }
+
+      const approvals = m.events.filter(e => e.type === 'Aprovado').sort((a, b) => a.date.localeCompare(b.date));
+      const firstApproval = approvals[0] ? new Date(approvals[0].date) : null;
+      if (firstApproval) { sumApprovalDays += daysBetween(received, firstApproval); countApproval += 1; }
+      if (firstApproval) {
+        // testes até a aprovação (<= data aprovação)
+        const testsUpTo = testsList.filter(e => new Date(e.date) <= firstApproval).length;
+        sumTestsToApproval += testsUpTo;
+        countTestsToApproval += 1;
+      }
+
+      // Pairs Correção Externa (Saída, Entrada) por índice
+      const corrOut = m.events.filter(e => e.type === 'Correção Externa Saída').sort((a, b) => a.date.localeCompare(b.date));
+      const corrIn = m.events.filter(e => e.type === 'Correção Externa Entrada').sort((a, b) => a.date.localeCompare(b.date));
+      const corrPairs = Math.min(corrOut.length, corrIn.length);
+      for (let i = 0; i < corrPairs; i++) {
+        const d1 = new Date(corrOut[i].date);
+        const d2 = new Date(corrIn[i].date);
+        if (d2 >= d1) { sumCorrLead += daysBetween(d1, d2); countCorrLead += 1; }
+      }
+
+      // Pairs Limpeza (Saída, Entrada)
+      const cleanOut = m.events.filter(e => e.type === 'Limpeza Saída').sort((a, b) => a.date.localeCompare(b.date));
+      const cleanIn = m.events.filter(e => e.type === 'Limpeza Entrada').sort((a, b) => a.date.localeCompare(b.date));
+      const cleanPairs = Math.min(cleanOut.length, cleanIn.length);
+      for (let i = 0; i < cleanPairs; i++) {
+        const d1 = new Date(cleanOut[i].date);
+        const d2 = new Date(cleanIn[i].date);
+        if (d2 >= d1) { sumCleanLead += daysBetween(d1, d2); countCleanLead += 1; }
+      }
+    }
+
+    const avgApprovalDays = countApproval ? Math.round(sumApprovalDays / countApproval) : 0;
+    const avgRecvToFirstTest = countRecvToFirstTest ? Math.round(sumRecvToFirstTest / countRecvToFirstTest) : 0;
+    const avgCorrLead = countCorrLead ? Math.round(sumCorrLead / countCorrLead) : 0;
+    const avgCleanLead = countCleanLead ? Math.round(sumCleanLead / countCleanLead) : 0;
+    const avgTestsToApproval = countTestsToApproval ? Number((sumTestsToApproval / countTestsToApproval).toFixed(2)) : 0;
+
     const statusTop = Array.from(byStatus.entries()).sort((a, b) => b[1] - a[1]);
     const folderTop = Array.from(byFolder.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
@@ -104,6 +167,12 @@ export function MatrixDashboard({ matrices, staleDaysThreshold = 10 }: MatrixDas
       tests,
       recent7,
       recent30,
+      approvalsThisMonth,
+      avgApprovalDays,
+      avgRecvToFirstTest,
+      avgCorrLead,
+      avgCleanLead,
+      avgTestsToApproval,
     };
   }, [scoped, staleDaysThreshold]);
 
@@ -158,12 +227,25 @@ export function MatrixDashboard({ matrices, staleDaysThreshold = 10 }: MatrixDas
         <MetricCard title="Matrizes" value={data.total} />
         <MetricCard title={`Paradas > ${staleDaysThreshold}d`} value={data.stalled} />
         <MetricCard title="Média dias desde último evento" value={data.avgStaleDays} />
+        <MetricCard title="Aprovados no mês" value={data.approvalsThisMonth} />
       </div>
 
       {/* Eventos recentes */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         <MetricCard title="Eventos últimos 7 dias" value={data.recent7} />
         <MetricCard title="Eventos últimos 30 dias" value={data.recent30} />
+        <MetricCard title="Média testes até aprovação" value={data.avgTestsToApproval} />
+      </div>
+
+      {/* Leads médios */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <MetricCard title="Média tempo de aprovação (dias)" value={data.avgApprovalDays} />
+        <MetricCard title="Lead: recebimento → 1º teste (dias)" value={data.avgRecvToFirstTest} />
+        <MetricCard title="Lead: Corr. Ext. Saída → Entrada (dias)" value={data.avgCorrLead} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <MetricCard title="Lead: Limpeza Saída → Entrada (dias)" value={data.avgCleanLead} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 flex-1">

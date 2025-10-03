@@ -279,54 +279,68 @@ const Index = () => {
                   onSelectMatrix={(m) => setSelectedMatrix(m)}
                   onSetDate={async (matrixId: string, milestone: SheetMilestone, date: string) => {
                     try {
-                      const eventType = (() => {
-                        switch (milestone) {
-                          case "test1": return "1º teste";
-                          case "test2": return "2º teste";
-                          case "test3": return "3º teste";
-                          case "clean_send1":
-                          case "clean_return1":
-                          case "clean_send2":
-                          case "clean_return2":
-                            return "Limpeza";
-                          case "corr_send1":
-                          case "corr_return1":
-                          case "corr_send2":
-                          case "corr_return2":
-                            return "Correção Externa";
-                          case "approval":
-                            return "Aprovado";
-                          default:
-                            return "Outro";
+                      // Tipos padronizados (novos)
+                      const mapNewType = (m: SheetMilestone): { type: string; comment: string } => {
+                        switch (m) {
+                          case "test1": return { type: "Testes", comment: "1º teste" };
+                          case "test2": return { type: "Testes", comment: "2º teste" };
+                          case "test3": return { type: "Testes", comment: "3º teste" };
+                          case "test4": return { type: "Testes", comment: "4º teste" };
+                          case "test5": return { type: "Testes", comment: "5º teste" };
+                          case "test6": return { type: "Testes", comment: "6º teste" };
+                          case "clean_send1": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 1)" };
+                          case "clean_return1": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 1)" };
+                          case "clean_send2": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 2)" };
+                          case "clean_return2": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 2)" };
+                          case "clean_send3": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 3)" };
+                          case "clean_return3": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 3)" };
+                          case "clean_send4": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 4)" };
+                          case "clean_return4": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 4)" };
+                          case "corr_send1": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 1)" };
+                          case "corr_return1": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 1)" };
+                          case "corr_send2": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 2)" };
+                          case "corr_return2": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 2)" };
+                          case "corr_send3": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 3)" };
+                          case "corr_return3": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 3)" };
+                          case "corr_send4": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 4)" };
+                          case "corr_return4": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 4)" };
+                          case "approval": return { type: "Aprovado", comment: "Aprovação" };
+                          default: return { type: "Outro", comment: "" };
                         }
-                      })();
-                      const comment = (() => {
-                        switch (milestone) {
-                          case "clean_send1": return "Enviada para limpeza (ciclo 1)";
-                          case "clean_return1": return "Retornou da limpeza (ciclo 1)";
-                          case "corr_send1": return "Enviada para correção (ciclo 1)";
-                          case "corr_return1": return "Retornou da correção (ciclo 1)";
-                          case "clean_send2": return "Enviada para limpeza (ciclo 2)";
-                          case "clean_return2": return "Retornou da limpeza (ciclo 2)";
-                          case "corr_send2": return "Enviada para correção (ciclo 2)";
-                          case "corr_return2": return "Retornou da correção (ciclo 2)";
-                          case "test1": return "1º teste";
-                          case "test2": return "2º teste";
-                          case "test3": return "3º teste";
-                          case "approval": return "Aprovação";
-                          default: return "";
-                        }
-                      })();
-                      const newEvent: MatrixEvent = { id: crypto.randomUUID(), date, type: eventType, comment };
+                      };
+                      const mapped = mapNewType(milestone);
+                      const newEvent: MatrixEvent = { id: crypto.randomUUID(), date, type: mapped.type, comment: mapped.comment };
                       await sbCreateEvent(matrixId, newEvent);
                       setMatrices((prev) => prev.map((m) => (m.id === matrixId ? { ...m, events: [...m.events, newEvent] } : m)));
                       if (selectedMatrix?.id === matrixId) {
                         setSelectedMatrix((prev) => (prev ? { ...prev, events: [...prev.events, newEvent] } : prev));
                       }
-                      toast({ title: "Data registrada", description: `${eventType} em ${new Date(date).toLocaleDateString("pt-BR")}` });
+                      toast({ title: "Data registrada", description: `${mapped.comment || mapped.type} em ${new Date(date).toLocaleDateString("pt-BR")}` });
                     } catch (err: any) {
                       console.error(err);
                       toast({ title: "Erro ao registrar data", description: String(err?.message || err), variant: "destructive" });
+                    }
+                  }}
+                  onDeleteDate={async (matrixId: string, milestone: SheetMilestone) => {
+                    try {
+                      const index = milestone === 'test4' ? 3 : milestone === 'test5' ? 4 : milestone === 'test6' ? 5 : -1;
+                      if (index < 0) return;
+                      const matrix = matrices.find((m) => m.id === matrixId);
+                      if (!matrix) return;
+                      const tests = [...matrix.events]
+                        .filter((e) => e.type === 'Testes' || /Teste/i.test(e.type))
+                        .sort((a, b) => a.date.localeCompare(b.date));
+                      const toDelete = tests[index];
+                      if (!toDelete) return;
+                      await sbDeleteEvent(toDelete.id);
+                      setMatrices((prev) => prev.map((m) => (m.id === matrixId ? { ...m, events: m.events.filter((e) => e.id !== toDelete.id) } : m)));
+                      if (selectedMatrix?.id === matrixId) {
+                        setSelectedMatrix((prev) => (prev ? { ...prev, events: prev.events.filter((e) => e.id !== toDelete.id) } : prev));
+                      }
+                      toast({ title: 'Teste removido', description: `Teste ${index + 1} apagado` });
+                    } catch (err: any) {
+                      console.error(err);
+                      toast({ title: 'Erro ao remover teste', description: String(err?.message || err), variant: 'destructive' });
                     }
                   }}
                 />

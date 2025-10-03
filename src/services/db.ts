@@ -9,6 +9,47 @@ const table = {
   event_files: 'event_files',
 } as const;
 
+// ===============
+// AUDITORIA (LOG)
+// ===============
+type AuditPayload = Record<string, any> | null | undefined;
+
+export async function logAudit(action: string, entityType: string, entityId?: string | null, payload?: AuditPayload) {
+  const row = {
+    action,
+    entity_type: entityType,
+    entity_id: entityId ?? null,
+    payload: payload ? payload : null,
+  } as any;
+  // Tenta gravar no Supabase
+  const { error } = await supabase.from('audit_logs').insert(row);
+  if (error) {
+    // Fallback: localStorage
+    try {
+      const key = 'audit_logs_local';
+      const arr = JSON.parse(localStorage.getItem(key) || '[]');
+      arr.push({ id: crypto.randomUUID?.() || Date.now().toString(), created_at: new Date().toISOString(), ...row });
+      localStorage.setItem(key, JSON.stringify(arr));
+    } catch (_) {
+      // ignore
+    }
+  }
+}
+
+export async function getAuditLogs(): Promise<Array<{ id: string; created_at: string; action: string; entity_type: string; entity_id: string | null; payload: any }>> {
+  // Busca do Supabase, com fallback para localStorage
+  const res = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false });
+  let remote: any[] = [];
+  if (!res.error && Array.isArray(res.data)) remote = res.data;
+  let local: any[] = [];
+  try {
+    local = JSON.parse(localStorage.getItem('audit_logs_local') || '[]');
+  } catch (_) {
+    local = [];
+  }
+  return [...remote, ...local];
+}
+
 // FOLDERS
 export async function listFolders(): Promise<string[]> {
   const { data, error } = await supabase.from(table.folders).select('name').order('name');
@@ -25,11 +66,13 @@ export async function listFoldersWithIds(): Promise<Array<{ id: string; name: st
 export async function createFolder(name: string): Promise<void> {
   const { error } = await supabase.from(table.folders).upsert({ name });
   if (error) throw error;
+  await logAudit('folder.create', 'Folder', null, { name });
 }
 
 export async function deleteFolderByName(name: string): Promise<void> {
   const { error } = await supabase.from(table.folders).delete().eq('name', name);
   if (error) throw error;
+  await logAudit('folder.delete', 'Folder', null, { name });
 }
 
 export async function getFolderIdByName(name: string): Promise<string> {
@@ -42,6 +85,7 @@ export async function getFolderIdByName(name: string): Promise<string> {
   // cria
   const ins = await supabase.from(table.folders).insert({ name: trimmed }).select('id').single();
   if (ins.error) throw ins.error;
+  await logAudit('folder.create', 'Folder', ins.data!.id as string, { name: trimmed });
   return ins.data!.id as string;
 }
 
@@ -98,7 +142,9 @@ export async function createMatrix(data: { code: string; receivedDate: string; f
   };
   const { data: res, error } = await supabase.from(table.matrices).insert(payload).select('id').single();
   if (error) throw error;
-  return res!.id as string;
+  const newId = res!.id as string;
+  await logAudit('matrix.create', 'Matrix', newId, payload);
+  return newId;
 }
 
 export async function updateMatrix(id: string, patch: Partial<{ receivedDate: string; folderId: string | null; priority: string | null; responsible: string | null; }>): Promise<void> {
@@ -109,11 +155,13 @@ export async function updateMatrix(id: string, patch: Partial<{ receivedDate: st
   if (patch.responsible !== undefined) payload.responsible = patch.responsible;
   const { error } = await supabase.from(table.matrices).update(payload).eq('id', id);
   if (error) throw error;
+  await logAudit('matrix.update', 'Matrix', id, payload);
 }
 
 export async function deleteMatrix(id: string): Promise<void> {
   const { error } = await supabase.from(table.matrices).delete().eq('id', id);
   if (error) throw error;
+  await logAudit('matrix.delete', 'Matrix', id, null);
 }
 
 // EVENTS
@@ -129,6 +177,7 @@ export async function createEvent(matrixId: string, e: MatrixEvent): Promise<voi
   };
   const { error } = await supabase.from(table.events).insert(payload);
   if (error) throw error;
+  await logAudit('event.create', 'Event', e.id, { matrix_id: matrixId, ...payload });
 }
 
 export async function updateEvent(eventId: string, patch: Partial<MatrixEvent>): Promise<void> {
@@ -140,11 +189,13 @@ export async function updateEvent(eventId: string, patch: Partial<MatrixEvent>):
   if (patch.responsible !== undefined) payload.responsible = patch.responsible;
   const { error } = await supabase.from(table.events).update(payload).eq('id', eventId);
   if (error) throw error;
+  await logAudit('event.update', 'Event', eventId, payload);
 }
 
 export async function deleteEvent(eventId: string): Promise<void> {
   const { error } = await supabase.from(table.events).delete().eq('id', eventId);
   if (error) throw error;
+  await logAudit('event.delete', 'Event', eventId, null);
 }
 
 // EVENT FILES (somente metadados; upload real vai no Storage)
@@ -219,5 +270,6 @@ export async function importMatrices(matrices: Matrix[]): Promise<{ folders: num
     }
   }
 
+  await logAudit('import', 'Import', null, { counts: { folders: folderNames.length, matrices: matricesInserted, events: eventsInserted } });
   return { folders: folderNames.length, matrices: matricesInserted, events: eventsInserted };
 }

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, Upload } from "lucide-react";
@@ -7,6 +7,9 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { getStatusFromLastEvent, daysSinceLastEvent, getCounts, computeDurations } from "@/utils/metrics";
 import { v4 as uuidv4 } from "uuid";
+import { getAuditLogs } from "@/services/db";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 interface ImportExportProps {
   matrices: Matrix[];
@@ -16,6 +19,25 @@ interface ImportExportProps {
 export const ImportExport = ({ matrices, onImport }: ImportExportProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
+  const [period, setPeriod] = useState<string>("last30");
+  const [entityType, setEntityType] = useState<string>("__all__");
+  const [q, setQ] = useState<string>("");
+  const [viewer, setViewer] = useState<{ open: boolean; rows: any[] }>({ open: false, rows: [] });
+
+  const computeRangeByPreset = () => {
+    if (period === "custom") return { from, to };
+    const today = new Date();
+    const end = today.toISOString().split("T")[0];
+    const startDate = new Date(today);
+    if (period === "last7") startDate.setDate(today.getDate() - 7);
+    else if (period === "last30") startDate.setDate(today.getDate() - 30);
+    else if (period === "last90") startDate.setDate(today.getDate() - 90);
+    else if (period === "thisMonth") { startDate.setDate(1); }
+    const start = startDate.toISOString().split("T")[0];
+    return { from: start, to: end };
+  };
 
   const handleExportExcel = () => {
     // Sheet: Matrizes
@@ -211,7 +233,151 @@ export const ImportExport = ({ matrices, onImport }: ImportExportProps) => {
         <p className="text-xs text-muted-foreground mt-2">
           Exporte para Excel ou importe uma planilha no padrão exportado. Datas no Excel ficam no formato PT-BR (DD/MM/AAAA).
         </p>
+
+        {/* Relatório de Log */}
+        <div className="pt-4 border-t mt-4">
+          <h3 className="font-semibold mb-2">Relatório de Log</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="w-44">
+              <label className="text-xs text-muted-foreground">Período</label>
+              <Select value={period} onValueChange={setPeriod}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="last7">Últimos 7 dias</SelectItem>
+                  <SelectItem value="last30">Últimos 30 dias</SelectItem>
+                  <SelectItem value="last90">Últimos 90 dias</SelectItem>
+                  <SelectItem value="thisMonth">Este mês</SelectItem>
+                  <SelectItem value="custom">Personalizado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">De</label>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border rounded h-8 px-2" disabled={period !== 'custom'} />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Até</label>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border rounded h-8 px-2" disabled={period !== 'custom'} />
+            </div>
+            <div className="w-44">
+              <label className="text-xs text-muted-foreground">Tipo</label>
+              <Select value={entityType} onValueChange={setEntityType}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Todos</SelectItem>
+                  <SelectItem value="Matrix">Matrix</SelectItem>
+                  <SelectItem value="Event">Event</SelectItem>
+                  <SelectItem value="Folder">Folder</SelectItem>
+                  <SelectItem value="Import">Import</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-1 min-w-[180px]">
+              <label className="text-xs text-muted-foreground">Buscar (ID ou texto)</label>
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procurar..." className="border rounded h-8 px-2 w-full" />
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  try {
+                    const logs = await getAuditLogs();
+                    const range = computeRangeByPreset();
+                    const f = range.from ? new Date(range.from) : null;
+                    const t = range.to ? new Date(range.to) : null;
+                    const filtered = logs.filter((r) => {
+                      const d = new Date(r.created_at);
+                      const typeOk = entityType === '__all__' ? true : r.entity_type === entityType;
+                      const text = (r.entity_id || '') + ' ' + JSON.stringify(r.payload || {});
+                      const qOk = q.trim() ? text.toLowerCase().includes(q.trim().toLowerCase()) : true;
+                      return (!f || d >= f) && (!t || d <= t) && typeOk && qOk;
+                    });
+                    setViewer({ open: true, rows: filtered.slice(0, 200) });
+                  } catch (err: any) {
+                    toast({ title: 'Erro ao carregar log', description: String(err?.message || err), variant: 'destructive' });
+                  }
+                }}
+              >
+                Visualizar
+              </Button>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const logs = await getAuditLogs();
+                    const range = computeRangeByPreset();
+                    const f = range.from ? new Date(range.from) : null;
+                    const t = range.to ? new Date(range.to) : null;
+                    const filtered = logs.filter((r) => {
+                      const d = new Date(r.created_at);
+                      const typeOk = entityType === '__all__' ? true : r.entity_type === entityType;
+                      const text = (r.entity_id || '') + ' ' + JSON.stringify(r.payload || {});
+                      const qOk = q.trim() ? text.toLowerCase().includes(q.trim().toLowerCase()) : true;
+                      return (!f || d >= f) && (!t || d <= t) && typeOk && qOk;
+                    });
+                    const header = ["id","created_at","action","entity_type","entity_id","payload"];
+                    const rows = filtered.map((r) => [
+                      r.id,
+                      new Date(r.created_at).toLocaleString("pt-BR"),
+                      r.action,
+                      r.entity_type,
+                      r.entity_id ?? "",
+                      JSON.stringify(r.payload ?? {}),
+                    ]);
+                    const csv = [header, ...rows]
+                      .map((arr) => arr.map((v) => `"${String(v).replace(/\"/g,'""')}"`).join(";")).join("\n");
+                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `audit_log_${new Date().toISOString().split("T")[0]}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast({ title: "Relatório de log gerado", description: `${filtered.length} registro(s).` });
+                  } catch (err: any) {
+                    console.error(err);
+                    toast({ title: "Erro ao gerar log", description: String(err?.message || err), variant: "destructive" });
+                  }
+                }}
+              >
+                Exportar Log (.csv)
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">O log registra inclusões, atualizações, deleções, importações e movimentações de pasta.</p>
+        </div>
       </CardContent>
+
+      <Dialog open={viewer.open} onOpenChange={(open) => setViewer((v) => ({ ...v, open }))}>
+        <DialogContent className="sm:max-w-3xl">
+          <div className="max-h-[60vh] overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left">
+                  <th className="py-1 px-2">Data</th>
+                  <th className="py-1 px-2">Ação</th>
+                  <th className="py-1 px-2">Tipo</th>
+                  <th className="py-1 px-2">Entidade</th>
+                  <th className="py-1 px-2">Detalhes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {viewer.rows.map((r, i) => (
+                  <tr key={r.id || i} className="border-t">
+                    <td className="py-1 px-2 whitespace-nowrap">{new Date(r.created_at).toLocaleString('pt-BR')}</td>
+                    <td className="py-1 px-2">{r.action}</td>
+                    <td className="py-1 px-2">{r.entity_type}</td>
+                    <td className="py-1 px-2">{r.entity_id || '-'}</td>
+                    <td className="py-1 px-2 truncate max-w-[380px]" title={JSON.stringify(r.payload || {})}>
+                      {JSON.stringify(r.payload || {})}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };
