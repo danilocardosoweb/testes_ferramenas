@@ -54,6 +54,21 @@
 - `src/components/MatrixSidebar.tsx`: exibe status atual, prioridade e indicadores.
 - `src/pages/NotFound.tsx`: traduzido para PT-BR.
 
+## Nova Aba: Ferramentas Aprovadas
+- Local: `src/pages/Index.tsx` (estado `mainView` = "approved").
+- Componente: `src/components/ApprovedToolsView.tsx`.
+- Regra de exibição:
+  - Lista todas as matrizes que possuam ao menos um evento cujo `type` contenha "aprov" (ex.: "Aprovado", "Aprovação").
+  - A data considerada é a primeira data de aprovação (cronologicamente) encontrada nos eventos da matriz.
+  - Agrupamento visual: Ano > Mês (com nome do mês em PT-BR), contendo as ferramentas aprovadas naquele período.
+  - Ordenação dentro de cada mês pela data de aprovação crescente.
+  - Formatação de datas em PT-BR.
+
+## Dashboard - Novos Indicadores
+- Lead de aprovação por pasta (dias): média de `recebimento → 1ª aprovação` por pasta.
+- Distribuição de aprovações por número de testes (geral): contagem de matrizes aprovadas com 1, 2, 3 e >4 testes até a 1ª aprovação.
+- Distribuição por pasta: tabela com as mesmas colunas (1, 2, 3, >4, Total) agregadas por pasta.
+
 ## Decisões e Próximos Passos
 - Manter LocalStorage nesta fase. Quando houver backend/BD, criar `database_schema.md` e `database_schema.sql` com migrações e rollback.
 - Iteração 2 (planejada):

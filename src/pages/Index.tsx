@@ -17,6 +17,7 @@ import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 import { MatrixSidebar } from "@/components/MatrixSidebar";
 import { FlowView } from "@/components/FlowView";
 import { MatrixDashboard } from "@/components/MatrixDashboard";
+import { ApprovedToolsView } from "@/components/ApprovedToolsView";
 import { MatrixSheet, SheetMilestone } from "@/components/MatrixSheet";
 import { ChevronRight } from "lucide-react";
 import { MatrixForm } from "@/components/MatrixForm";
@@ -39,7 +40,7 @@ const Index = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
-  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard">("timeline");
+  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard" | "approved">("timeline");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const STALE_DAYS = 10;
   const [eventDetailDialog, setEventDetailDialog] = useState<{
@@ -194,17 +195,25 @@ const Index = () => {
     }
   };
 
-  let filteredMatrices = selectedFolder ? matrices.filter((m) => m.folder === selectedFolder) : matrices;
+  // Lista base conforme filtros globais (pasta, busca, status, estagnação)
+  let baseFiltered = selectedFolder ? matrices.filter((m) => m.folder === selectedFolder) : matrices;
   if (searchTerm.trim()) {
     const term = searchTerm.trim().toLowerCase();
-    filteredMatrices = filteredMatrices.filter((m) => m.code.toLowerCase().includes(term));
+    baseFiltered = baseFiltered.filter((m) => m.code.toLowerCase().includes(term));
   }
   if (statusFilter) {
-    filteredMatrices = filteredMatrices.filter((m) => getStatusFromLastEvent(m) === statusFilter);
+    baseFiltered = baseFiltered.filter((m) => getStatusFromLastEvent(m) === statusFilter);
   }
   if (staleOnly) {
-    filteredMatrices = filteredMatrices.filter((m) => daysSinceLastEvent(m) > STALE_DAYS);
+    baseFiltered = baseFiltered.filter((m) => daysSinceLastEvent(m) > STALE_DAYS);
   }
+
+  const hasApproval = (m: Matrix) => m.events?.some((e) => e.type.toLowerCase().includes("aprov")) ?? false;
+  // Sidebar: sempre sem aprovadas (menu)
+  const sidebarMatrices = baseFiltered.filter((m) => !hasApproval(m));
+  // Main: sem aprovadas apenas para timeline/planilha; dashboard e approved mostram todas conforme a aba
+  const hideApprovedInMain = mainView === "timeline" || mainView === "sheet";
+  const mainMatrices = hideApprovedInMain ? baseFiltered.filter((m) => !hasApproval(m)) : baseFiltered;
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
@@ -212,7 +221,7 @@ const Index = () => {
       {!sidebarCollapsed ? (
         <div className="w-80 flex-shrink-0">
           <MatrixSidebar
-          matrices={filteredMatrices}
+          matrices={sidebarMatrices}
           selectedMatrix={selectedMatrix}
           onSelectMatrix={setSelectedMatrix}
           onNewMatrix={() => setShowNewMatrixForm(true)}
@@ -263,19 +272,23 @@ const Index = () => {
               className={`px-3 py-1 rounded ${mainView === "dashboard" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("dashboard")}
             >Dashboard</button>
-            <div className="ml-auto text-sm text-muted-foreground">{filteredMatrices.length} matriz(es)</div>
+            <button
+              className={`px-3 py-1 rounded ${mainView === "approved" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => setMainView("approved")}
+            >Ferramentas Aprovadas</button>
+            <div className="ml-auto text-sm text-muted-foreground">{mainMatrices.length} matriz(es)</div>
           </div>
           <div className={`flex-1 ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
             {mainView === "timeline" ? (
               <FlowView
-                matrices={filteredMatrices}
+                matrices={mainMatrices}
                 onEventClick={handleEventClick}
                 onBlankClick={() => setSelectedMatrix(null)}
               />
             ) : mainView === "sheet" ? (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
                 <MatrixSheet
-                  matrices={filteredMatrices}
+                  matrices={mainMatrices}
                   onSelectMatrix={(m) => setSelectedMatrix(m)}
                   onSetDate={async (matrixId: string, milestone: SheetMilestone, date: string) => {
                     try {
@@ -345,9 +358,13 @@ const Index = () => {
                   }}
                 />
               </div>
+            ) : mainView === "dashboard" ? (
+              <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
+                <MatrixDashboard matrices={mainMatrices} staleDaysThreshold={STALE_DAYS} />
+              </div>
             ) : (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
-                <MatrixDashboard matrices={filteredMatrices} staleDaysThreshold={STALE_DAYS} />
+                <ApprovedToolsView matrices={mainMatrices} />
               </div>
             )}
           </div>
