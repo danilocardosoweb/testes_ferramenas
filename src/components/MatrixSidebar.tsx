@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, FileText, CheckCircle2, XCircle, Wrench, ChevronRight, ChevronDown } from "lucide-react";
+import { Plus, FileText, CheckCircle2, XCircle, Wrench, ChevronRight, ChevronDown, ChevronLeft, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -74,6 +74,7 @@ interface MatrixSidebarProps {
   viewMode?: "flat" | "folders";
   onViewModeChange?: (mode: "flat" | "folders") => void;
   onDeleteMatrix?: (matrixId: string) => void;
+  onCollapse?: () => void;
 }
 
 export const MatrixSidebar = ({
@@ -96,27 +97,55 @@ export const MatrixSidebar = ({
   viewMode = "flat",
   onViewModeChange,
   onDeleteMatrix,
+  onCollapse,
 }: MatrixSidebarProps) => {
   // controle de expansão por card (default recolhido)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  // recolher controles (filtros + ações), mantendo a lista
+  const [controlsCollapsed, setControlsCollapsed] = useState(true);
 
   return (
     <div className="h-full flex flex-col bg-sidebar border-r border-sidebar-border">
       <div className="p-4 border-b border-sidebar-border">
-        <h1 className="text-xl font-bold text-sidebar-foreground mb-4">
-          Controle de Matrizes
-        </h1>
-        <Button
-          onClick={onNewMatrix}
-          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Nova Matriz
-        </Button>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-xl font-bold text-sidebar-foreground">
+            Controle de Matrizes
+          </h1>
+          {onCollapse && (
+            <button
+              type="button"
+              className="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-sidebar-accent/40 text-sidebar-foreground"
+              title="Recolher menu"
+              aria-label="Recolher menu"
+              onClick={onCollapse}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center justify-between mb-2">
+          <Button
+            onClick={onNewMatrix}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground h-8 px-3"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Nova Matriz
+          </Button>
+          <button
+            type="button"
+            className="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-sidebar-accent/40 text-sidebar-foreground"
+            title={controlsCollapsed ? "Expandir controles" : "Recolher controles"}
+            aria-label={controlsCollapsed ? "Expandir controles" : "Recolher controles"}
+            onClick={() => setControlsCollapsed((v) => !v)}
+          >
+            {controlsCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+          </button>
+        </div>
         {/* Visualização e Pastas */}
-        <div className="mt-4 space-y-2">
+        {!controlsCollapsed && (
+        <div className="mt-2 space-y-2">
           {/* Modo de visualização */}
           <div className="flex items-center gap-2">
             <Button
@@ -190,6 +219,7 @@ export const MatrixSidebar = ({
             </div>
           </div>
         </div>
+        )}
       </div>
 
       <ScrollArea className="flex-1 p-4">

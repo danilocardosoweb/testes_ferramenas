@@ -16,7 +16,9 @@ import {
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 import { MatrixSidebar } from "@/components/MatrixSidebar";
 import { FlowView } from "@/components/FlowView";
+import { MatrixDashboard } from "@/components/MatrixDashboard";
 import { MatrixSheet, SheetMilestone } from "@/components/MatrixSheet";
+import { ChevronRight } from "lucide-react";
 import { MatrixForm } from "@/components/MatrixForm";
 import { EventForm } from "@/components/EventForm";
 import { ImportExport } from "@/components/ImportExport";
@@ -37,7 +39,8 @@ const Index = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
-  const [mainView, setMainView] = useState<"timeline" | "sheet">("timeline");
+  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard">("timeline");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const STALE_DAYS = 10;
   const [eventDetailDialog, setEventDetailDialog] = useState<{
     open: boolean;
@@ -206,8 +209,9 @@ const Index = () => {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
       {/* Sidebar */}
-      <div className="w-80 flex-shrink-0">
-        <MatrixSidebar
+      {!sidebarCollapsed ? (
+        <div className="w-80 flex-shrink-0">
+          <MatrixSidebar
           matrices={filteredMatrices}
           selectedMatrix={selectedMatrix}
           onSelectMatrix={setSelectedMatrix}
@@ -227,8 +231,20 @@ const Index = () => {
           staleOnly={staleOnly}
           onToggleStaleOnly={() => setStaleOnly((v) => !v)}
           staleDaysThreshold={STALE_DAYS}
-        />
-      </div>
+          onCollapse={() => setSidebarCollapsed(true)}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="fixed left-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-background/90 border shadow hover:bg-background"
+          onClick={() => setSidebarCollapsed(false)}
+          title="Expandir menu"
+          aria-label="Expandir menu"
+        >
+          <ChevronRight className="mx-auto" />
+        </button>
+      )}
 
       {/* Main Content */}
       <div className={`flex-1 flex ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
@@ -243,6 +259,10 @@ const Index = () => {
               className={`px-3 py-1 rounded ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("sheet")}
             >Planilha</button>
+            <button
+              className={`px-3 py-1 rounded ${mainView === "dashboard" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => setMainView("dashboard")}
+            >Dashboard</button>
             <div className="ml-auto text-sm text-muted-foreground">{filteredMatrices.length} matriz(es)</div>
           </div>
           <div className={`flex-1 ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
@@ -252,7 +272,7 @@ const Index = () => {
                 onEventClick={handleEventClick}
                 onBlankClick={() => setSelectedMatrix(null)}
               />
-            ) : (
+            ) : mainView === "sheet" ? (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
                 <MatrixSheet
                   matrices={filteredMatrices}
@@ -310,6 +330,10 @@ const Index = () => {
                     }
                   }}
                 />
+              </div>
+            ) : (
+              <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
+                <MatrixDashboard matrices={filteredMatrices} staleDaysThreshold={STALE_DAYS} />
               </div>
             )}
           </div>
