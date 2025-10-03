@@ -276,13 +276,13 @@ export const MatrixSidebar = ({
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-start justify-between gap-2">
                                       <div className="min-w-0">
-                                        <p className="font-semibold text-sidebar-accent-foreground break-words">
+                                        <div className="font-semibold text-sidebar-accent-foreground break-words">
                                           {matrix.code}
                                           <PriorityBadge level={matrix.priority} />
-                                        </p>
-                                        <p className="text-xs text-sidebar-foreground/70 break-words">
+                                        </div>
+                                        <div className="text-xs text-sidebar-foreground/70 break-words">
                                           Receb.: {new Date(matrix.receivedDate).toLocaleDateString("pt-BR")} • Último: {matrix.events.length > 0 ? new Date(matrix.events[matrix.events.length - 1].date).toLocaleDateString("pt-BR") : "-"}
-                                        </p>
+                                        </div>
                                       </div>
                                       <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
@@ -340,13 +340,13 @@ export const MatrixSidebar = ({
                         {/* Cabeçalho compacto */}
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="font-semibold text-sidebar-accent-foreground break-words">
+                            <div className="font-semibold text-sidebar-accent-foreground break-words">
                               {matrix.code}
                               <PriorityBadge level={matrix.priority} />
-                            </p>
-                            <p className="text-xs text-sidebar-foreground/70 break-words">
+                            </div>
+                            <div className="text-xs text-sidebar-foreground/70 break-words">
                               Receb.: {new Date(matrix.receivedDate).toLocaleDateString("pt-BR")} • Último: {matrix.events.length > 0 ? new Date(matrix.events[matrix.events.length - 1].date).toLocaleDateString("pt-BR") : "-"}
-                            </p>
+                            </div>
                           </div>
                           <div className="flex items-center gap-1">
                             <DropdownMenu>

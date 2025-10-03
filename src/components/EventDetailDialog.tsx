@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Matrix, MatrixEvent } from "@/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -24,10 +24,39 @@ export const EventDetailDialog = ({
   onUpdateEvent,
 }: EventDetailDialogProps) => {
   const [observations, setObservations] = useState(event?.observations || "");
-  const [images, setImages] = useState<string[]>(event?.images || []);
+  const [images, setImages] = useState<string[]>(Array.isArray(event?.images) ? [...(event!.images!)] : []);
   const [responsible, setResponsible] = useState(event?.responsible || "");
-  const [files, setFiles] = useState<{ name: string; type: string; dataUrl: string }[]>(event?.files || []);
+  const [files, setFiles] = useState<{ name: string; type: string; dataUrl: string }[]>(Array.isArray(event?.files) ? [...(event!.files!)] : []);
   const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+
+  // Sempre que abrir o diálogo ou mudar o evento, sincroniza os estados locais.
+  useEffect(() => {
+    if (!open || !event) return;
+    setObservations(event.observations || "");
+    setResponsible(event.responsible || "");
+    setImages(Array.isArray(event.images) ? [...event.images] : []);
+    setFiles(Array.isArray(event.files) ? [...event.files] : []);
+  }, [open, event?.id]);
+
+  // Ao fechar, evita que o próximo evento herde valores do anterior
+  useEffect(() => {
+    if (open) return;
+    setObservations("");
+    setResponsible("");
+    setImages([]);
+    setFiles([]);
+  }, [open]);
+
+  const savePartial = async (patch: Partial<MatrixEvent>) => {
+    if (!matrix || !event) return;
+    try {
+      setSaving(true);
+      await onUpdateEvent(matrix.id, event.id, patch);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -112,6 +141,7 @@ export const EventDetailDialog = ({
               id="responsible"
               value={responsible}
               onChange={(e) => setResponsible(e.target.value)}
+              onBlur={() => savePartial({ responsible: responsible.trim() || undefined })}
               placeholder="Operador/Responsável pelo evento"
               className="mt-2"
             />
@@ -123,6 +153,7 @@ export const EventDetailDialog = ({
               id="observations"
               value={observations}
               onChange={(e) => setObservations(e.target.value)}
+              onBlur={() => savePartial({ observations })}
               placeholder="Adicione observações detalhadas sobre este evento..."
               className="mt-2 min-h-[120px]"
             />
@@ -216,8 +247,9 @@ export const EventDetailDialog = ({
             </div>
           </div>
 
-          <div className="flex gap-2 pt-4">
-            <Button onClick={handleSave} className="flex-1">
+          <div className="flex items-center gap-2 pt-4">
+            {saving && <span className="text-xs text-muted-foreground">Salvando...</span>}
+            <Button onClick={handleSave} className="flex-1" disabled={saving}>
               Salvar
             </Button>
             <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">

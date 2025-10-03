@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Matrix, MatrixEvent } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 
 export type SheetMilestone =
@@ -38,37 +39,58 @@ interface MatrixSheetProps {
 
 export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate }: MatrixSheetProps) {
   const [filter, setFilter] = useState("");
+  const [folder, setFolder] = useState<string>("__all__");
   const [showCycles, setShowCycles] = useState(false); // recolher/expandir colunas entre teste e correção ext. entrada
   const sorted = useMemo(() => [...matrices].sort((a, b) => a.code.localeCompare(b.code, "pt-BR")), [matrices]);
+  const folders = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of matrices) set.add(m.folder || "(Sem pasta)");
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [matrices]);
   const filtered = useMemo(() => {
     const term = filter.trim().toLowerCase();
-    if (!term) return sorted;
-    return sorted.filter((m) => m.code.toLowerCase().includes(term));
-  }, [sorted, filter]);
+    return sorted.filter((m) => {
+      const codeOk = term ? m.code.toLowerCase().includes(term) : true;
+      const fName = m.folder || "(Sem pasta)";
+      const folderOk = folder === "__all__" ? true : fName === folder;
+      return codeOk && folderOk;
+    });
+  }, [sorted, filter, folder]);
 
   return (
     <Card className="h-full" onClick={(e) => e.stopPropagation()}>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle>Planilha de Datas dos Eventos</CardTitle>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={`h-8 px-3 rounded border text-sm ${showCycles ? "bg-primary text-primary-foreground border-primary" : "bg-background"}`}
-              onClick={() => setShowCycles((v) => !v)}
-              title={showCycles ? "Recolher colunas de ciclos" : "Expandir colunas de ciclos"}
-            >
-              {showCycles ? "Esconder ciclos" : "Mostrar ciclos"}
-            </button>
-          </div>
         </div>
-        <div className="max-w-sm mt-2">
-          <Input
-            placeholder="Filtrar por código (ex.: TP-8215/004)"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="h-8"
-          />
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <div className="max-w-sm w-64 min-w-[220px]">
+            <Input
+              placeholder="Filtrar por código (ex.: TP-8215/004)"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="h-8"
+            />
+          </div>
+          <div className="w-60 min-w-[200px]">
+            <Select value={folder} onValueChange={setFolder}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Pasta" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todas as pastas</SelectItem>
+                {folders.map((f) => (
+                  <SelectItem key={f} value={f}>{f}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <button
+            type="button"
+            className={`h-8 px-3 rounded border text-sm ${showCycles ? "bg-primary text-primary-foreground border-primary" : "bg-background"}`}
+            onClick={() => setShowCycles((v) => !v)}
+            title={showCycles ? "Recolher colunas de ciclos" : "Expandir colunas de ciclos"}
+          >
+            {showCycles ? "Esconder ciclos" : "Mostrar ciclos"}
+          </button>
         </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">

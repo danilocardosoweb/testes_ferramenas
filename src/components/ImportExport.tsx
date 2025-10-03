@@ -9,7 +9,7 @@ import { getStatusFromLastEvent, daysSinceLastEvent, getCounts, computeDurations
 import { v4 as uuidv4 } from "uuid";
 import { getAuditLogs } from "@/services/db";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 interface ImportExportProps {
   matrices: Matrix[];
@@ -276,7 +276,7 @@ export const ImportExport = ({ matrices, onImport }: ImportExportProps) => {
               <label className="text-xs text-muted-foreground">Buscar (ID ou texto)</label>
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procurar..." className="border rounded h-8 px-2 w-full" />
             </div>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-2 flex-wrap justify-end w-full">
               <Button
                 variant="secondary"
                 onClick={async () => {
@@ -297,8 +297,45 @@ export const ImportExport = ({ matrices, onImport }: ImportExportProps) => {
                     toast({ title: 'Erro ao carregar log', description: String(err?.message || err), variant: 'destructive' });
                   }
                 }}
+                className="h-8 w-full sm:w-auto"
               >
                 Visualizar
+              </Button>
+              <Button
+                onClick={async () => {
+                  try {
+                    const logs = await getAuditLogs();
+                    const range = computeRangeByPreset();
+                    const f = range.from ? new Date(range.from) : null;
+                    const t = range.to ? new Date(range.to) : null;
+                    const filtered = logs.filter((r) => {
+                      const d = new Date(r.created_at);
+                      const typeOk = entityType === '__all__' ? true : r.entity_type === entityType;
+                      const text = (r.entity_id || '') + ' ' + JSON.stringify(r.payload || {});
+                      const qOk = q.trim() ? text.toLowerCase().includes(q.trim().toLowerCase()) : true;
+                      return (!f || d >= f) && (!t || d <= t) && typeOk && qOk;
+                    });
+                    const rows = filtered.map((r) => ({
+                      id: r.id,
+                      data: new Date(r.created_at).toLocaleString('pt-BR'),
+                      acao: r.action,
+                      tipo: r.entity_type,
+                      entidade: r.entity_id ?? '',
+                      detalhes: JSON.stringify(r.payload ?? {}),
+                    }));
+                    const wb = XLSX.utils.book_new();
+                    const ws = XLSX.utils.json_to_sheet(rows);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Audit Log');
+                    XLSX.writeFile(wb, `audit_log_${new Date().toISOString().split('T')[0]}.xlsx`);
+                    toast({ title: 'Relatório de log (Excel)', description: `${rows.length} registro(s).` });
+                  } catch (err: any) {
+                    console.error(err);
+                    toast({ title: 'Erro ao gerar Excel', description: String(err?.message || err), variant: 'destructive' });
+                  }
+                }}
+                className="h-8 w-full sm:w-auto"
+              >
+                Exportar Log (.xlsx)
               </Button>
               <Button
                 variant="outline"
@@ -339,8 +376,26 @@ export const ImportExport = ({ matrices, onImport }: ImportExportProps) => {
                     toast({ title: "Erro ao gerar log", description: String(err?.message || err), variant: "destructive" });
                   }
                 }}
+                className="h-8 w-full sm:w-auto"
               >
                 Exportar Log (.csv)
+              </Button>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const logs = await getAuditLogs();
+                    // Mostra últimos 10 no console para diagnóstico
+                    const latest = logs.slice(0, 10);
+                    console.table(latest.map(r => ({ id: r.id, created_at: r.created_at, action: r.action, entity_type: r.entity_type, entity_id: r.entity_id })));
+                    toast({ title: 'Diagnóstico', description: `Últimos ${latest.length} registros impressos no console.` });
+                  } catch (err: any) {
+                    toast({ title: 'Erro no diagnóstico', description: String(err?.message || err), variant: 'destructive' });
+                  }
+                }}
+                className="h-8 w-full sm:w-auto"
+              >
+                Diagnóstico
               </Button>
             </div>
           </div>
@@ -349,7 +404,9 @@ export const ImportExport = ({ matrices, onImport }: ImportExportProps) => {
       </CardContent>
 
       <Dialog open={viewer.open} onOpenChange={(open) => setViewer((v) => ({ ...v, open }))}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="sm:max-w-3xl" aria-describedby="audit-log-desc">
+          <DialogTitle>Relatório de Log</DialogTitle>
+          <DialogDescription id="audit-log-desc">Lista de eventos de auditoria filtrados.</DialogDescription>
           <div className="max-h-[60vh] overflow-auto">
             <table className="w-full text-sm">
               <thead>
