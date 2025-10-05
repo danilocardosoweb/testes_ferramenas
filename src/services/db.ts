@@ -9,6 +9,19 @@ const table = {
   event_files: 'event_files',
 } as const;
 
+// Kanban tables
+const ktable = {
+  columns: 'kanban_columns',
+  cards: 'kanban_cards',
+  checklist: 'kanban_checklist',
+  wip: 'kanban_wip_settings',
+} as const;
+
+export type KanbanColumn = { id: string; slug: 'backlog'|'em_andamento'|'concluido'; title: string; position: number };
+export type KanbanCardRow = { id: string; title: string; description: string | null; source: 'auto'|'manual'; blocked: boolean; created_at: string; moved_at: string | null; matrix_id: string | null; matrix_code: string | null; column_id: string };
+export type KanbanChecklistRow = { id: string; card_id: string; text: string; done: boolean; created_at: string };
+export type KanbanWipSetting = { column_id: string; limit_value: number };
+
 // ===============
 // AUDITORIA (LOG)
 // ===============
@@ -272,4 +285,101 @@ export async function importMatrices(matrices: Matrix[]): Promise<{ folders: num
 
   await logAudit('import', 'Import', null, { counts: { folders: folderNames.length, matrices: matricesInserted, events: eventsInserted } });
   return { folders: folderNames.length, matrices: matricesInserted, events: eventsInserted };
+}
+
+// ======================
+// KANBAN - Supabase APIs
+// ======================
+
+export async function kanbanListColumns(): Promise<KanbanColumn[]> {
+  const { data, error } = await supabase.from(ktable.columns).select('id, slug, title, position').order('position');
+  if (error) throw error;
+  return (data || []) as any;
+}
+
+export async function kanbanGetWip(): Promise<KanbanWipSetting[]> {
+  const { data, error } = await supabase.from(ktable.wip).select('column_id, limit_value');
+  if (error) throw error;
+  return (data || []) as any;
+}
+
+export async function kanbanSetWip(columnId: string, limitValue: number): Promise<void> {
+  const { error } = await supabase.from(ktable.wip).upsert({ column_id: columnId, limit_value: limitValue }, { onConflict: 'column_id' });
+  if (error) throw error;
+  await logAudit('kanban.wip.upsert', 'KanbanWip', columnId, { limitValue });
+}
+
+export async function kanbanListCards(): Promise<KanbanCardRow[]> {
+  const { data, error } = await supabase
+    .from(ktable.cards)
+    .select('id, title, description, source, blocked, created_at, moved_at, matrix_id, matrix_code, column_id')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []) as any;
+}
+
+export async function kanbanCreateCard(payload: Partial<KanbanCardRow> & { title: string; column_id: string; source?: 'auto'|'manual' }): Promise<string> {
+  const row: any = {
+    title: payload.title,
+    description: payload.description ?? null,
+    source: payload.source ?? 'manual',
+    blocked: payload.blocked ?? false,
+    matrix_id: payload.matrix_id ?? null,
+    matrix_code: payload.matrix_code ?? null,
+    column_id: payload.column_id,
+    moved_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase.from(ktable.cards).insert(row).select('id').single();
+  if (error) throw error;
+  const id = (data as any).id as string;
+  await logAudit('kanban.card.create', 'KanbanCard', id, row);
+  return id;
+}
+
+export async function kanbanUpdateCard(id: string, patch: Partial<Pick<KanbanCardRow,'title'|'description'|'blocked'>>): Promise<void> {
+  const upd: any = {};
+  if (patch.title !== undefined) upd.title = patch.title;
+  if (patch.description !== undefined) upd.description = patch.description;
+  if (patch.blocked !== undefined) upd.blocked = patch.blocked;
+  const { error } = await supabase.from(ktable.cards).update(upd).eq('id', id);
+  if (error) throw error;
+  await logAudit('kanban.card.update', 'KanbanCard', id, upd);
+}
+
+export async function kanbanMoveCard(id: string, columnId: string): Promise<void> {
+  const { error } = await supabase.from(ktable.cards).update({ column_id: columnId, moved_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+  await logAudit('kanban.card.move', 'KanbanCard', id, { column_id: columnId });
+}
+
+export async function kanbanDeleteCard(id: string): Promise<void> {
+  const { error } = await supabase.from(ktable.cards).delete().eq('id', id);
+  if (error) throw error;
+  await logAudit('kanban.card.delete', 'KanbanCard', id, null);
+}
+
+export async function kanbanListChecklist(cardId: string): Promise<KanbanChecklistRow[]> {
+  const { data, error } = await supabase.from(ktable.checklist).select('id, card_id, text, done, created_at').eq('card_id', cardId).order('created_at');
+  if (error) throw error;
+  return (data || []) as any;
+}
+
+export async function kanbanAddChecklist(cardId: string, text: string): Promise<string> {
+  const { data, error } = await supabase.from(ktable.checklist).insert({ card_id: cardId, text }).select('id').single();
+  if (error) throw error;
+  const id = (data as any).id as string;
+  await logAudit('kanban.check.add', 'KanbanChecklist', id, { card_id: cardId, text });
+  return id;
+}
+
+export async function kanbanToggleChecklist(itemId: string, done: boolean): Promise<void> {
+  const { error } = await supabase.from(ktable.checklist).update({ done }).eq('id', itemId);
+  if (error) throw error;
+  await logAudit('kanban.check.toggle', 'KanbanChecklist', itemId, { done });
+}
+
+export async function kanbanDeleteChecklist(itemId: string): Promise<void> {
+  const { error } = await supabase.from(ktable.checklist).delete().eq('id', itemId);
+  if (error) throw error;
+  await logAudit('kanban.check.delete', 'KanbanChecklist', itemId, null);
 }

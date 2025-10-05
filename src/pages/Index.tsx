@@ -26,6 +26,8 @@ import { ImportExport } from "@/components/ImportExport";
 import { EventDetailDialog } from "@/components/EventDetailDialog";
 import { MatrixSummary } from "@/components/MatrixSummary";
 import { CollapsibleCard } from "@/components/CollapsibleCard";
+import KanbanBoard from "@/components/KanbanBoard";
+import ActivityHistory from "@/components/ActivityHistory";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
@@ -40,7 +42,7 @@ const Index = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
-  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard" | "approved">("timeline");
+  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard" | "approved" | "activity" | "kanban">("timeline");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const STALE_DAYS = 10;
   const [eventDetailDialog, setEventDetailDialog] = useState<{
@@ -276,6 +278,14 @@ const Index = () => {
               className={`px-3 py-1 rounded ${mainView === "approved" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("approved")}
             >Ferramentas Aprovadas</button>
+            <button
+              className={`px-3 py-1 rounded ${mainView === "kanban" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => setMainView("kanban")}
+            >Kanban</button>
+            <button
+              className={`px-3 py-1 rounded ${mainView === "activity" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => setMainView("activity")}
+            >Histórico</button>
             <div className="ml-auto text-sm text-muted-foreground">{mainMatrices.length} matriz(es)</div>
           </div>
           <div className={`flex-1 ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
@@ -361,6 +371,14 @@ const Index = () => {
             ) : mainView === "dashboard" ? (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
                 <MatrixDashboard matrices={mainMatrices} staleDaysThreshold={STALE_DAYS} />
+              </div>
+            ) : mainView === "activity" ? (
+              <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
+                <ActivityHistory matrices={mainMatrices} staleDaysThreshold={STALE_DAYS} />
+              </div>
+            ) : mainView === "kanban" ? (
+              <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
+                <KanbanBoard matrices={mainMatrices} />
               </div>
             ) : (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
