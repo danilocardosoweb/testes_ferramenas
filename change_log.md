@@ -1,3 +1,4 @@
+[06/10/2025 07:29] - extrude-flow-main - Sino de Notificações com seleção por categorias (Aprovadas, Limpeza, Correção Externa) e envio por e-mail via mailto; integração em `src/pages/Index.tsx`; novo componente `src/components/NotificationsBell.tsx`; `.env.example` atualizado com `VITE_NOTIFY_GROUP_EMAILS`; documentação em `specs.md` - Cascade
 [03/10/2025 10:12] - extrude-flow-main - Nova aba funcional: "Ferramentas Aprovadas" com agrupamento por Ano/Mês em `src/components/ApprovedToolsView.tsx` e integração no `Index.tsx` - Cascade
 
 [03/10/2025 10:34] - extrude-flow-main - Dashboard: indicadores de lead por pasta e aprovações por nº de testes (geral e por pasta); Index: aprovadas ocultas na Sidebar, Timeline e Planilha - Cascade

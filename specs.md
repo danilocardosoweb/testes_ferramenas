@@ -54,6 +54,16 @@
 - `src/components/MatrixSidebar.tsx`: exibe status atual, prioridade e indicadores.
 - `src/pages/NotFound.tsx`: traduzido para PT-BR.
 
+### Novo: Notificações (Sino)
+- `src/components/NotificationsBell.tsx`: exibe um sino com badge de contagem baseada nas atividades (mesma lógica do `ActivityHistory`).
+- Integração no topo de `src/pages/Index.tsx` (barra de botões de visão).
+- Popover com agrupamento e seleção por categorias para envio de e-mail:
+  - Categorias: "Aprovadas", "Limpeza", "Correção Externa".
+  - Permite selecionar itens por categoria ou individualmente.
+  - Botão "Enviar E-mail" monta um `mailto:` com os itens selecionados, organizados por categoria.
+  - Botão "Marcar como lidas" atualiza `lastSeen` em LocalStorage (`notif_last_seen`).
+- Variável de ambiente para destinatários de grupo: `VITE_NOTIFY_GROUP_EMAILS` (lista separada por vírgulas). Exemplo em `.env.example`.
+
 ## Nova Aba: Ferramentas Aprovadas
 - Local: `src/pages/Index.tsx` (estado `mainView` = "approved").
 - Componente: `src/components/ApprovedToolsView.tsx`.

@@ -31,6 +31,9 @@ import ActivityHistory from "@/components/ActivityHistory";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import NotificationsBell from "@/components/NotificationsBell";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/lib/supabaseClient";
 
 const Index = () => {
   const [matrices, setMatrices] = useState<Matrix[]>([]);
@@ -64,6 +67,48 @@ const Index = () => {
       }
     };
     bootstrap();
+  }, []);
+
+  // Botão de recarregar manualmente
+  const reloadAll = async () => {
+    try {
+      const [mats, flds] = await Promise.all([sbListMatrices(), sbListFolders()]);
+      setMatrices(mats);
+      setFolders(flds);
+      if (selectedMatrix) {
+        const refreshed = mats.find((m) => m.id === selectedMatrix.id) || null;
+        setSelectedMatrix(refreshed);
+      }
+      toast({ title: "Dados atualizados" });
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Erro ao atualizar", description: String(err?.message || err), variant: "destructive" });
+    }
+  };
+
+  // Realtime Supabase: observa mudanças e refaz o fetch (com debounce)
+  useEffect(() => {
+    let timer: number | undefined;
+    const debouncedReload = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        reloadAll();
+      }, 400);
+    };
+
+    const channel = supabase
+      .channel('realtime-matrices-events')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, debouncedReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matrices' }, debouncedReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'folders' }, debouncedReload)
+      .subscribe((status) => {
+        // opcional: poderia logar status
+      });
+
+    return () => {
+      try { supabase.removeChannel(channel); } catch {}
+      if (timer) window.clearTimeout(timer);
+    };
   }, []);
 
   const handleNewMatrix = async (matrix: Matrix) => {
@@ -258,7 +303,7 @@ const Index = () => {
       )}
 
       {/* Main Content */}
-      <div className={`flex-1 flex ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
+      <div className="flex-1 flex overflow-x-auto pr-3 md:pr-4">
         {/* Left: main view */}
         <div className="flex-1 flex flex-col">
           <div className="p-3 border-b flex items-center gap-2">
@@ -286,7 +331,11 @@ const Index = () => {
               className={`px-3 py-1 rounded ${mainView === "activity" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("activity")}
             >Histórico</button>
-            <div className="ml-auto text-sm text-muted-foreground">{mainMatrices.length} matriz(es)</div>
+            <div className="ml-auto flex items-center gap-2">
+              <NotificationsBell matrices={matrices} staleDaysThreshold={STALE_DAYS} />
+              <Button size="sm" variant="outline" onClick={reloadAll}>Atualizar</Button>
+              <div className="text-sm text-muted-foreground">{mainMatrices.length} matriz(es)</div>
+            </div>
           </div>
           <div className={`flex-1 ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
             {mainView === "timeline" ? (
@@ -389,7 +438,7 @@ const Index = () => {
         </div>
         {/* Right Panel - Forms */}
         {selectedMatrix && (
-          <div className="w-96 border-l border-border bg-background flex-shrink-0">
+          <div className="min-w-[20rem] w-[22rem] md:w-[24rem] lg:w-[26rem] mr-3 md:mr-4 border-l border-border bg-background flex-shrink-0 overflow-y-auto">
             <ScrollArea className="h-full">
               <div className="p-4 space-y-4">
                 <CollapsibleCard title="Resumo da Matriz" defaultOpen={false}>
