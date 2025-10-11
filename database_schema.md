@@ -61,3 +61,19 @@ Para protótipo, políticas liberam a role `anon` para todas operações nas tab
 ## Arquivo de migração
 
 Todas as queries de criação e rollback estão em `data_schema.sql`.
+
+## Atualizações de Segurança e Performance (11/10/2025)
+
+- RLS habilitado nas tabelas Kanban: `kanban_columns`, `kanban_cards`, `kanban_checklist`, `kanban_wip_settings`, `kanban_card_history`.
+  - Para operação local sem autenticação, políticas provisórias liberais foram definidas (podem ser restritas futuramente).
+- Índices criados:
+  - `idx_events_matrix_date (events: matrix_id, date)` para ordenação/filtragem por cronologia dentro da matriz.
+  - `idx_kanban_card_history_from_column (kanban_card_history: from_column)`.
+  - `idx_kanban_card_history_to_column (kanban_card_history: to_column)`.
+- Constraint em `events` para evitar auto-referência direta:
+  - `events_no_self_parent`: `CHECK (parent_event_id IS NULL OR parent_event_id <> id)`.
+- Triggers de atualização de `updated_at` criadas quando a função `public.set_updated_at()` está disponível.
+- Funções com `search_path` fixado para evitar mutabilidade:
+  - `public.set_updated_at`, `public.kanban_get_column_id`, `public.trg_create_card_on_corr_saida`, `public.trg_complete_card_on_corr_entrada` receberam `SET search_path = public, pg_catalog`.
+
+Detalhes e rollbacks encontram-se em `data_schema.sql`.
