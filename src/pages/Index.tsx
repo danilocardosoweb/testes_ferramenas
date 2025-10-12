@@ -182,9 +182,10 @@ const Index = () => {
   const handleAddEvent = async (event: MatrixEvent) => {
     if (!selectedMatrix) return;
     try {
-      await sbCreateEvent(selectedMatrix.id, event);
-      setMatrices((prev) => prev.map((m) => (m.id === selectedMatrix.id ? { ...m, events: [...m.events, event] } : m)));
-      setSelectedMatrix((prev) => (prev ? { ...prev, events: [...prev.events, event] } : null));
+      const eventWithCreated = event.createdAt ? event : { ...event, createdAt: new Date().toISOString() };
+      await sbCreateEvent(selectedMatrix.id, eventWithCreated);
+      setMatrices((prev) => prev.map((m) => (m.id === selectedMatrix.id ? { ...m, events: [...m.events, eventWithCreated] } : m)));
+      setSelectedMatrix((prev) => (prev ? { ...prev, events: [...prev.events, eventWithCreated] } : null));
       toast({ title: "Evento adicionado", description: "O evento foi adicionado à matriz com sucesso." });
     } catch (err: any) {
       console.error(err);
@@ -196,7 +197,11 @@ const Index = () => {
     (async () => {
       try {
         const { importMatrices: sbImportMatrices } = await import("@/services/db");
-        const res = await sbImportMatrices(importedMatrices);
+        const normalized = importedMatrices.map((m) => ({
+          ...m,
+          events: (m.events || []).map((e) => ({ ...e, createdAt: e.createdAt || new Date().toISOString() })),
+        }));
+        const res = await sbImportMatrices(normalized);
         const [mats, flds] = await Promise.all([sbListMatrices(), sbListFolders()]);
         setMatrices(mats);
         setFolders(flds);
@@ -215,6 +220,9 @@ const Index = () => {
   const handleEventClick = (matrixId: string, event: MatrixEvent) => {
     const matrix = matrices.find((m) => m.id === matrixId);
     if (matrix) {
+      // Seleciona a matriz para abrir o painel direito
+      setSelectedMatrix(matrix);
+      // Abre o diálogo de detalhes do evento
       setEventDetailDialog({ open: true, matrix, event });
     }
   };
@@ -306,32 +314,32 @@ const Index = () => {
       <div className="flex-1 flex overflow-x-auto pr-3 md:pr-4">
         {/* Left: main view */}
         <div className="flex-1 flex flex-col">
-          <div className="p-3 border-b flex items-center gap-2">
+          <div className="p-3 border-b flex items-center gap-1.5 md:gap-2 overflow-x-auto">
             <button
-              className={`px-3 py-1 rounded ${mainView === "timeline" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "timeline" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("timeline")}
             >Timeline</button>
             <button
-              className={`px-3 py-1 rounded ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("sheet")}
             >Planilha</button>
             <button
-              className={`px-3 py-1 rounded ${mainView === "dashboard" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "dashboard" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("dashboard")}
             >Dashboard</button>
             <button
-              className={`px-3 py-1 rounded ${mainView === "approved" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "approved" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("approved")}
             >Ferramentas Aprovadas</button>
             <button
-              className={`px-3 py-1 rounded ${mainView === "kanban" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "kanban" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("kanban")}
             >Kanban</button>
             <button
-              className={`px-3 py-1 rounded ${mainView === "activity" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "activity" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => setMainView("activity")}
             >Histórico</button>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-2 md:ml-auto flex items-center gap-2 shrink-0">
               <NotificationsBell matrices={matrices} staleDaysThreshold={STALE_DAYS} />
               <Button size="sm" variant="outline" onClick={reloadAll}>Atualizar</Button>
               <div className="text-sm text-muted-foreground">{mainMatrices.length} matriz(es)</div>
@@ -343,6 +351,10 @@ const Index = () => {
                 matrices={mainMatrices}
                 onEventClick={handleEventClick}
                 onBlankClick={() => setSelectedMatrix(null)}
+                onMatrixClick={(id) => {
+                  const m = matrices.find((x) => x.id === id) || null;
+                  setSelectedMatrix(m);
+                }}
               />
             ) : mainView === "sheet" ? (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
@@ -438,7 +450,7 @@ const Index = () => {
         </div>
         {/* Right Panel - Forms */}
         {selectedMatrix && (
-          <div className="min-w-[20rem] w-[22rem] md:w-[24rem] lg:w-[26rem] mr-3 md:mr-4 border-l border-border bg-background flex-shrink-0 overflow-y-auto">
+          <div className="min-w-[16rem] w-[18rem] md:w-[20rem] lg:w-[22rem] mr-3 md:mr-4 border-l border-border bg-background flex-shrink-0 overflow-y-auto">
             <ScrollArea className="h-full">
               <div className="p-4 space-y-4">
                 <CollapsibleCard title="Resumo da Matriz" defaultOpen={false}>

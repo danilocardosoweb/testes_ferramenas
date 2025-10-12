@@ -15,7 +15,7 @@ export const CollapsibleCard = ({ title, defaultOpen = false, children }: Collap
   return (
     <Card className="shadow-lg overflow-hidden">
       <CardHeader className="py-3">
-        <div className="flex items-center justify-between">
+        <div className="inline-flex items-center gap-2">
           <CardTitle className="text-lg">{title}</CardTitle>
           <Button
             type="button"

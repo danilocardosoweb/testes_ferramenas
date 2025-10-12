@@ -125,6 +125,7 @@ export async function listMatrices(): Promise<Matrix[]> {
       date: e.date,
       type: e.type,
       comment: e.comment || '',
+      createdAt: e.created_at || undefined,
       location: e.location || undefined,
       responsible: e.responsible || undefined,
       images: [],
@@ -185,6 +186,7 @@ export async function createEvent(matrixId: string, e: MatrixEvent): Promise<voi
     date: e.date,
     type: e.type,
     comment: e.comment,
+    created_at: e.createdAt ?? new Date().toISOString(),
     location: e.location ?? null,
     responsible: e.responsible ?? null,
   };
@@ -198,6 +200,7 @@ export async function updateEvent(eventId: string, patch: Partial<MatrixEvent>):
   if (patch.date !== undefined) payload.date = patch.date;
   if (patch.type !== undefined) payload.type = patch.type;
   if (patch.comment !== undefined) payload.comment = patch.comment;
+  if (patch.createdAt !== undefined) payload.created_at = patch.createdAt;
   if (patch.location !== undefined) payload.location = patch.location;
   if (patch.responsible !== undefined) payload.responsible = patch.responsible;
   const { error } = await supabase.from(table.events).update(payload).eq('id', eventId);
@@ -274,6 +277,7 @@ export async function importMatrices(matrices: Matrix[]): Promise<{ folders: num
         date: e.date,
         type: e.type,
         comment: e.comment,
+        created_at: e.createdAt ?? new Date().toISOString(),
         location: e.location ?? null,
         responsible: e.responsible ?? null,
       };

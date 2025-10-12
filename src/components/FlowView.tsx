@@ -18,6 +18,7 @@ interface FlowViewProps {
   matrices: Matrix[];
   onEventClick: (matrixId: string, event: MatrixEvent) => void;
   onBlankClick?: () => void;
+  onMatrixClick?: (matrixId: string) => void; // novo: clique no cabeçalho da matriz
 }
 
 const createNodesAndEdges = (matrices: Matrix[]) => {
@@ -138,7 +139,7 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
   return { nodes, edges };
 };
 
-export const FlowView = ({ matrices, onEventClick, onBlankClick }: FlowViewProps) => {
+export const FlowView = ({ matrices, onEventClick, onBlankClick, onMatrixClick }: FlowViewProps) => {
   const { nodes: initialNodes, edges: initialEdges } = createNodesAndEdges(matrices);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -150,9 +151,16 @@ export const FlowView = ({ matrices, onEventClick, onBlankClick }: FlowViewProps
   }, [matrices, setNodes, setEdges]);
 
   const handleNodeClick = (_event: unknown, node: Node) => {
-    const { matrixId, event } = node.data as { matrixId?: string; event?: MatrixEvent };
+    // Clique em evento
+    const { matrixId, event } = (node.data || {}) as { matrixId?: string; event?: MatrixEvent };
     if (matrixId && event) {
       onEventClick(matrixId, event);
+      return;
+    }
+    // Clique no cabeçalho: id do nó começa com "matrix-<id>"
+    if (typeof node.id === 'string' && node.id.startsWith('matrix-')) {
+      const id = node.id.replace('matrix-', '');
+      onMatrixClick?.(id);
     }
   };
 

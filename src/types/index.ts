@@ -3,6 +3,7 @@ export interface MatrixEvent {
   date: string;
   type: string;
   comment: string;
+  createdAt?: string;
   location?: string;
   observations?: string;
   images?: string[];

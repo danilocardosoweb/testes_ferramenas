@@ -6,3 +6,7 @@
 [02/10/2025 10:11] - extrude-flow-main - Iteração 1: Status atual na sidebar, prioridade e responsável em formulários, indicadores por matriz, tradução PT-BR do 404, specs.md criado - Cascade
 
 [02/10/2025 14:02] - extrude-flow-main - Criação do esquema Supabase: data_schema.sql com tabelas (folders, matrices, events com subeventos, event_files), índices, RLS e rollback; documentação em database_schema.md - Cascade
+
+[07/10/2025 07:33] - extrude-flow-main - UI: Painel direito (cartões) mais estreito em `src/pages/Index.tsx` e redução do espaço entre título e ícone em `src/components/CollapsibleCard.tsx` - Cascade
+
+[07/10/2025 07:35] - extrude-flow-main - Removido/Desabilitado o bloco "Relatório de Log" de `src/components/ImportExport.tsx` (UI, estados, funções e imports); mantidas apenas ações de Importar/Exportar Excel - Cascade

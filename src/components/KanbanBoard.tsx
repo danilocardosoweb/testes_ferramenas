@@ -228,11 +228,52 @@ export default function KanbanBoard({ matrices }: Props) {
 
   // Exportar/Importar estado
   const exportState = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    // Exporta como Excel (SpreadsheetML .xls) com cabeçalho e formatação básica
+    const esc = (s: any) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const rows: Array<Array<string | number | boolean>> = [];
+    rows.push(["ID", "Título", "Descrição", "Origem", "Coluna", "Bloqueado", "Código Matriz", "Criado Em"]);
+    const order: KanbanColumnId[] = ["backlog", "em_andamento", "concluido"];
+    for (const col of order) {
+      for (const cid of state.columns[col]) {
+        const c = state.cards[cid];
+        if (!c) continue;
+        rows.push([
+          c.id,
+          c.title,
+          c.description ?? "",
+          c.source ?? "manual",
+          col === "backlog" ? "Backlog" : col === "em_andamento" ? "Em Andamento" : "Concluído",
+          !!c.blocked,
+          c.matrixCode ?? "",
+          new Date(c.createdAt).toISOString(),
+        ]);
+      }
+    }
+
+    const colWidths = [24, 50, 80, 16, 20, 12, 20, 24];
+    const header = `<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n  <Styles>\n    <Style ss:ID="Header"><Font ss:Bold="1"/><Interior ss:Color="#F2F2F2" ss:Pattern="Solid"/></Style>\n    <Style ss:ID="Text"><NumberFormat ss:Format="@"/></Style>\n    <Style ss:ID="Date"><NumberFormat ss:Format="yyyy-mm-dd\ hh:mm"/></Style>\n  </Styles>\n  <Worksheet ss:Name="Kanban">\n    <Table>`;
+    const widthsXml = colWidths.map((w) => `<Column ss:AutoFitWidth="0" ss:Width="${w * 6}"/>`).join("");
+    const headerRow = rows[0].map((v) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${esc(v)}</Data></Cell>`).join("");
+    const bodyRows = rows.slice(1).map((r) => {
+      return (
+        "<Row>" +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[0])}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[1])}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[2])}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[3])}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[4])}</Data></Cell>` +
+        `<Cell><Data ss:Type="Boolean">${r[5] ? 1 : 0}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[6])}</Data></Cell>` +
+        `<Cell ss:StyleID="Date"><Data ss:Type="String">${esc(r[7])}</Data></Cell>` +
+        "</Row>"
+      );
+    }).join("\n");
+    const xml = `${header}\n${widthsXml}\n<Row>${headerRow}</Row>\n${bodyRows}\n    </Table>\n  </Worksheet>\n</Workbook>`;
+    const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `kanban_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.json`;
+    a.download = `kanban_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.xls`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -242,17 +283,42 @@ export default function KanbanBoard({ matrices }: Props) {
     if (!file) return;
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text) as KanbanState;
-      // validação simples
-      if (!parsed.columns || !parsed.cards) throw new Error("Arquivo inválido");
-      setState(parsed);
-      saveState(parsed);
-      toast({ title: "Kanban importado", description: "Os cards e colunas foram carregados do arquivo." });
+      if (!/Workbook/.test(text)) throw new Error("Arquivo Excel inválido (.xls esperado)");
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, "text/xml");
+      const rows = Array.from(doc.getElementsByTagName("Row"));
+      if (rows.length < 2) throw new Error("Planilha vazia");
+      // Mapa português -> slug
+      const colMap: Record<string, KanbanColumnId> = { "Backlog": "backlog", "Em Andamento": "em_andamento", "Concluído": "concluido", "Concluido": "concluido" };
+      // Pular cabeçalho (linha 0)
+      for (let i = 1; i < rows.length; i++) {
+        const cells = Array.from(rows[i].getElementsByTagName("Cell"));
+        const get = (idx: number) => cells[idx]?.textContent ?? "";
+        const title = get(1).trim();
+        if (!title) continue;
+        const description = get(2).trim();
+        const origem = get(3).trim().toLowerCase();
+        const colunaName = get(4).trim();
+        const blocked = get(5).trim() === "1" || /true/i.test(get(5));
+        const matrixCode = get(6).trim() || undefined;
+        const slug = colMap[colunaName] ?? "backlog";
+        const columnId = state.columnIdBySlug[slug];
+        if (!columnId) continue;
+        try {
+          const id = await kanbanCreateCard({ title, description: description || null, column_id: columnId, source: origem === "auto" ? "auto" : "manual", blocked, matrix_code: matrixCode ?? null });
+          // otimista
+          const card: KanbanCard = { id, title, description: description || undefined, createdAt: new Date().toISOString(), source: origem === "auto" ? "auto" : "manual", blocked, matrixCode };
+          persist((s) => ({ ...s, cards: { ...s.cards, [id]: card }, columns: { ...s.columns, [slug]: [id, ...s.columns[slug]] }, movedAt: { ...s.movedAt, [id]: { column: slug, movedAt: new Date().toISOString() } } }));
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      toast({ title: "Importação concluída", description: "Os cards foram importados da planilha Excel." });
     } catch (err: any) {
       console.error(err);
       toast({ title: "Falha ao importar", description: String(err?.message || err), variant: "destructive" });
     } finally {
-      e.target.value = ""; // permite reimportar o mesmo arquivo
+      e.target.value = "";
     }
   };
 
@@ -394,7 +460,7 @@ export default function KanbanBoard({ matrices }: Props) {
               draggable
               onDragStart={(e) => onDragStart(e, cid)}
             >
-              <CardContent className="p-3">
+              <CardContent className={`p-3 ${state.compact ? "p-2 text-sm" : ""}`}>
                 {!isEditing ? (
                   <>
                     <div className="flex items-center gap-2 mb-1">
@@ -409,7 +475,7 @@ export default function KanbanBoard({ matrices }: Props) {
                       <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(c.createdAt).toLocaleDateString("pt-BR")}</span>
                     </div>
                     <div className="font-semibold mb-1">{c.title}</div>
-                    {c.description && <div className="text-sm text-muted-foreground whitespace-pre-wrap">{c.description}</div>}
+                    {!state.compact && c.description && <div className="text-sm text-muted-foreground whitespace-pre-wrap">{c.description}</div>}
                     <div className="mt-2 flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => startEdit(cid)}>
                         <Edit3 className="w-4 h-4 mr-1" /> Editar
@@ -504,7 +570,7 @@ export default function KanbanBoard({ matrices }: Props) {
               <Button size="sm" variant="outline" onClick={exportState}><Download className="w-4 h-4 mr-1" />Exportar</Button>
               <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
                 <Upload className="w-4 h-4" />
-                <input type="file" accept="application/json" className="hidden" onChange={importState} />
+                <input type="file" accept=".xls" className="hidden" onChange={importState} />
                 Importar
               </label>
               <Button size="sm" onClick={reloadFromDb}><RefreshCw className="w-4 h-4 mr-1" />Recarregar</Button>
