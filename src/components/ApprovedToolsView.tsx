@@ -2,25 +2,26 @@ import React from "react";
 import { Matrix, MatrixEvent } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 type Props = {
   matrices: Matrix[];
 };
 
-// Extrai a primeira data de aprovação encontrada nos eventos da matriz
-function getApprovalDate(events: MatrixEvent[]): string | null {
-  // Considera qualquer evento cujo tipo contenha "aprov" (ex.: "Aprovado", "Aprovação")
+// Extrai o primeiro evento de aprovação (mais antigo) com data do evento e de apontamento
+function getApprovalInfo(events: MatrixEvent[]): { date: string; createdAt?: string } | null {
   const approval = [...events]
     .filter((e) => e.type.toLowerCase().includes("aprov"))
     .sort((a, b) => a.date.localeCompare(b.date))[0];
-  return approval?.date ?? null;
+  return approval ? { date: approval.date, createdAt: approval.createdAt } : null;
 }
 
 // Agrupa por Ano > Mês (com base na data de aprovação)
 function groupByYearMonth(matrices: Matrix[]) {
   const groups: Record<string, Record<string, Matrix[]>> = {};
   matrices.forEach((m) => {
-    const approvalDate = getApprovalDate(m.events);
+    const info = getApprovalInfo(m.events);
+    const approvalDate = info?.date;
     if (!approvalDate) return;
     const d = new Date(approvalDate);
     const year = String(d.getFullYear());
@@ -34,18 +35,28 @@ function groupByYearMonth(matrices: Matrix[]) {
 
 export const ApprovedToolsView: React.FC<Props> = ({ matrices }) => {
   // Filtra somente matrizes que possuem alguma aprovação
-  const approved = React.useMemo(() => matrices.filter((m) => getApprovalDate(m.events)), [matrices]);
+  const approved = React.useMemo(() => matrices.filter((m) => getApprovalInfo(m.events)), [matrices]);
 
   // Estado dos filtros
   const [yearFilter, setYearFilter] = React.useState<string>("all");
   const [monthFilter, setMonthFilter] = React.useState<string>("all"); // "01".."12" ou "all"
   const [toolFilter, setToolFilter] = React.useState<string>("");
+  const [expandedYears, setExpandedYears] = React.useState<Record<string, boolean>>({});
+  const [expandedMonths, setExpandedMonths] = React.useState<Record<string, boolean>>({});
+
+  const toggleYear = (year: string) => {
+    setExpandedYears((prev) => ({ ...prev, [year]: !(prev[year] ?? true) }));
+  };
+
+  const toggleMonth = (key: string) => {
+    setExpandedMonths((prev) => ({ ...prev, [key]: !(prev[key] ?? true) }));
+  };
 
   // Opções de ano e mês derivadas dos aprovados
   const yearOptions = React.useMemo(() => {
     const set = new Set<string>();
     approved.forEach((m) => {
-      const d = getApprovalDate(m.events);
+      const d = getApprovalInfo(m.events)?.date;
       if (!d) return;
       set.add(String(new Date(d).getFullYear()));
     });
@@ -55,7 +66,7 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices }) => {
   const monthOptions = React.useMemo(() => {
     const set = new Set<string>();
     approved.forEach((m) => {
-      const d = getApprovalDate(m.events);
+      const d = getApprovalInfo(m.events)?.date;
       if (!d) return;
       const dt = new Date(d);
       const y = String(dt.getFullYear());
@@ -69,7 +80,7 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices }) => {
   const filtered = React.useMemo(() => {
     const term = toolFilter.trim().toLowerCase();
     return approved.filter((m) => {
-      const d = getApprovalDate(m.events);
+      const d = getApprovalInfo(m.events)?.date;
       if (!d) return false;
       const dt = new Date(d);
       const y = String(dt.getFullYear());
@@ -138,43 +149,68 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices }) => {
 
       {years.map((year) => {
         const months = Object.keys(grouped[year]).sort((a, b) => Number(b) - Number(a));
+        const isYearExpanded = expandedYears[year] ?? false;
         return (
           <div key={year} className="border rounded-lg">
-            <div className="px-4 py-2 border-b bg-muted/50 font-semibold">Ano: {year}</div>
-            <div className="p-3 space-y-4">
-              {months.map((month) => {
-                const items = grouped[year][month]
-                  .slice()
-                  .sort((a, b) => {
-                    const da = getApprovalDate(a.events)!;
-                    const db = getApprovalDate(b.events)!;
-                    return da.localeCompare(db);
-                  });
-                const monthName = new Date(Number(year), Number(month) - 1, 1).toLocaleString("pt-BR", { month: "long" });
-                return (
-                  <div key={`${year}-${month}`} className="border rounded-md">
-                    <div className="px-3 py-2 border-b font-medium capitalize">Mês: {month.padStart(2, "0")} - {monthName}</div>
-                    <ul className="divide-y">
-                      {items.map((m) => {
-                        const approvalDate = getApprovalDate(m.events)!;
-                        const formatted = new Date(approvalDate).toLocaleDateString("pt-BR");
-                        return (
-                          <li key={m.id} className="px-3 py-2 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{m.code}</span>
-                              {m.folder ? (
-                                <span className="text-xs px-2 py-0.5 rounded bg-muted">{m.folder}</span>
-                              ) : null}
-                            </div>
-                            <div className="text-sm text-muted-foreground">Aprovada em {formatted}</div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              onClick={() => toggleYear(year)}
+              className="w-full px-4 py-2 border-b bg-muted/50 font-semibold flex items-center gap-2 text-left"
+            >
+              {isYearExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              Ano: {year}
+            </button>
+            {isYearExpanded && (
+              <div className="p-3 space-y-4">
+                {months.map((month) => {
+                  const items = grouped[year][month]
+                    .slice()
+                    .sort((a, b) => {
+                      const da = getApprovalInfo(a.events)!.date;
+                      const db = getApprovalInfo(b.events)!.date;
+                      return da.localeCompare(db);
+                    });
+                  const monthName = new Date(Number(year), Number(month) - 1, 1).toLocaleString("pt-BR", { month: "long" });
+                  const monthKey = `${year}-${month}`;
+                  const isMonthExpanded = expandedMonths[monthKey] ?? false;
+                  return (
+                    <div key={monthKey} className="border rounded-md">
+                      <button
+                        type="button"
+                        onClick={() => toggleMonth(monthKey)}
+                        className="w-full px-3 py-2 border-b font-medium capitalize flex items-center justify-between"
+                      >
+                        <span>Mês: {month.padStart(2, "0")} - {monthName}</span>
+                        {isMonthExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </button>
+                      {isMonthExpanded && (
+                        <ul className="divide-y">
+                          {items.map((m) => {
+                            const info = getApprovalInfo(m.events)!;
+                            const formatted = new Date(info.date).toLocaleDateString("pt-BR");
+                            const apontado = info.createdAt ? new Date(info.createdAt).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : null;
+                            return (
+                              <li key={m.id} className="px-3 py-2 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{m.code}</span>
+                                  {m.folder ? (
+                                    <span className="text-xs px-2 py-0.5 rounded bg-muted">{m.folder}</span>
+                                  ) : null}
+                                </div>
+                                <div className="text-sm text-muted-foreground flex flex-col items-end">
+                                  <span>Aprovada em {formatted}</span>
+                                  {apontado && <span className="text-xs">Apontado em {new Date(info.createdAt!).toLocaleDateString("pt-BR")} {apontado}</span>}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })}

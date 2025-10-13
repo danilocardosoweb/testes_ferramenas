@@ -291,16 +291,16 @@ export function MatrixDashboard({ matrices, staleDaysThreshold = 10 }: MatrixDas
         </CardHeader>
         <CardContent className="pt-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="w-64 min-w-[220px]">
+            <div className="shrink-0 w-40 md:w-48 lg:w-56 min-w-[10rem] max-w-[14rem]">
               <Input
                 placeholder="Filtrar por código (ex.: TP-8215/004)"
                 value={codeFilter}
                 onChange={(e) => setCodeFilter(e.target.value)}
-                className="h-8"
+                className="h-8 text-sm w-full"
               />
             </div>
-            <div className="flex-1 overflow-x-auto">
-              <div className="flex items-center gap-2 w-max pr-2">
+            <div className="flex-1 overflow-x-auto pb-2">
+              <div className="flex items-center gap-2 w-max pr-4 py-1 whitespace-nowrap">
                 {folders.map((f) => {
                   const active = selectedFolders.has(f);
                   return (

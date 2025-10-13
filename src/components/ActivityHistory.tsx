@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AlertTriangle, Calendar, CheckCircle, Clock, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, Calendar, CheckCircle, Clock, RefreshCw, Search, ChevronDown } from "lucide-react";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface Props {
   matrices: Matrix[];
@@ -19,36 +20,87 @@ type ActivitySeverity = "info" | "success" | "warning" | "error";
 
 interface ActivityEntry {
   id: string;
-  timestamp: string; // ISO
+  eventDate: string; // AAAA-MM-DD
+  recordedAt: string; // ISO completo (data/hora do apontamento)
   matrixCode: string;
   matrixId: string;
-  action: string; // ex: Enviada para Limpeza
-  description: string; // ex: ABC-123 foi enviada para limpeza externa
+  action: string;
+  description: string;
   type: ActivityType;
   severity: ActivitySeverity;
 }
 
-function formatBR(d: Date) {
-  return new Intl.DateTimeFormat("pt-BR", {
+const toDateTime = (value: string): Date => {
+  if (!value) return new Date();
+  return value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
+};
+
+const formatDateBR = (value: string) =>
+  new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(toDateTime(value));
+
+const formatDateTimeBR = (value: string) =>
+  new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-  }).format(d);
-}
+  }).format(toDateTime(value));
 
 export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: Props) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<ActivityType | "all">("all");
   const [levelFilter, setLevelFilter] = useState<ActivitySeverity | "all">("all");
+  const [dateRange, setDateRange] = useState<string>("7");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [nowTick, setNowTick] = useState(0); // apenas para reprocessar periodicamente
+  const [notifCategories, setNotifCategories] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("notif_visible_categories");
+      if (!raw) return ["Aprovadas", "Limpeza", "Correção Externa"];
+      const parsed = JSON.parse(raw);
+      const all = ["Aprovadas", "Limpeza", "Correção Externa"];
+      const valid = Array.isArray(parsed) ? parsed.filter((x) => all.includes(x)) : all;
+      return valid.length ? valid : all;
+    } catch { return ["Aprovadas", "Limpeza", "Correção Externa"]; }
+  });
+  const saveNotifCategories = (list: string[]) => {
+    const order = ["Aprovadas", "Limpeza", "Correção Externa"];
+    const ordered = order.filter((x) => list.includes(x));
+    try { localStorage.setItem("notif_visible_categories", JSON.stringify(ordered)); } catch {}
+    setNotifCategories(ordered);
+    // notifica o sino
+    try { window.dispatchEvent(new CustomEvent("notif-filter-updated")); } catch {}
+  };
+  const [staleCache, setStaleCache] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem("activity_stale_cache");
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return typeof parsed === "object" && parsed ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const persistStaleCache = (next: Record<string, string>) => {
+    setStaleCache(next);
+    try {
+      localStorage.setItem("activity_stale_cache", JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
 
   // Monta atividades a partir das matrizes + eventos
   const activities = useMemo<ActivityEntry[]>(() => {
     const list: ActivityEntry[] = [];
+    const nextStaleCache: Record<string, string> = { ...staleCache };
 
     for (const m of matrices) {
       // eventos da matriz
@@ -88,7 +140,8 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
 
         list.push({
           id: ev.id,
-          timestamp: ev.date,
+          eventDate: ev.date,
+          recordedAt: ev.createdAt ?? `${ev.date}T00:00:00`,
           matrixCode: m.code,
           matrixId: m.id,
           action,
@@ -103,9 +156,14 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
       if (lastDate) {
         const days = Math.floor((Date.now() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24));
         if (days > staleDaysThreshold) {
+          if (!nextStaleCache[m.id]) {
+            nextStaleCache[m.id] = new Date().toISOString();
+          }
+          const recorded = nextStaleCache[m.id];
           list.push({
             id: `stale-${m.id}`,
-            timestamp: new Date().toISOString(),
+            eventDate: lastDate,
+            recordedAt: recorded,
             matrixCode: m.code,
             matrixId: m.id,
             action: "Matriz Parada",
@@ -113,18 +171,50 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
             type: "system",
             severity: "warning",
           });
+        } else if (nextStaleCache[m.id]) {
+          delete nextStaleCache[m.id];
         }
       }
     }
 
+    // inclui entradas do log de notificações enviadas
+    try {
+      const raw = localStorage.getItem("notif_sent_log");
+      const log: Record<string, { id: string; eventDate: string; recordedAt: string; matrixCode: string; matrixId: string; action: string; description: string; category: string | null; }> = raw ? JSON.parse(raw) : {};
+      for (const item of Object.values(log)) {
+        if (item.category && notifCategories.length && !notifCategories.includes(item.category)) continue;
+        list.push({
+          id: `notif-sent-${item.id}`,
+          eventDate: item.eventDate,
+          recordedAt: item.recordedAt,
+          matrixCode: item.matrixCode,
+          matrixId: item.matrixId,
+          action: "Notificação enviada",
+          description: `${item.matrixCode} — ${item.action} (e-mail enviado)` ,
+          type: "system",
+          severity: "info",
+        });
+      }
+    } catch {}
+
     // ordena do mais recente para o mais antigo
-    list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    list.sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime());
+    if (JSON.stringify(nextStaleCache) !== JSON.stringify(staleCache)) {
+      persistStaleCache(nextStaleCache);
+    }
     return list;
-  }, [matrices, staleDaysThreshold, nowTick]);
+  }, [matrices, staleDaysThreshold, nowTick, staleCache, notifCategories]);
 
   // filtros
   const filtered = useMemo(() => {
     let out = activities;
+    // filtro temporal por recordedAt
+    if (dateRange !== "all") {
+      const days = parseInt(dateRange);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      out = out.filter((a) => new Date(a.recordedAt) >= cutoff);
+    }
     if (search.trim()) {
       const t = search.toLowerCase();
       out = out.filter((a) => a.matrixCode.toLowerCase().includes(t) || a.action.toLowerCase().includes(t) || a.description.toLowerCase().includes(t));
@@ -132,7 +222,21 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
     if (typeFilter !== "all") out = out.filter((a) => a.type === typeFilter);
     if (levelFilter !== "all") out = out.filter((a) => a.severity === levelFilter);
     return out;
-  }, [activities, search, typeFilter, levelFilter]);
+  }, [activities, search, typeFilter, levelFilter, dateRange]);
+
+  // Data local AAAA-MM-DD (evita problemas de UTC ao comparar "hoje")
+  const todayLocal = (() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  })();
+
+  // Contagem de aprovações de hoje baseada em string AAAA-MM-DD (timestamp pode ser "YYYY-MM-DD" ou ISO; slice(0,10) cobre ambos)
+  const approvalsToday = filtered.filter(
+    (a) => a.action === "Matriz Aprovada" && a.eventDate.slice(0, 10) === todayLocal
+  ).length;
 
   // auto refresh simples
   useEffect(() => {
@@ -151,8 +255,14 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
   // exportação CSV
   const handleExport = () => {
     const csv = [
-      ["Data/Hora", "Código da Matriz", "Ação", "Descrição"],
-      ...filtered.map((a) => [formatBR(new Date(a.timestamp)), a.matrixCode, a.action, a.description]),
+      ["Data do Evento", "Data/Hora do Apontamento", "Código da Matriz", "Ação", "Descrição"],
+      ...filtered.map((a) => [
+        formatDateBR(a.eventDate),
+        formatDateTimeBR(a.recordedAt),
+        a.matrixCode,
+        a.action,
+        a.description,
+      ]),
     ]
       .map((r) => r.join(";"))
       .join("\n");
@@ -207,13 +317,7 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Aprovações Hoje</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {filtered.filter(
-                    (a) =>
-                      a.action === "Matriz Aprovada" &&
-                      new Date(a.timestamp).toDateString() === new Date().toDateString()
-                  ).length}
-                </p>
+                <p className="text-2xl font-bold text-blue-600">{approvalsToday}</p>
               </div>
               <RefreshCw className="w-8 h-8 text-blue-500" />
             </div>
@@ -244,7 +348,7 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
               Auto-refresh
             </Button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <Select value={typeFilter} onValueChange={(v: any) => setTypeFilter(v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Tipo" />
@@ -268,6 +372,42 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
                 <SelectItem value="error">Erro</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={dateRange} onValueChange={(v: any) => setDateRange(v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Período" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Últimos 7 dias</SelectItem>
+                <SelectItem value="15">Últimos 15 dias</SelectItem>
+                <SelectItem value="30">Últimos 30 dias</SelectItem>
+                <SelectItem value="60">Últimos 60 dias</SelectItem>
+                <SelectItem value="90">Últimos 90 dias</SelectItem>
+                <SelectItem value="all">Todos</SelectItem>
+              </SelectContent>
+            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="flex-1 justify-between">
+                  <span className="truncate text-left">Notificações: {notifCategories.length === 3 ? "Todas" : (notifCategories.join(", ") || "Nenhuma")}</span>
+                  <ChevronDown className="w-4 h-4 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56">
+                {(["Aprovadas", "Limpeza", "Correção Externa"]).map((cat) => (
+                  <DropdownMenuCheckboxItem
+                    key={cat}
+                    checked={notifCategories.includes(cat)}
+                    onCheckedChange={(checked) => {
+                      const set = new Set(notifCategories);
+                      if (checked) set.add(cat); else set.delete(cat);
+                      saveNotifCategories(Array.from(set));
+                    }}
+                  >
+                    {cat}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setNowTick((v) => v + 1)} className="flex-1">
                 <RefreshCw className="w-4 h-4 mr-2" /> Atualizar
@@ -299,7 +439,10 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
                         {a.matrixCode}
                       </Badge>
                       <Badge className={severityColors[a.severity]}>{a.action}</Badge>
-                      <span className="text-xs text-muted-foreground ml-auto">{formatBR(new Date(a.timestamp))}</span>
+                      <div className="ml-auto text-right text-xs text-muted-foreground space-y-0.5">
+                        <div>Evento: {formatDateBR(a.eventDate)}</div>
+                        <div>Apontado: {formatDateTimeBR(a.recordedAt)}</div>
+                      </div>
                     </div>
                     <p className="text-sm font-medium mb-1">
                       <span className="font-bold text-blue-700 text-base">{a.matrixCode}</span> <span className="text-gray-700">{a.description.replace(a.matrixCode, "").trim()}</span>

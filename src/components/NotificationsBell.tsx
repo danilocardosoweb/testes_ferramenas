@@ -11,6 +11,17 @@ import { Matrix } from "@/types";
 // Tipos e props
 export type NotifCategory = "Aprovadas" | "Limpeza" | "Correção Externa";
 
+type SentLogEntry = {
+  id: string;
+  eventDate: string;
+  recordedAt: string;
+  matrixCode: string;
+  matrixId: string;
+  action: string;
+  description: string;
+  category: NotifCategory | null;
+};
+
 interface Props {
   matrices: Matrix[];
   staleDaysThreshold?: number; // alinhado com Index.tsx (padrão 10)
@@ -18,7 +29,8 @@ interface Props {
 
 type Activity = {
   id: string;
-  timestamp: string; // ISO
+  eventDate: string; // AAAA-MM-DD
+  recordedAt: string; // ISO completo
   matrixCode: string;
   matrixId: string;
   action: string;
@@ -27,16 +39,29 @@ type Activity = {
 };
 
 const LAST_SEEN_KEY = "notif_last_seen";
+const SENT_LOG_KEY = "notif_sent_log";
+const NOTIF_FILTER_KEY = "notif_visible_categories";
 
 // Helpers
-function formatBRDateTime(d: Date) {
+const toDateTime = (value: string): Date => (value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`));
+
+function formatBRDateTime(value: string | Date) {
+  const date = value instanceof Date ? value : toDateTime(value);
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(d);
+  }).format(date);
+}
+
+function formatBRDate(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(toDateTime(value));
 }
 
 function getGreeting(now: Date) {
@@ -53,7 +78,35 @@ function categorize(typeLower: string): NotifCategory | null {
   return null;
 }
 
-function buildActivities(matrices: Matrix[], staleDaysThreshold: number): Activity[] {
+function loadSentLog(): Record<string, SentLogEntry> {
+  try {
+    const raw = localStorage.getItem(SENT_LOG_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistSentLog(log: Record<string, SentLogEntry>) {
+  try {
+    localStorage.setItem(SENT_LOG_KEY, JSON.stringify(log));
+  } catch {}
+}
+
+function loadNotifFilter(): NotifCategory[] {
+  try {
+    const raw = localStorage.getItem(NOTIF_FILTER_KEY);
+    if (!raw) return ["Aprovadas", "Limpeza", "Correção Externa"];
+    const arr = JSON.parse(raw) as NotifCategory[];
+    const all: NotifCategory[] = ["Aprovadas", "Limpeza", "Correção Externa"];
+    const valid = arr.filter((x) => all.includes(x));
+    return valid.length ? valid : all;
+  } catch {
+    return ["Aprovadas", "Limpeza", "Correção Externa"];
+  }
+}
+
+function buildActivities(matrices: Matrix[], staleDaysThreshold: number, sentLog: Record<string, SentLogEntry>, visibleCats: NotifCategory[]): Activity[] {
   const list: Activity[] = [];
 
   for (const m of matrices) {
@@ -90,14 +143,24 @@ function buildActivities(matrices: Matrix[], staleDaysThreshold: number): Activi
         desc = `${m.code} foi recebida no sistema`;
       }
 
+      // Remove atividades já enviadas (sentLog) e respeita o filtro de categorias visíveis
+      const cat = categorize(lower);
+      if (cat && sentLog[ev.id]) {
+        continue;
+      }
+      if (cat && visibleCats.length && !visibleCats.includes(cat)) {
+        continue;
+      }
+
       list.push({
         id: ev.id,
-        timestamp: ev.date,
+        eventDate: ev.date,
+        recordedAt: ev.createdAt ?? `${ev.date}T00:00:00`,
         matrixCode: m.code,
         matrixId: m.id,
         action,
         description: desc,
-        category: categorize(lower),
+        category: cat,
       });
     }
 
@@ -108,7 +171,8 @@ function buildActivities(matrices: Matrix[], staleDaysThreshold: number): Activi
       if (days > staleDaysThreshold) {
         list.push({
           id: `stale-${m.id}`,
-          timestamp: new Date().toISOString(),
+          eventDate: lastDate,
+          recordedAt: new Date().toISOString(),
           matrixCode: m.code,
           matrixId: m.id,
           action: "Matriz Parada",
@@ -119,8 +183,8 @@ function buildActivities(matrices: Matrix[], staleDaysThreshold: number): Activi
     }
   }
 
-  // ordena mais recentes primeiro
-  list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  // ordena mais recentes primeiro (considerando data/hora do apontamento)
+  list.sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime());
   return list;
 }
 
@@ -128,9 +192,12 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
   const [open, setOpen] = useState(false);
   const [nowTick, setNowTick] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sentLog, setSentLog] = useState<Record<string, SentLogEntry>>(() => loadSentLog());
+  const [visibleCats, setVisibleCats] = useState<NotifCategory[]>(() => loadNotifFilter());
 
   // atividades e contagem de "novas"
-  const activities = useMemo(() => buildActivities(matrices, staleDaysThreshold), [matrices, staleDaysThreshold, nowTick]);
+  const activities = useMemo(() => buildActivities(matrices, staleDaysThreshold, sentLog, visibleCats), [matrices, staleDaysThreshold, nowTick, sentLog, visibleCats]);
+  const visibleActivities = useMemo(() => activities.filter((a) => !!a.category), [activities]);
 
   const lastSeen = useMemo(() => {
     try {
@@ -141,15 +208,26 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
   }, [open]);
 
   const unreadCount = useMemo(() => {
-    if (!lastSeen) return activities.length;
+    if (!lastSeen) return visibleActivities.length;
     const last = new Date(lastSeen).getTime();
-    return activities.filter((a) => new Date(a.timestamp).getTime() > last).length;
-  }, [activities, lastSeen]);
+    return visibleActivities.filter((a) => new Date(a.recordedAt).getTime() > last).length;
+  }, [visibleActivities, lastSeen]);
 
   // auto refresh leve
   useEffect(() => {
     const id = setInterval(() => setNowTick((v) => v + 1), 5000);
     return () => clearInterval(id);
+  }, []);
+
+  // ouvir mudanças externas do filtro de categorias
+  useEffect(() => {
+    const onFilter = () => setVisibleCats(loadNotifFilter());
+    window.addEventListener("notif-filter-updated", onFilter as EventListener);
+    window.addEventListener("storage", onFilter);
+    return () => {
+      window.removeEventListener("notif-filter-updated", onFilter as EventListener);
+      window.removeEventListener("storage", onFilter);
+    };
   }, []);
 
   // seleção por categoria
@@ -209,8 +287,9 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
       if (items.length === 0) continue;
       lines.push(`${cat}:`);
       for (const it of items) {
-        const when = formatBRDateTime(new Date(it.timestamp));
-        lines.push(`- ${it.matrixCode} | ${it.action} | ${when}`);
+        const whenRecorded = formatBRDateTime(it.recordedAt);
+        const whenEvent = formatBRDate(it.eventDate);
+        lines.push(`- ${it.matrixCode} | ${it.action} | Evento: ${whenEvent} | Apontado: ${whenRecorded}`);
       }
       lines.push("");
     }
@@ -228,13 +307,34 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
     }
 
     const to = recipients ? encodeURIComponent(recipients) : "";
-    const ts = formatBRDateTime(new Date()).replace(" ", ", ");
+    const ts = formatBRDateTime(new Date().toISOString()).replace(" ", ", ");
     const subject = encodeURIComponent(`Acompanhamento de Testes de Ferramenta - Notificação de Eventos - ${ts}`);
     const body = buildMailToBody();
 
     // mailto padrão do SO
     const href = `mailto:${to}?subject=${subject}&body=${body}`;
     window.location.href = href;
+
+    // Registro e remoção automática
+    const sentAt = new Date().toISOString();
+    const nextLog = { ...sentLog };
+    for (const act of activities) {
+      if (!selectedIds.has(act.id)) continue;
+      nextLog[act.id] = {
+        id: act.id,
+        eventDate: act.eventDate,
+        recordedAt: sentAt,
+        matrixCode: act.matrixCode,
+        matrixId: act.matrixId,
+        action: act.action,
+        description: act.description,
+        category: act.category,
+      };
+    }
+    persistSentLog(nextLog);
+    setSentLog(nextLog);
+    setSelectedIds(new Set());
+    setNowTick((v) => v + 1);
   }
 
   return (
@@ -252,7 +352,7 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
       <PopoverContent className="w-[420px] p-0">
         <div className="p-3 border-b flex items-center gap-2">
           <Badge className="bg-blue-600 text-white">Notificações</Badge>
-          <span className="ml-auto text-xs text-muted-foreground">{activities.length} atividade(s)</span>
+          <span className="ml-auto text-xs text-muted-foreground">{visibleActivities.length} atividade(s)</span>
         </div>
 
         <ScrollArea className="h-[360px]">
@@ -276,7 +376,10 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
                           <Checkbox checked={selectedIds.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium">{a.matrixCode} — {a.action}</div>
-                            <div className="text-xs text-muted-foreground">{formatBRDateTime(new Date(a.timestamp))}</div>
+                            <div className="text-xs text-muted-foreground space-y-0.5">
+                              <div>Evento: {formatBRDate(a.eventDate)}</div>
+                              <div>Apontado: {formatBRDateTime(a.recordedAt)}</div>
+                            </div>
                           </div>
                         </li>
                       ))}

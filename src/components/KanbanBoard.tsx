@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Trash2, Edit3, Save, X, Calendar, AlertTriangle, FlagTriangleRight, CheckSquare, Square, Upload, Download, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Edit3, Save, X, Calendar, AlertTriangle, FlagTriangleRight, CheckSquare, Square, Upload, Download, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -98,6 +98,7 @@ export default function KanbanBoard({ matrices }: Props) {
   const [filterSource, setFilterSource] = useState<"all" | "auto" | "manual">("all");
   const [filterFolder, setFilterFolder] = useState<string | "all">("all");
   const [filterResponsible, setFilterResponsible] = useState<string | "all">("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Carregar dados do Kanban do Supabase
   const reloadFromDb = async () => {
@@ -228,11 +229,52 @@ export default function KanbanBoard({ matrices }: Props) {
 
   // Exportar/Importar estado
   const exportState = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    // Exporta como Excel (SpreadsheetML .xls) com cabeçalho e formatação básica
+    const esc = (s: any) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const rows: Array<Array<string | number | boolean>> = [];
+    rows.push(["ID", "Título", "Descrição", "Origem", "Coluna", "Bloqueado", "Código Matriz", "Criado Em"]);
+    const order: KanbanColumnId[] = ["backlog", "em_andamento", "concluido"];
+    for (const col of order) {
+      for (const cid of state.columns[col]) {
+        const c = state.cards[cid];
+        if (!c) continue;
+        rows.push([
+          c.id,
+          c.title,
+          c.description ?? "",
+          c.source ?? "manual",
+          col === "backlog" ? "Backlog" : col === "em_andamento" ? "Em Andamento" : "Concluído",
+          !!c.blocked,
+          c.matrixCode ?? "",
+          new Date(c.createdAt).toISOString(),
+        ]);
+      }
+    }
+
+    const colWidths = [24, 50, 80, 16, 20, 12, 20, 24];
+    const header = `<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n  <Styles>\n    <Style ss:ID="Header"><Font ss:Bold="1"/><Interior ss:Color="#F2F2F2" ss:Pattern="Solid"/></Style>\n    <Style ss:ID="Text"><NumberFormat ss:Format="@"/></Style>\n    <Style ss:ID="Date"><NumberFormat ss:Format="yyyy-mm-dd\ hh:mm"/></Style>\n  </Styles>\n  <Worksheet ss:Name="Kanban">\n    <Table>`;
+    const widthsXml = colWidths.map((w) => `<Column ss:AutoFitWidth="0" ss:Width="${w * 6}"/>`).join("");
+    const headerRow = rows[0].map((v) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${esc(v)}</Data></Cell>`).join("");
+    const bodyRows = rows.slice(1).map((r) => {
+      return (
+        "<Row>" +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[0])}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[1])}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[2])}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[3])}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[4])}</Data></Cell>` +
+        `<Cell><Data ss:Type="Boolean">${r[5] ? 1 : 0}</Data></Cell>` +
+        `<Cell ss:StyleID="Text"><Data ss:Type="String">${esc(r[6])}</Data></Cell>` +
+        `<Cell ss:StyleID="Date"><Data ss:Type="String">${esc(r[7])}</Data></Cell>` +
+        "</Row>"
+      );
+    }).join("\n");
+    const xml = `${header}\n${widthsXml}\n<Row>${headerRow}</Row>\n${bodyRows}\n    </Table>\n  </Worksheet>\n</Workbook>`;
+    const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `kanban_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.json`;
+    a.download = `kanban_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.xls`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -242,17 +284,42 @@ export default function KanbanBoard({ matrices }: Props) {
     if (!file) return;
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text) as KanbanState;
-      // validação simples
-      if (!parsed.columns || !parsed.cards) throw new Error("Arquivo inválido");
-      setState(parsed);
-      saveState(parsed);
-      toast({ title: "Kanban importado", description: "Os cards e colunas foram carregados do arquivo." });
+      if (!/Workbook/.test(text)) throw new Error("Arquivo Excel inválido (.xls esperado)");
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, "text/xml");
+      const rows = Array.from(doc.getElementsByTagName("Row"));
+      if (rows.length < 2) throw new Error("Planilha vazia");
+      // Mapa português -> slug
+      const colMap: Record<string, KanbanColumnId> = { "Backlog": "backlog", "Em Andamento": "em_andamento", "Concluído": "concluido", "Concluido": "concluido" };
+      // Pular cabeçalho (linha 0)
+      for (let i = 1; i < rows.length; i++) {
+        const cells = Array.from(rows[i].getElementsByTagName("Cell"));
+        const get = (idx: number) => cells[idx]?.textContent ?? "";
+        const title = get(1).trim();
+        if (!title) continue;
+        const description = get(2).trim();
+        const origem = get(3).trim().toLowerCase();
+        const colunaName = get(4).trim();
+        const blocked = get(5).trim() === "1" || /true/i.test(get(5));
+        const matrixCode = get(6).trim() || undefined;
+        const slug = colMap[colunaName] ?? "backlog";
+        const columnId = state.columnIdBySlug[slug];
+        if (!columnId) continue;
+        try {
+          const id = await kanbanCreateCard({ title, description: description || null, column_id: columnId, source: origem === "auto" ? "auto" : "manual", blocked, matrix_code: matrixCode ?? null });
+          // otimista
+          const card: KanbanCard = { id, title, description: description || undefined, createdAt: new Date().toISOString(), source: origem === "auto" ? "auto" : "manual", blocked, matrixCode };
+          persist((s) => ({ ...s, cards: { ...s.cards, [id]: card }, columns: { ...s.columns, [slug]: [id, ...s.columns[slug]] }, movedAt: { ...s.movedAt, [id]: { column: slug, movedAt: new Date().toISOString() } } }));
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      toast({ title: "Importação concluída", description: "Os cards foram importados da planilha Excel." });
     } catch (err: any) {
       console.error(err);
       toast({ title: "Falha ao importar", description: String(err?.message || err), variant: "destructive" });
     } finally {
-      e.target.value = ""; // permite reimportar o mesmo arquivo
+      e.target.value = "";
     }
   };
 
@@ -394,7 +461,7 @@ export default function KanbanBoard({ matrices }: Props) {
               draggable
               onDragStart={(e) => onDragStart(e, cid)}
             >
-              <CardContent className="p-3">
+              <CardContent className={`p-3 ${state.compact ? "p-2 text-sm" : ""}`}>
                 {!isEditing ? (
                   <>
                     <div className="flex items-center gap-2 mb-1">
@@ -409,7 +476,7 @@ export default function KanbanBoard({ matrices }: Props) {
                       <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(c.createdAt).toLocaleDateString("pt-BR")}</span>
                     </div>
                     <div className="font-semibold mb-1">{c.title}</div>
-                    {c.description && <div className="text-sm text-muted-foreground whitespace-pre-wrap">{c.description}</div>}
+                    {!state.compact && c.description && <div className="text-sm text-muted-foreground whitespace-pre-wrap">{c.description}</div>}
                     <div className="mt-2 flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => startEdit(cid)}>
                         <Edit3 className="w-4 h-4 mr-1" /> Editar
@@ -445,95 +512,100 @@ export default function KanbanBoard({ matrices }: Props) {
       {/* Controles */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">Kanban</CardTitle>
+          <CardTitle className="flex items-center justify-between">
+            Kanban
+            <Button size="sm" variant="outline" onClick={() => setFiltersOpen((v) => !v)}>
+              {filtersOpen ? <><ChevronUp className="w-4 h-4 mr-1" />Recolher</> : <><ChevronDown className="w-4 h-4 mr-1" />Expandir</>}
+            </Button>
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {/* Linha 1: filtros principais */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <div className="md:col-span-2">
+        {filtersOpen && (
+          <CardContent className="space-y-3">
+            {/* Linha 1: 5 colunas com filtros */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <Input placeholder="Buscar por código, título ou descrição..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Select value={filterSource} onValueChange={(v: any) => setFilterSource(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas as Origens" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as Origens</SelectItem>
+                  <SelectItem value="auto">Automáticos</SelectItem>
+                  <SelectItem value="manual">Manuais</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant={state.compact ? "default" : "outline"} onClick={() => persist((s) => ({ ...s, compact: !s.compact }))}>Modo {state.compact ? "Detalhado" : "Compacto"}</Button>
+              <Select value={filterFolder} onValueChange={(v: any) => setFilterFolder(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas as Pastas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as Pastas</SelectItem>
+                  {distinctFolders.map((f) => (
+                    <SelectItem key={f} value={f}>{f}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterResponsible} onValueChange={(v: any) => setFilterResponsible(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os Responsáveis" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os Responsáveis</SelectItem>
+                  {distinctResponsibles.map((r) => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={filterSource} onValueChange={(v: any) => setFilterSource(v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Origem" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Origens</SelectItem>
-                <SelectItem value="auto">Automáticos</SelectItem>
-                <SelectItem value="manual">Manuais</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant={state.compact ? "default" : "outline"} onClick={() => persist((s) => ({ ...s, compact: !s.compact }))}>Modo {state.compact ? "Detalhado" : "Compacto"}</Button>
-          </div>
 
-          {/* Linha 2: filtros por pasta/responsável e WIP */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <Select value={filterFolder} onValueChange={(v: any) => setFilterFolder(v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Pasta" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Pastas</SelectItem>
-                {distinctFolders.map((f) => (
-                  <SelectItem key={f} value={f}>{f}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterResponsible} onValueChange={(v: any) => setFilterResponsible(v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Responsável" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os Responsáveis</SelectItem>
-                {distinctResponsibles.map((r) => (
-                  <SelectItem key={r} value={r}>{r}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">WIP Em Andamento</span>
-              <Input type="number" value={state.wip.em_andamento}
-                onChange={(e) => {
-                  const val = Math.max(1, Number(e.target.value) || 1);
-                  persist((s) => ({ ...s, wip: { ...s.wip, em_andamento: val } }));
-                  const colId = state.columnIdBySlug.em_andamento; if (colId) kanbanSetWip(colId, val);
-                }}
-                className="w-24" />
-            </div>
-            <div className="flex items-center gap-2 justify-end">
-              <Button size="sm" variant="outline" onClick={exportState}><Download className="w-4 h-4 mr-1" />Exportar</Button>
-              <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
-                <Upload className="w-4 h-4" />
-                <input type="file" accept="application/json" className="hidden" onChange={importState} />
-                Importar
-              </label>
-              <Button size="sm" onClick={reloadFromDb}><RefreshCw className="w-4 h-4 mr-1" />Recarregar</Button>
-            </div>
-          </div>
-
-          {/* Criar novo card */}
-          {!creating ? (
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">Crie cards livremente. Os cards de <strong>Correção Externa (Saída)</strong> são gerados automaticamente quando a matriz sai para correção.</div>
-              <Button onClick={() => setCreating(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Card</Button>
-            </div>
-          ) : (
+            {/* Linha 2: WIP e ações */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground">Título</label>
-                <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Ex.: Reunião com fornecedor" />
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">WIP Em Andamento</span>
+                <Input type="number" value={state.wip.em_andamento}
+                  onChange={(e) => {
+                    const val = Math.max(1, Number(e.target.value) || 1);
+                    persist((s) => ({ ...s, wip: { ...s.wip, em_andamento: val } }));
+                    const colId = state.columnIdBySlug.em_andamento; if (colId) kanbanSetWip(colId, val);
+                  }}
+                  className="w-24" />
               </div>
-              <div className="md:col-span-2">
-                <label className="text-xs text-muted-foreground">Descrição</label>
-                <Textarea rows={3} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Detalhes adicionais..." />
-              </div>
-              <div className="md:col-span-2 flex items-center gap-2">
-                <Button size="sm" onClick={createManualCard}><Save className="w-4 h-4 mr-1" />Salvar</Button>
-                <Button size="sm" variant="outline" onClick={() => { setCreating(false); setNewTitle(""); setNewDesc(""); }}><X className="w-4 h-4 mr-1" />Cancelar</Button>
+              <div className="flex items-center gap-2 justify-end">
+                <Button size="sm" variant="outline" onClick={exportState}><Download className="w-4 h-4 mr-1" />Exportar</Button>
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
+                  <Upload className="w-4 h-4" />
+                  <input type="file" accept=".xls" className="hidden" onChange={importState} />
+                  Importar
+                </label>
+                <Button size="sm" onClick={reloadFromDb}><RefreshCw className="w-4 h-4 mr-1" />Recarregar</Button>
               </div>
             </div>
-          )}
-        </CardContent>
+
+            {/* Criar novo card */}
+            {!creating ? (
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">Crie cards livremente. Os cards de <strong>Correção Externa (Saída)</strong> são gerados automaticamente quando a matriz sai para correção.</div>
+                <Button onClick={() => setCreating(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Card</Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground">Título</label>
+                  <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Ex.: Reunião com fornecedor" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-muted-foreground">Descrição</label>
+                  <Textarea rows={3} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Detalhes adicionais..." />
+                </div>
+                <div className="md:col-span-2 flex items-center gap-2">
+                  <Button size="sm" onClick={createManualCard}><Save className="w-4 h-4 mr-1" />Salvar</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setCreating(false); setNewTitle(""); setNewDesc(""); }}><X className="w-4 h-4 mr-1" />Cancelar</Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       {/* Board */}

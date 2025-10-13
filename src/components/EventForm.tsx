@@ -38,6 +38,7 @@ export const EventForm = ({ onSubmit, defaultDate, minDate }: EventFormProps) =>
       date,
       type,
       comment: comment.trim(),
+      createdAt: new Date().toISOString(),
       location: location.trim(),
       responsible: responsible.trim() || undefined,
     };
