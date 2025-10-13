@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Trash2, Edit3, Save, X, Calendar, AlertTriangle, FlagTriangleRight, CheckSquare, Square, Upload, Download, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Edit3, Save, X, Calendar, AlertTriangle, FlagTriangleRight, CheckSquare, Square, Upload, Download, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -98,6 +98,7 @@ export default function KanbanBoard({ matrices }: Props) {
   const [filterSource, setFilterSource] = useState<"all" | "auto" | "manual">("all");
   const [filterFolder, setFilterFolder] = useState<string | "all">("all");
   const [filterResponsible, setFilterResponsible] = useState<string | "all">("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Carregar dados do Kanban do Supabase
   const reloadFromDb = async () => {
@@ -511,95 +512,100 @@ export default function KanbanBoard({ matrices }: Props) {
       {/* Controles */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">Kanban</CardTitle>
+          <CardTitle className="flex items-center justify-between">
+            Kanban
+            <Button size="sm" variant="outline" onClick={() => setFiltersOpen((v) => !v)}>
+              {filtersOpen ? <><ChevronUp className="w-4 h-4 mr-1" />Recolher</> : <><ChevronDown className="w-4 h-4 mr-1" />Expandir</>}
+            </Button>
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {/* Linha 1: filtros principais */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <div className="md:col-span-2">
+        {filtersOpen && (
+          <CardContent className="space-y-3">
+            {/* Linha 1: 5 colunas com filtros */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <Input placeholder="Buscar por código, título ou descrição..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Select value={filterSource} onValueChange={(v: any) => setFilterSource(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas as Origens" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as Origens</SelectItem>
+                  <SelectItem value="auto">Automáticos</SelectItem>
+                  <SelectItem value="manual">Manuais</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant={state.compact ? "default" : "outline"} onClick={() => persist((s) => ({ ...s, compact: !s.compact }))}>Modo {state.compact ? "Detalhado" : "Compacto"}</Button>
+              <Select value={filterFolder} onValueChange={(v: any) => setFilterFolder(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas as Pastas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as Pastas</SelectItem>
+                  {distinctFolders.map((f) => (
+                    <SelectItem key={f} value={f}>{f}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterResponsible} onValueChange={(v: any) => setFilterResponsible(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os Responsáveis" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os Responsáveis</SelectItem>
+                  {distinctResponsibles.map((r) => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={filterSource} onValueChange={(v: any) => setFilterSource(v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Origem" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Origens</SelectItem>
-                <SelectItem value="auto">Automáticos</SelectItem>
-                <SelectItem value="manual">Manuais</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant={state.compact ? "default" : "outline"} onClick={() => persist((s) => ({ ...s, compact: !s.compact }))}>Modo {state.compact ? "Detalhado" : "Compacto"}</Button>
-          </div>
 
-          {/* Linha 2: filtros por pasta/responsável e WIP */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <Select value={filterFolder} onValueChange={(v: any) => setFilterFolder(v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Pasta" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Pastas</SelectItem>
-                {distinctFolders.map((f) => (
-                  <SelectItem key={f} value={f}>{f}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterResponsible} onValueChange={(v: any) => setFilterResponsible(v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Responsável" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os Responsáveis</SelectItem>
-                {distinctResponsibles.map((r) => (
-                  <SelectItem key={r} value={r}>{r}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">WIP Em Andamento</span>
-              <Input type="number" value={state.wip.em_andamento}
-                onChange={(e) => {
-                  const val = Math.max(1, Number(e.target.value) || 1);
-                  persist((s) => ({ ...s, wip: { ...s.wip, em_andamento: val } }));
-                  const colId = state.columnIdBySlug.em_andamento; if (colId) kanbanSetWip(colId, val);
-                }}
-                className="w-24" />
-            </div>
-            <div className="flex items-center gap-2 justify-end">
-              <Button size="sm" variant="outline" onClick={exportState}><Download className="w-4 h-4 mr-1" />Exportar</Button>
-              <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
-                <Upload className="w-4 h-4" />
-                <input type="file" accept=".xls" className="hidden" onChange={importState} />
-                Importar
-              </label>
-              <Button size="sm" onClick={reloadFromDb}><RefreshCw className="w-4 h-4 mr-1" />Recarregar</Button>
-            </div>
-          </div>
-
-          {/* Criar novo card */}
-          {!creating ? (
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">Crie cards livremente. Os cards de <strong>Correção Externa (Saída)</strong> são gerados automaticamente quando a matriz sai para correção.</div>
-              <Button onClick={() => setCreating(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Card</Button>
-            </div>
-          ) : (
+            {/* Linha 2: WIP e ações */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground">Título</label>
-                <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Ex.: Reunião com fornecedor" />
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">WIP Em Andamento</span>
+                <Input type="number" value={state.wip.em_andamento}
+                  onChange={(e) => {
+                    const val = Math.max(1, Number(e.target.value) || 1);
+                    persist((s) => ({ ...s, wip: { ...s.wip, em_andamento: val } }));
+                    const colId = state.columnIdBySlug.em_andamento; if (colId) kanbanSetWip(colId, val);
+                  }}
+                  className="w-24" />
               </div>
-              <div className="md:col-span-2">
-                <label className="text-xs text-muted-foreground">Descrição</label>
-                <Textarea rows={3} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Detalhes adicionais..." />
-              </div>
-              <div className="md:col-span-2 flex items-center gap-2">
-                <Button size="sm" onClick={createManualCard}><Save className="w-4 h-4 mr-1" />Salvar</Button>
-                <Button size="sm" variant="outline" onClick={() => { setCreating(false); setNewTitle(""); setNewDesc(""); }}><X className="w-4 h-4 mr-1" />Cancelar</Button>
+              <div className="flex items-center gap-2 justify-end">
+                <Button size="sm" variant="outline" onClick={exportState}><Download className="w-4 h-4 mr-1" />Exportar</Button>
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
+                  <Upload className="w-4 h-4" />
+                  <input type="file" accept=".xls" className="hidden" onChange={importState} />
+                  Importar
+                </label>
+                <Button size="sm" onClick={reloadFromDb}><RefreshCw className="w-4 h-4 mr-1" />Recarregar</Button>
               </div>
             </div>
-          )}
-        </CardContent>
+
+            {/* Criar novo card */}
+            {!creating ? (
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">Crie cards livremente. Os cards de <strong>Correção Externa (Saída)</strong> são gerados automaticamente quando a matriz sai para correção.</div>
+                <Button onClick={() => setCreating(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Card</Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground">Título</label>
+                  <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Ex.: Reunião com fornecedor" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-muted-foreground">Descrição</label>
+                  <Textarea rows={3} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Detalhes adicionais..." />
+                </div>
+                <div className="md:col-span-2 flex items-center gap-2">
+                  <Button size="sm" onClick={createManualCard}><Save className="w-4 h-4 mr-1" />Salvar</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setCreating(false); setNewTitle(""); setNewDesc(""); }}><X className="w-4 h-4 mr-1" />Cancelar</Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       {/* Board */}
