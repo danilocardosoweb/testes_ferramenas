@@ -130,6 +130,28 @@
 ### Segurança
 - Ambiente de desenvolvimento usa hash Base64 simples nas senhas. Em produção, migrar para bcrypt (hash e comparação server-side) ou Supabase Auth.
 
+## Aba Confecção (15/10/2025)
+- **Objetivo**: Ponto de partida do processo - registrar novas matrizes antes de chegarem à empresa.
+- **Funcionalidades**:
+  - Formulário completo com validação de campos obrigatórios.
+  - **Tipo de Confecção**: Matriz Nova ou Reposição (radio buttons visuais).
+  - **Tipo de Perfil**: Tubular ou Sólido (radio buttons com ícones).
+  - **Fornecedor**: FEP, EXXO, FELJ ou Outro (campo livre).
+  - **Data de Entrega**: Seleção de data com validação (não permite datas passadas).
+  - **Fotos da Matriz**: Upload múltiplo de imagens (até 5MB cada) com preview em grid e lightbox para ampliar.
+  - **Fotos de Problemas**: Upload múltiplo de imagens dos problemas identificados.
+  - **Observações Técnicas**: Campo opcional para detalhes técnicos, especificações, medidas.
+  - **Justificativa**: Campo obrigatório explicando o motivo da confecção.
+- **Fluxo Automático**:
+  1. Ao registrar confecção, sistema cria automaticamente:
+     - Nova matriz no banco (`matrices`) com código informado.
+     - Evento de "Recebimento" com comentário detalhado (tipo, fornecedor).
+     - Registro em `manufacturing_records` com todas as informações e imagens.
+  2. Matriz aparece imediatamente em Timeline e Planilha.
+  3. Formulário é limpo após sucesso para novo registro.
+- **Design**: Cards coloridos por seção (azul=identificação, roxo=especificações, âmbar=fornecedor, verde=fotos, cinza=observações) com gradientes e ícones.
+- **Segurança**: Requer login (apenas usuários autenticados podem registrar confecções).
+
 ## Padrões (PT-BR)
 - Datas exibidas em formato brasileiro via `toLocaleDateString("pt-BR")`.
 - Textos e rotulagem em PT-BR.

@@ -31,6 +31,7 @@ import ActivityHistory from "@/components/ActivityHistory";
 import { TestingView } from "@/components/TestingView";
 import { SettingsView } from "@/components/SettingsView";
 import { LoginDialog } from "@/components/LoginDialog";
+import { ManufacturingView } from "@/components/ManufacturingView";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
@@ -50,7 +51,7 @@ const Index = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
-  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard" | "approved" | "activity" | "kanban" | "testing" | "settings">("timeline");
+  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard" | "approved" | "activity" | "kanban" | "testing" | "manufacturing" | "settings">("timeline");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const STALE_DAYS = 10;
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
@@ -331,6 +332,17 @@ const Index = () => {
               onClick={() => setMainView("timeline")}
             >Timeline</button>
             <button
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "manufacturing" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => {
+                if (!authSession) {
+                  setShowLoginDialog(true);
+                  toast({ title: "Login necessário", description: "Faça login para registrar confecções", variant: "destructive" });
+                } else {
+                  setMainView("manufacturing");
+                }
+              }}
+            >Confecção</button>
+            <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => {
                 if (!authSession) {
@@ -395,9 +407,10 @@ const Index = () => {
                   <button
                     className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "settings" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
                     onClick={() => setMainView("settings")}
+                    title="Configurações"
+                    aria-label="Configurações"
                   >
-                    <Settings className="h-4 w-4 inline mr-1" />
-                    Configurações
+                    <Settings className="h-4 w-4 inline" />
                   </button>
                 )}
               </>
@@ -547,6 +560,14 @@ const Index = () => {
                   onRefresh={reloadAll}
                 />
               </div>
+            ) : mainView === "manufacturing" ? (
+              authSession ? (
+                <ManufacturingView onSuccess={reloadAll} />
+              ) : (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-muted-foreground">Faça login para registrar confecções</p>
+                </div>
+              )
             ) : mainView === "settings" ? (
               authSession ? (
                 <SettingsView currentUser={authSession.user} />

@@ -66,6 +66,23 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `created_by (uuid, nullable)`
   - `updated_at (timestamptz, default now())`
 
+- **manufacturing_records**
+  - `id (uuid, PK)`
+  - `matrix_id (uuid, FK -> matrices.id, on delete cascade)`
+  - `matrix_code (text, not null)`
+  - `manufacturing_type (text, not null, check in ['nova','reposicao'])`
+  - `profile_type (text, not null, check in ['tubular','solido'])`
+  - `supplier (text, not null)`
+  - `custom_supplier (text, nullable)`
+  - `delivery_date (date, not null)`
+  - `matrix_images (jsonb, default '[]'::jsonb)` — Fotos da matriz
+  - `problem_images (jsonb, default '[]'::jsonb)` — Fotos de problemas
+  - `technical_notes (text, nullable)`
+  - `justification (text, not null)`
+  - `created_at (timestamptz, default now())`
+  - `created_by (uuid, nullable)`
+  - `updated_at (timestamptz, default now())`
+
 ## Relacionamentos
 
 - `folders 1—n matrices`

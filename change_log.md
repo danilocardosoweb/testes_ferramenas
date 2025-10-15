@@ -14,3 +14,5 @@
 [15/10/2025 12:26] - extrude-flow-main - Correção lógica de teste ativo: matrizes com eventos posteriores ao último "Testes" são consideradas disponíveis para novo planejamento; UI: botão Atualizar trocado por ícone, removido contador de matrizes da barra superior - Cascade
 
 [15/10/2025 12:48] - extrude-flow-main - Edição de itens da fila: campo images (JSONB) adicionado à testing_queue; cards da fila clicáveis para editar observação e imagens; diálogo de edição com upload múltiplo e lightbox; correções em sidebar (tipo "Testes" nos indicadores e status); clique em cards de teste ativo habilitado - Cascade
+
+[15/10/2025 13:54] - extrude-flow-main - Nova aba Confecção: ponto de partida do processo com formulário completo (tipo confecção, perfil, fornecedor, prazo, fotos matriz/problemas, observações técnicas, justificativa); tabela manufacturing_records criada; ao registrar confecção, matriz é criada automaticamente com evento Recebimento e aparece em Timeline/Planilha; design inovador com cards coloridos e upload de imagens com lightbox - Cascade

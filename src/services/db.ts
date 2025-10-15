@@ -128,6 +128,7 @@ export async function listMatrices(): Promise<Matrix[]> {
       createdAt: e.created_at || undefined,
       location: e.location || undefined,
       responsible: e.responsible || undefined,
+      machine: e.machine || undefined,
       images: [],
       observations: undefined,
       files: [],

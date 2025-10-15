@@ -8,6 +8,7 @@ export interface MatrixEvent {
   observations?: string;
   images?: string[];
   responsible?: string;
+  machine?: "P18" | "P19";
   files?: { name: string; type: string; dataUrl: string }[];
 }
 
