@@ -1,9 +1,10 @@
-# Especificações - Sistema de Controle de Matrizes (Iteração 1)
+# Especificações - Sistema de Controle de Matrizes (Iterações 1 e 2)
 
 ## Escopo Atual
-- Front-end único (Vite + React + TypeScript + Tailwind + shadcn-ui).
-- Persistência local via LocalStorage (`src/utils/storage.ts`).
+- Front-end (Vite + React + TypeScript + Tailwind + shadcn-ui).
+- Persistência principal via Supabase (Postgres) com serviços em `src/services/`.
 - Importação/Exportação: JSON (nativo) e, futuramente, Excel (.xlsx).
+- Autenticação simples (Users/Sessions no Supabase) com controle de acesso por papel (admin/editor/viewer).
 
 ## Modelo de Dados
 - `Matrix`:
@@ -25,7 +26,12 @@
 - `EventType` (ampliado):
   - "Recebimento", "Teste Inicial", "Ajuste", "Teste Final", "Aprovado", "Reprovado", "Manutenção", "Limpeza", "Correção Externa", "Outro".
 
-## Regras de Negócio Implementadas (Iteração 1)
+- `User`:
+  - `id`, `email`, `name`, `role: 'admin'|'editor'|'viewer'`, `isActive`, `createdAt`, `updatedAt`.
+- `AuthSession`:
+  - `user: User`, `token`, `expiresAt` (duração padrão 8h).
+
+## Regras de Negócio Implementadas (Iterações 1 e 2)
 - Status atual da matriz = último evento da lista:
   - Teste Inicial/Final → "Em teste".
   - Ajuste → "Em ajuste".
@@ -46,6 +52,25 @@
   - Reprovações: eventos "Reprovado".
   - Correções: eventos "Ajuste" + "Correção Externa".
 
+### Em Teste (Aba)
+- Componente: `src/components/TestingView.tsx`.
+- Planejamento de teste: fila em `testing_queue` (Supabase). Itens podem ser iniciados (gera evento "Testes").
+- Teste iniciado: cria evento `type: "Testes"` com `created_at` e `machine (P18|P19)`.
+- Finalizar teste: cria novo evento `type: "Testes"` com `comment` contendo "concluído" para compatibilidade com Timeline/Planilha. O card é removido localmente (estado `hiddenIds`) sem recarregar a página.
+- Remover manualmente: cria evento `type: "Outro"` ("Encerrado manualmente") e oculta o card.
+- Numeração de testes: badge "Teste N" exibida no card calculando a quantidade de eventos `type === 'Testes'` da matriz.
+- Sincronização: atualizações de fila e listas após planejar/iniciar/remover (`loadAvailableMatrices`, `loadTestingQueue`, `onRefresh`).
+- Scroll por coluna (P18/P19): colunas com `min-h-0` e `ScrollArea` para visualizar todos os cards.
+- Edição rápida: diálogo para editar observação e imagens em memória, com lightbox ao clicar na miniatura.
+
+### Planejamento - Disponibilidade
+- Serviço: `src/services/testingQueue.ts` (`getAvailableMatricesForTesting`).
+- Regras:
+  - Excluir matrizes já aprovadas (evento exato `type = 'Aprovado'`).
+  - Excluir matrizes com teste ativo: último evento `type = 'Testes'` sem `comment` contendo "concluído".
+  - Ordenação de eventos por `created_at` (fallback `date`).
+  - Preservar `comment` ao mapear eventos para o front.
+
 ## Páginas/Componentes Atualizados
 - `src/types/index.ts`: novos tipos de evento.
 - `src/components/MatrixForm.tsx`: campos de prioridade e responsável.
@@ -53,6 +78,17 @@
 - `src/components/EventDetailDialog.tsx`: edição de responsável, junto com observações/imagens.
 - `src/components/MatrixSidebar.tsx`: exibe status atual, prioridade e indicadores.
 - `src/pages/NotFound.tsx`: traduzido para PT-BR.
+
+### Autenticação e Acesso
+- `src/services/auth.ts`: login/logout; sessões (`user_sessions`); CRUD de usuários.
+- `src/components/LoginDialog.tsx`: formulário de login (sem exibir credenciais padrão).
+- `src/components/SettingsView.tsx`: gestão de usuários (apenas admin).
+- `src/pages/Index.tsx`:
+  - Navegação protegida por login (Planilha, Dashboard, Aprovadas, Kanban, Histórico, Em Teste, Configurações).
+  - Sidebar e painel de formulários ocultos para não logados.
+  - Botões de Login/Logout.
+- `src/components/FlowView.tsx`:
+  - `isReadOnly` para uso sem login: remove `Controls` (cadeado, zoom, fit), bloqueia drag/select e pan; mantém visualização e MiniMap.
 
 ### Novo: Notificações (Sino)
 - `src/components/NotificationsBell.tsx`: exibe um sino com badge de contagem baseada nas atividades (mesma lógica do `ActivityHistory`).
@@ -89,6 +125,9 @@
   - Exportação Excel (.xlsx) com planilhas: Matrizes, Eventos, KPIs.
   - Alertas de estagnação (sem evento novo há X dias).
   - Anexos (PDF/relatórios) com aviso de tamanho por uso de LocalStorage.
+
+### Segurança
+- Ambiente de desenvolvimento usa hash Base64 simples nas senhas. Em produção, migrar para bcrypt (hash e comparação server-side) ou Supabase Auth.
 
 ## Padrões (PT-BR)
 - Datas exibidas em formato brasileiro via `toLocaleDateString("pt-BR")`.

@@ -152,6 +152,8 @@ export const FlowView = ({ matrices, onEventClick, onBlankClick, onMatrixClick, 
   }, [matrices, setNodes, setEdges]);
 
   const handleNodeClick = (_event: unknown, node: Node) => {
+    // Em modo somente leitura, não abre diálogo de evento
+    if (isReadOnly) return;
     // Clique em evento
     const { matrixId, event } = (node.data || {}) as { matrixId?: string; event?: MatrixEvent };
     if (matrixId && event) {
@@ -201,10 +203,16 @@ export const FlowView = ({ matrices, onEventClick, onBlankClick, onMatrixClick, 
           nodesDraggable={!isReadOnly}
           nodesConnectable={!isReadOnly}
           elementsSelectable={!isReadOnly}
-          panOnDrag={!isReadOnly}
+          // Permite mover a tela mesmo sem login
+          panOnDrag
+          panOnScroll
+          panOnScrollSpeed={0.8}
+          // Zoom sempre disponível para visualização
+          zoomOnScroll
+          zoomOnPinch
         >
           <Background />
-          {!isReadOnly && <Controls />}
+          {isReadOnly ? <Controls showInteractive={false} /> : <Controls />}
           <MiniMap
             style={{
               background: "hsl(var(--card))",

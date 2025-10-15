@@ -38,12 +38,30 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `url (text)` — URL pública do arquivo/imagem no Supabase Storage
   - `created_at (timestamptz)`
 
+- **users**
+  - `id (uuid, PK)`
+  - `email (text, unique)`
+  - `name (text)`
+  - `password_hash (text)`
+  - `role (text, check in ['admin','editor','viewer'], default 'viewer')`
+  - `is_active (boolean, default true)`
+  - `created_at (timestamptz)`
+  - `updated_at (timestamptz)`
+
+- **user_sessions**
+  - `id (uuid, PK)`
+  - `user_id (uuid, FK -> users.id, on delete cascade)`
+  - `token (text, unique)`
+  - `expires_at (timestamptz)`
+  - `created_at (timestamptz)`
+
 ## Relacionamentos
 
 - `folders 1—n matrices`
 - `matrices 1—n events`
 - `events 1—n event_files`
 - `events n—n events` via `parent_event_id` (árvore de subeventos)
+- `users 1—n user_sessions`
 
 ## RLS (Row Level Security)
 
@@ -57,10 +75,20 @@ Para protótipo, políticas liberam a role `anon` para todas operações nas tab
 - `idx_events_parent (parent_event_id)`
 - `idx_events_date (date)`
 - `idx_event_files_event (event_id)`
+- `idx_users_email (users: email)`
+- `idx_user_sessions_token (user_sessions: token)`
+- `idx_user_sessions_user (user_sessions: user_id)`
 
 ## Arquivo de migração
 
 Todas as queries de criação e rollback estão em `data_schema.sql`.
+
+## Autenticação (15/10/2025)
+
+- Criadas tabelas `users` e `user_sessions` para controle de acesso no app.
+- Papeis suportados: `admin`, `editor`, `viewer`.
+- Sessões expiram após 8 horas (campos `token` e `expires_at`).
+- Trigger `update_users_updated_at` para manter `updated_at` sincronizado.
 
 ## Atualizações de Segurança e Performance (11/10/2025)
 
