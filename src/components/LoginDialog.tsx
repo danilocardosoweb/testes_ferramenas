@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,14 @@ export function LoginDialog({ open, onOpenChange, onLoginSuccess }: LoginDialogP
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+
+  // Limpa os campos sempre que o diálogo é aberto
+  useEffect(() => {
+    if (open) {
+      setEmail("");
+      setPassword("");
+    }
+  }, [open]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +74,7 @@ export function LoginDialog({ open, onOpenChange, onLoginSuccess }: LoginDialogP
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
+              autoComplete="off"
             />
           </div>
           <div className="space-y-2">
@@ -77,6 +86,7 @@ export function LoginDialog({ open, onOpenChange, onLoginSuccess }: LoginDialogP
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
+              autoComplete="new-password"
             />
           </div>
           <div className="flex gap-2 pt-2">

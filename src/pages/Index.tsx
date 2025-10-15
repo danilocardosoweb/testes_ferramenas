@@ -38,7 +38,7 @@ import NotificationsBell from "@/components/NotificationsBell";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabaseClient";
 import { getCurrentSession, logout } from "@/services/auth";
-import { LogIn, LogOut, Settings } from "lucide-react";
+import { LogIn, LogOut, Settings, RefreshCw } from "lucide-react";
 
 const Index = () => {
   const [matrices, setMatrices] = useState<Matrix[]>([]);
@@ -404,7 +404,9 @@ const Index = () => {
             )}
             <div className="ml-2 md:ml-auto flex items-center gap-2 shrink-0">
               <NotificationsBell matrices={matrices} staleDaysThreshold={STALE_DAYS} />
-              <Button size="sm" variant="outline" onClick={reloadAll}>Atualizar</Button>
+              <Button size="sm" variant="outline" onClick={reloadAll} title="Atualizar" aria-label="Atualizar">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
               {authSession ? (
                 <Button 
                   size="sm" 
@@ -425,7 +427,7 @@ const Index = () => {
                   Login
                 </Button>
               )}
-              <div className="text-sm text-muted-foreground">{mainMatrices.length} matriz(es)</div>
+              {/* Removido contador de matrizes para economizar espaço */}
             </div>
           </div>
           <div className={`flex-1 ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
@@ -526,7 +528,7 @@ const Index = () => {
                 <KanbanBoard matrices={mainMatrices} />
               </div>
             ) : mainView === "testing" ? (
-              <div className="h-full overflow-auto" onClick={() => setSelectedMatrix(null)}>
+              <div className="h-full overflow-auto">
                 <TestingView
                   matrices={mainMatrices}
                   onTestCompleted={async (matrixId, event) => {

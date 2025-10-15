@@ -55,6 +55,17 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `expires_at (timestamptz)`
   - `created_at (timestamptz)`
 
+- **testing_queue**
+  - `id (uuid, PK)`
+  - `matrix_id (uuid, FK -> matrices.id)`
+  - `press (text, check in ['P18','P19'])`
+  - `available_at (timestamptz, default now())`
+  - `done_at (timestamptz, nullable)`
+  - `note (text, nullable)`
+  - `images (jsonb, default '[]'::jsonb)` — Array de imagens em base64
+  - `created_by (uuid, nullable)`
+  - `updated_at (timestamptz, default now())`
+
 ## Relacionamentos
 
 - `folders 1—n matrices`

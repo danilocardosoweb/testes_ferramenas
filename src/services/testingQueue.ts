@@ -8,6 +8,7 @@ export interface TestingQueueItem {
   available_at: string;
   done_at?: string;
   note?: string;
+  images?: string[]; // Array de imagens em base64
   created_by?: string;
   updated_at: string;
   // Dados da matriz (join)
@@ -89,6 +90,7 @@ export async function listTestingQueue(): Promise<TestingQueueItem[]> {
     available_at: item.available_at,
     done_at: item.done_at,
     note: item.note,
+    images: item.images || [],
     created_by: item.created_by,
     updated_at: item.updated_at,
     matrix_code: item.matrices.code,
@@ -156,6 +158,15 @@ export async function updateTestingQueueNote(queueId: string, note: string): Pro
   if (error) throw error;
 }
 
+export async function updateTestingQueueDetails(queueId: string, note: string, images: string[]): Promise<void> {
+  const { error } = await supabase
+    .from('testing_queue')
+    .update({ note, images })
+    .eq('id', queueId);
+
+  if (error) throw error;
+}
+
 // HISTÓRICO DE TESTES (testing_items)
 export async function listTestingHistory(): Promise<TestingItem[]> {
   const { data, error } = await supabase
@@ -189,15 +200,30 @@ export async function getAvailableMatricesForTesting(): Promise<Matrix[]> {
     const hasApproval = events.some(e => e.type === 'Aprovado');
     if (hasApproval) continue;
 
-    // 2) Não pode estar com teste ativo (último evento = "Testes" sem ser de conclusão)
+    // 2) Não pode estar com teste ativo 
+    // Um teste está ativo se o último evento "Testes" não tem "concluído" E não há eventos posteriores
     const sorted = [...events].sort((a,b) => {
       const dateA = a.created_at || a.date + 'T00:00:00Z';
       const dateB = b.created_at || b.date + 'T00:00:00Z';
       return dateA.localeCompare(dateB);
     });
-    const last = sorted[sorted.length - 1];
-    const hasActiveTest = last && last.type === 'Testes' && !(last.comment && /concluído/i.test(last.comment));
-    if (hasActiveTest) continue;
+    
+    // Encontra o último evento "Testes"
+    const testEvents = sorted.filter(e => e.type === 'Testes');
+    if (testEvents.length > 0) {
+      const lastTest = testEvents[testEvents.length - 1];
+      const lastTestTime = lastTest.created_at || lastTest.date + 'T00:00:00Z';
+      
+      // Verifica se há eventos posteriores ao último teste
+      const hasEventsAfterLastTest = sorted.some(e => {
+        const eventTime = e.created_at || e.date + 'T00:00:00Z';
+        return eventTime > lastTestTime;
+      });
+      
+      // Teste ativo = último teste sem "concluído" E sem eventos posteriores
+      const hasActiveTest = !(lastTest.comment && /concluído/i.test(lastTest.comment)) && !hasEventsAfterLastTest;
+      if (hasActiveTest) continue;
+    }
 
     // 3) Não pode estar na fila de planejamento
     const { data: queueItem } = await supabase

@@ -62,6 +62,7 @@
 - Sincronização: atualizações de fila e listas após planejar/iniciar/remover (`loadAvailableMatrices`, `loadTestingQueue`, `onRefresh`).
 - Scroll por coluna (P18/P19): colunas com `min-h-0` e `ScrollArea` para visualizar todos os cards.
 - Edição rápida: diálogo para editar observação e imagens em memória, com lightbox ao clicar na miniatura.
+- **Lógica de teste ativo (15/10/2025)**: Um teste é considerado ativo apenas se o último evento "Testes" não tem "concluído" no comment E não há eventos posteriores. Matrizes com eventos após o último teste são disponibilizadas para novo planejamento.
 
 ### Planejamento - Disponibilidade
 - Serviço: `src/services/testingQueue.ts` (`getAvailableMatricesForTesting`).

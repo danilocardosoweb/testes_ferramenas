@@ -18,6 +18,7 @@ const getStatusFromLastEvent = (matrix: Matrix): string => {
   switch (last.type) {
     case "Teste Inicial":
     case "Teste Final":
+    case "Testes":
       return "Em teste";
     case "Ajuste":
       return "Em ajuste";
@@ -37,7 +38,7 @@ const getStatusFromLastEvent = (matrix: Matrix): string => {
 };
 
 const getIndicators = (matrix: Matrix) => {
-  const tests = matrix.events.filter(e => e.type === "Teste Inicial" || e.type === "Teste Final").length;
+  const tests = matrix.events.filter(e => e.type === "Teste Inicial" || e.type === "Teste Final" || e.type === "Testes").length;
   const rejects = matrix.events.filter(e => e.type === "Reprovado").length;
   const fixes = matrix.events.filter(e => e.type === "Ajuste" || e.type === "Correção Externa").length;
   return { tests, rejects, fixes };

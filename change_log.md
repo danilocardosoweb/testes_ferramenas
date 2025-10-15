@@ -10,3 +10,7 @@
 [07/10/2025 07:33] - extrude-flow-main - UI: Painel direito (cartões) mais estreito em `src/pages/Index.tsx` e redução do espaço entre título e ícone em `src/components/CollapsibleCard.tsx` - Cascade
 
 [07/10/2025 07:35] - extrude-flow-main - Removido/Desabilitado o bloco "Relatório de Log" de `src/components/ImportExport.tsx` (UI, estados, funções e imports); mantidas apenas ações de Importar/Exportar Excel - Cascade
+
+[15/10/2025 12:26] - extrude-flow-main - Correção lógica de teste ativo: matrizes com eventos posteriores ao último "Testes" são consideradas disponíveis para novo planejamento; UI: botão Atualizar trocado por ícone, removido contador de matrizes da barra superior - Cascade
+
+[15/10/2025 12:48] - extrude-flow-main - Edição de itens da fila: campo images (JSONB) adicionado à testing_queue; cards da fila clicáveis para editar observação e imagens; diálogo de edição com upload múltiplo e lightbox; correções em sidebar (tipo "Testes" nos indicadores e status); clique em cards de teste ativo habilitado - Cascade

@@ -11,13 +11,16 @@ import { Separator } from "@/components/ui/separator";
 import { Clock, CheckCircle, AlertTriangle, ArrowLeftRight, Calendar, Play, Trash2, ListTodo } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { updateEvent as sbUpdateEvent } from "@/services/db";
-import { 
-  addToTestingQueue, 
-  listTestingQueue, 
-  startTestFromQueue, 
+import { supabase } from "@/lib/supabaseClient";
+import {
+  addToTestingQueue,
+  listTestingQueue,
+  startTestFromQueue,
   removeFromTestingQueue,
   getAvailableMatricesForTesting,
-  type TestingQueueItem 
+  getTestingQueueStats,
+  updateTestingQueueDetails,
+  type TestingQueueItem
 } from "@/services/testingQueue";
 
 interface TestingViewProps {
@@ -74,22 +77,38 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
   const [editComment, setEditComment] = useState("");
   const [editImages, setEditImages] = useState<string[]>([]);
   const [editPreviewSrc, setEditPreviewSrc] = useState<string | null>(null);
+  
+  // Estados para edição de item da fila
+  const [queueEditOpen, setQueueEditOpen] = useState(false);
+  const [queueEditItem, setQueueEditItem] = useState<TestingQueueItem | null>(null);
+  const [queueEditNote, setQueueEditNote] = useState("");
+  const [queueEditImages, setQueueEditImages] = useState<string[]>([]);
+  const [queueEditPreviewSrc, setQueueEditPreviewSrc] = useState<string | null>(null);
 
   // Helpers
   const isTestEvent = (e: MatrixEvent) => e.type === "Testes";
 
-  // Matrizes em teste (último evento é "Testes" mas não de conclusão)
+  // Matrizes em teste (último evento "Testes" sem conclusão e sem eventos posteriores)
   const testingMatrices = useMemo(() => {
     return matrices
       .map((matrix) => {
-        const lastEvent = matrix.events[matrix.events.length - 1];
-        if (!lastEvent || !isTestEvent(lastEvent)) return null;
-
-        // Se o último evento "Testes" tem comentário de conclusão, não está em teste ativo
-        if (lastEvent.comment && /concluído/i.test(lastEvent.comment)) return null;
-
         const testEvents = matrix.events.filter(isTestEvent);
+        if (testEvents.length === 0) return null;
+
         const latestTest = testEvents[testEvents.length - 1];
+        
+        // Se o último teste tem comentário de conclusão, não está ativo
+        if (latestTest.comment && /concluído/i.test(latestTest.comment)) return null;
+
+        // Verifica se há eventos posteriores ao último teste
+        const latestTestTime = latestTest.createdAt || latestTest.date + 'T00:00:00Z';
+        const hasEventsAfterLastTest = matrix.events.some(e => {
+          const eventTime = e.createdAt || e.date + 'T00:00:00Z';
+          return eventTime > latestTestTime;
+        });
+
+        // Se há eventos posteriores, o teste foi concluído implicitamente
+        if (hasEventsAfterLastTest) return null;
 
         return {
           matrix,
@@ -261,6 +280,66 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
     } catch (err: any) {
       console.error('Erro ao remover da fila:', err);
       toast({ title: "Erro ao remover da fila", description: String(err?.message || err), variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenQueueEdit = (queueItem: TestingQueueItem) => {
+    setQueueEditItem(queueItem);
+    setQueueEditNote(queueItem.note || "");
+    setQueueEditImages(queueItem.images || []);
+    setQueueEditOpen(true);
+  };
+
+  const handleSaveQueueEdit = async () => {
+    if (!queueEditItem) return;
+    try {
+      setLoading(true);
+      await updateTestingQueueDetails(queueEditItem.id, queueEditNote, queueEditImages);
+      await loadTestingQueue();
+      setQueueEditOpen(false);
+      toast({ title: "Atualizado", description: "Observação e imagens salvas" });
+    } catch (err: any) {
+      console.error('Erro ao atualizar item da fila:', err);
+      toast({ title: "Erro ao atualizar", description: String(err?.message || err), variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQueueImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        setQueueEditImages((prev) => [...prev, base64]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleRemoveQueueImage = (index: number) => {
+    setQueueEditImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleChangeQueuePress = async (queueId: string, newPress: 'P18' | 'P19') => {
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('testing_queue')
+        .update({ press: newPress })
+        .eq('id', queueId);
+      
+      if (error) throw error;
+      
+      await loadTestingQueue();
+      toast({ title: "Prensa alterada", description: `Item movido para ${newPress}` });
+    } catch (err: any) {
+      console.error('Erro ao trocar prensa:', err);
+      toast({ title: "Erro ao trocar prensa", description: String(err?.message || err), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -439,15 +518,30 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
             <div className="p-3 space-y-3">
               {/* Fila de planejamento P18 */}
               {testingQueue.filter(item => item.press === 'P18').map((queueItem) => (
-                <Card key={`queue-${queueItem.id}`} className="border-dashed border-blue-300 bg-blue-50">
+                <Card 
+                  key={`queue-${queueItem.id}`} 
+                  className="border-dashed border-blue-300 bg-blue-50 cursor-pointer hover:bg-blue-100 transition-colors"
+                  onClick={() => handleOpenQueueEdit(queueItem)}
+                >
                   <CardHeader className="py-2 px-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm font-bold text-blue-800 truncate">
-                        {queueItem.matrix_code}
-                      </CardTitle>
-                      <Badge variant="outline" className="h-5 text-[11px] px-1.5 border-blue-400 text-blue-700">
-                        Na fila
-                      </Badge>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CardTitle className="text-sm font-bold text-blue-800 truncate">
+                          {queueItem.matrix_code}
+                        </CardTitle>
+                        <Badge variant="outline" className="h-5 text-[11px] px-1.5 border-blue-400 text-blue-700">
+                          Na fila
+                        </Badge>
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 shrink-0"
+                        onClick={(e) => { e.stopPropagation(); handleChangeQueuePress(queueItem.id, 'P19'); }}
+                        title="Mover para P19"
+                      >
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="px-3 pb-3 pt-0 space-y-1.5">
@@ -459,7 +553,7 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
                       <Button
                         size="sm"
                         className="flex-1 h-7 text-[11px] bg-blue-600 hover:bg-blue-700"
-                        onClick={() => handleStartTestFromQueue(queueItem)}
+                        onClick={(e) => { e.stopPropagation(); handleStartTestFromQueue(queueItem); }}
                         disabled={loading}
                       >
                         <Play className="h-3 w-3 mr-1" />
@@ -469,7 +563,7 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
                         size="icon"
                         variant="outline"
                         className="h-7 w-7 p-0 border-red-300 text-red-600 hover:bg-red-50"
-                        onClick={() => handleRemoveFromQueue(queueItem)}
+                        onClick={(e) => { e.stopPropagation(); handleRemoveFromQueue(queueItem); }}
                         disabled={loading}
                       >
                         <Trash2 className="h-3 w-3" />
@@ -519,15 +613,30 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
             <div className="p-3 space-y-3">
               {/* Fila de planejamento P19 */}
               {testingQueue.filter(item => item.press === 'P19').map((queueItem) => (
-                <Card key={`queue-${queueItem.id}`} className="border-dashed border-purple-300 bg-purple-50">
+                <Card 
+                  key={`queue-${queueItem.id}`} 
+                  className="border-dashed border-purple-300 bg-purple-50 cursor-pointer hover:bg-purple-100 transition-colors"
+                  onClick={() => handleOpenQueueEdit(queueItem)}
+                >
                   <CardHeader className="py-2 px-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm font-bold text-purple-800 truncate">
-                        {queueItem.matrix_code}
-                      </CardTitle>
-                      <Badge variant="outline" className="h-5 text-[11px] px-1.5 border-purple-400 text-purple-700">
-                        Na fila
-                      </Badge>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CardTitle className="text-sm font-bold text-purple-800 truncate">
+                          {queueItem.matrix_code}
+                        </CardTitle>
+                        <Badge variant="outline" className="h-5 text-[11px] px-1.5 border-purple-400 text-purple-700">
+                          Na fila
+                        </Badge>
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 shrink-0"
+                        onClick={(e) => { e.stopPropagation(); handleChangeQueuePress(queueItem.id, 'P18'); }}
+                        title="Mover para P18"
+                      >
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="px-3 pb-3 pt-0 space-y-1.5">
@@ -539,7 +648,7 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
                       <Button
                         size="sm"
                         className="flex-1 h-7 text-[11px] bg-purple-600 hover:bg-purple-700"
-                        onClick={() => handleStartTestFromQueue(queueItem)}
+                        onClick={(e) => { e.stopPropagation(); handleStartTestFromQueue(queueItem); }}
                         disabled={loading}
                       >
                         <Play className="h-3 w-3 mr-1" />
@@ -549,7 +658,7 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
                         size="icon"
                         variant="outline"
                         className="h-7 w-7 p-0 border-red-300 text-red-600 hover:bg-red-50"
-                        onClick={() => handleRemoveFromQueue(queueItem)}
+                        onClick={(e) => { e.stopPropagation(); handleRemoveFromQueue(queueItem); }}
                         disabled={loading}
                       >
                         <Trash2 className="h-3 w-3" />
@@ -633,6 +742,80 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
           <div className="w-full h-full flex items-center justify-center">
             {editPreviewSrc && (
               <img src={editPreviewSrc} className="max-h-[80vh] w-auto object-contain rounded" />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de edição de item da fila */}
+      <Dialog open={queueEditOpen} onOpenChange={setQueueEditOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar Planejamento</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              {queueEditItem?.matrix_code} - {queueEditItem?.press}
+            </div>
+            <div>
+              <label className="text-sm font-medium">Observação</label>
+              <Textarea 
+                className="mt-1" 
+                value={queueEditNote} 
+                onChange={(e) => setQueueEditNote(e.target.value)} 
+                placeholder="Adicione observações sobre o planejamento..." 
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Imagens (opcional)</label>
+              <Input 
+                type="file" 
+                accept="image/*" 
+                multiple
+                onChange={handleQueueImageUpload}
+                className="mt-1"
+              />
+              {queueEditImages.length > 0 && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {queueEditImages.map((src, i) => (
+                    <div key={i} className="relative">
+                      <img
+                        src={src}
+                        className="w-full h-24 object-cover rounded border cursor-zoom-in"
+                        onClick={() => setQueueEditPreviewSrc(src)}
+                        title="Clique para ampliar"
+                      />
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="absolute top-1 right-1 h-6 w-6 p-0"
+                        onClick={() => handleRemoveQueueImage(i)}
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button className="flex-1" onClick={handleSaveQueueEdit} disabled={loading}>
+                Salvar
+              </Button>
+              <Button variant="outline" className="flex-1" onClick={() => setQueueEditOpen(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lightbox de imagem da fila */}
+      <Dialog open={!!queueEditPreviewSrc} onOpenChange={(o) => !o && setQueueEditPreviewSrc(null)}>
+        <DialogContent className="max-w-4xl">
+          <div className="w-full h-full flex items-center justify-center">
+            {queueEditPreviewSrc && (
+              <img src={queueEditPreviewSrc} className="max-h-[80vh] w-auto object-contain rounded" />
             )}
           </div>
         </DialogContent>
