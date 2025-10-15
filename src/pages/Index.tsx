@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Matrix, MatrixEvent } from "@/types";
+import { Matrix, MatrixEvent, AuthSession } from "@/types";
 // Supabase services
 import {
   listMatrices as sbListMatrices,
@@ -28,12 +28,17 @@ import { MatrixSummary } from "@/components/MatrixSummary";
 import { CollapsibleCard } from "@/components/CollapsibleCard";
 import KanbanBoard from "@/components/KanbanBoard";
 import ActivityHistory from "@/components/ActivityHistory";
+import { TestingView } from "@/components/TestingView";
+import { SettingsView } from "@/components/SettingsView";
+import { LoginDialog } from "@/components/LoginDialog";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import NotificationsBell from "@/components/NotificationsBell";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabaseClient";
+import { getCurrentSession, logout } from "@/services/auth";
+import { LogIn, LogOut, Settings } from "lucide-react";
 
 const Index = () => {
   const [matrices, setMatrices] = useState<Matrix[]>([]);
@@ -45,9 +50,11 @@ const Index = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
-  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard" | "approved" | "activity" | "kanban">("timeline");
+  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard" | "approved" | "activity" | "kanban" | "testing" | "settings">("timeline");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const STALE_DAYS = 10;
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [showLoginDialog, setShowLoginDialog] = useState(false);
   const [eventDetailDialog, setEventDetailDialog] = useState<{
     open: boolean;
     matrix: Matrix | null;
@@ -56,6 +63,10 @@ const Index = () => {
   const { toast } = useToast();
 
   useEffect(() => {
+    // Verificar sessão ao carregar
+    const session = getCurrentSession();
+    setAuthSession(session);
+
     const bootstrap = async () => {
       try {
         const [mats, flds] = await Promise.all([sbListMatrices(), sbListFolders()]);
@@ -272,8 +283,8 @@ const Index = () => {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
-      {/* Sidebar */}
-      {!sidebarCollapsed ? (
+      {/* Sidebar - apenas para usuários logados */}
+      {!sidebarCollapsed && authSession ? (
         <div className="w-80 flex-shrink-0">
           <MatrixSidebar
           matrices={sidebarMatrices}
@@ -298,7 +309,7 @@ const Index = () => {
           onCollapse={() => setSidebarCollapsed(true)}
           />
         </div>
-      ) : (
+      ) : authSession ? (
         <button
           type="button"
           className="fixed left-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-background/90 border shadow hover:bg-background"
@@ -308,7 +319,7 @@ const Index = () => {
         >
           <ChevronRight className="mx-auto" />
         </button>
-      )}
+      ) : null}
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-x-auto pr-3 md:pr-4">
@@ -321,27 +332,99 @@ const Index = () => {
             >Timeline</button>
             <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => setMainView("sheet")}
+              onClick={() => {
+                if (!authSession) {
+                  setShowLoginDialog(true);
+                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
+                } else {
+                  setMainView("sheet");
+                }
+              }}
             >Planilha</button>
             <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "dashboard" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => setMainView("dashboard")}
+              onClick={() => {
+                if (!authSession) {
+                  setShowLoginDialog(true);
+                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
+                } else {
+                  setMainView("dashboard");
+                }
+              }}
             >Dashboard</button>
             <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "approved" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => setMainView("approved")}
+              onClick={() => {
+                if (!authSession) {
+                  setShowLoginDialog(true);
+                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
+                } else {
+                  setMainView("approved");
+                }
+              }}
             >Ferramentas Aprovadas</button>
             <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "kanban" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => setMainView("kanban")}
+              onClick={() => {
+                if (!authSession) {
+                  setShowLoginDialog(true);
+                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
+                } else {
+                  setMainView("kanban");
+                }
+              }}
             >Kanban</button>
             <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "activity" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => setMainView("activity")}
+              onClick={() => {
+                if (!authSession) {
+                  setShowLoginDialog(true);
+                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
+                } else {
+                  setMainView("activity");
+                }
+              }}
             >Histórico</button>
+            {authSession && (
+              <>
+                <button
+                  className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "testing" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                  onClick={() => setMainView("testing")}
+                >Em Teste</button>
+                {authSession.user.role === 'admin' && (
+                  <button
+                    className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "settings" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                    onClick={() => setMainView("settings")}
+                  >
+                    <Settings className="h-4 w-4 inline mr-1" />
+                    Configurações
+                  </button>
+                )}
+              </>
+            )}
             <div className="ml-2 md:ml-auto flex items-center gap-2 shrink-0">
               <NotificationsBell matrices={matrices} staleDaysThreshold={STALE_DAYS} />
               <Button size="sm" variant="outline" onClick={reloadAll}>Atualizar</Button>
+              {authSession ? (
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={async () => {
+                    await logout();
+                    setAuthSession(null);
+                    setMainView("timeline");
+                    toast({ title: "Logout realizado", description: "Até logo!" });
+                  }}
+                >
+                  <LogOut className="h-4 w-4 mr-1" />
+                  Sair ({authSession.user.name})
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => setShowLoginDialog(true)}>
+                  <LogIn className="h-4 w-4 mr-1" />
+                  Login
+                </Button>
+              )}
               <div className="text-sm text-muted-foreground">{mainMatrices.length} matriz(es)</div>
             </div>
           </div>
@@ -351,6 +434,7 @@ const Index = () => {
                 matrices={mainMatrices}
                 onEventClick={handleEventClick}
                 onBlankClick={() => setSelectedMatrix(null)}
+                isReadOnly={!authSession}
                 onMatrixClick={(id) => {
                   const m = matrices.find((x) => x.id === id) || null;
                   setSelectedMatrix(m);
@@ -441,6 +525,34 @@ const Index = () => {
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
                 <KanbanBoard matrices={mainMatrices} />
               </div>
+            ) : mainView === "testing" ? (
+              <div className="h-full overflow-auto" onClick={() => setSelectedMatrix(null)}>
+                <TestingView
+                  matrices={mainMatrices}
+                  onTestCompleted={async (matrixId, event) => {
+                    try {
+                      await sbCreateEvent(matrixId, event);
+                      setMatrices((prev) => prev.map((m) => (m.id === matrixId ? { ...m, events: [...m.events, event] } : m)));
+                      if (selectedMatrix?.id === matrixId) {
+                        setSelectedMatrix((prev) => (prev ? { ...prev, events: [...prev.events, event] } : null));
+                      }
+                    } catch (err: any) {
+                      console.error(err);
+                      toast({ title: "Erro ao concluir teste", description: String(err?.message || err), variant: "destructive" });
+                    }
+                  }}
+                  onUpdateEvent={handleUpdateEvent}
+                  onRefresh={reloadAll}
+                />
+              </div>
+            ) : mainView === "settings" ? (
+              authSession ? (
+                <SettingsView currentUser={authSession.user} />
+              ) : (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-muted-foreground">Faça login para acessar as configurações</p>
+                </div>
+              )
             ) : (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
                 <ApprovedToolsView matrices={mainMatrices} />
@@ -448,8 +560,8 @@ const Index = () => {
             )}
           </div>
         </div>
-        {/* Right Panel - Forms */}
-        {selectedMatrix && (
+        {/* Right Panel - Forms - apenas para usuários logados */}
+        {selectedMatrix && authSession && (
           <div className="min-w-[16rem] w-[18rem] md:w-[20rem] lg:w-[22rem] mr-3 md:mr-4 border-l border-border bg-background flex-shrink-0 overflow-y-auto">
             <ScrollArea className="h-full">
               <div className="p-4 space-y-4">
@@ -495,6 +607,16 @@ const Index = () => {
         matrix={eventDetailDialog.matrix}
         event={eventDetailDialog.event}
         onUpdateEvent={handleUpdateEvent}
+      />
+
+      {/* Login Dialog */}
+      <LoginDialog
+        open={showLoginDialog}
+        onOpenChange={setShowLoginDialog}
+        onLoginSuccess={(session) => {
+          setAuthSession(session);
+          toast({ title: "Login realizado", description: `Bem-vindo, ${session.user.name}!` });
+        }}
       />
     </div>
   );

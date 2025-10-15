@@ -19,6 +19,7 @@ interface FlowViewProps {
   onEventClick: (matrixId: string, event: MatrixEvent) => void;
   onBlankClick?: () => void;
   onMatrixClick?: (matrixId: string) => void; // novo: clique no cabeçalho da matriz
+  isReadOnly?: boolean; // modo somente leitura (sem login)
 }
 
 const createNodesAndEdges = (matrices: Matrix[]) => {
@@ -139,7 +140,7 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
   return { nodes, edges };
 };
 
-export const FlowView = ({ matrices, onEventClick, onBlankClick, onMatrixClick }: FlowViewProps) => {
+export const FlowView = ({ matrices, onEventClick, onBlankClick, onMatrixClick, isReadOnly = false }: FlowViewProps) => {
   const { nodes: initialNodes, edges: initialEdges } = createNodesAndEdges(matrices);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -190,16 +191,20 @@ export const FlowView = ({ matrices, onEventClick, onBlankClick, onMatrixClick }
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+          onNodesChange={isReadOnly ? undefined : onNodesChange}
+          onEdgesChange={isReadOnly ? undefined : onEdgesChange}
           onNodeClick={handleNodeClick}
           fitView
           minZoom={0.3}
           maxZoom={1.5}
           onPaneClick={() => onBlankClick?.()}
+          nodesDraggable={!isReadOnly}
+          nodesConnectable={!isReadOnly}
+          elementsSelectable={!isReadOnly}
+          panOnDrag={!isReadOnly}
         >
           <Background />
-          <Controls />
+          {!isReadOnly && <Controls />}
           <MiniMap
             style={{
               background: "hsl(var(--card))",

@@ -11,6 +11,27 @@ export interface MatrixEvent {
   files?: { name: string; type: string; dataUrl: string }[];
 }
 
+export interface Folder {
+  id: string;
+  name: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'editor' | 'viewer';
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthSession {
+  user: User;
+  token: string;
+  expiresAt: string;
+}
+
 export interface Matrix {
   id: string;
   code: string;
