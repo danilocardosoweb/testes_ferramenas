@@ -427,7 +427,7 @@ const Index = () => {
               </>
             )}
             <div className="ml-2 md:ml-auto flex items-center gap-2 shrink-0">
-              <NotificationsBell matrices={matrices} staleDaysThreshold={STALE_DAYS} />
+              <NotificationsBell matrices={matrices} staleDaysThreshold={STALE_DAYS} readOnly={!authSession} />
               <Button size="sm" variant="outline" onClick={reloadAll} title="Atualizar" aria-label="Atualizar">
                 <RefreshCw className="h-4 w-4" />
               </Button>

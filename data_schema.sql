@@ -147,6 +147,50 @@ $$;
 
 COMMIT;
 
+
+-- =============================================================
+-- Migração: Persistência Global de Notificações Enviadas
+-- Objetivo: Registrar no banco os eventos já notificados por categoria,
+--           permitindo que múltiplos usuários vejam o mesmo estado em tempo real
+-- Data: 16/10/2025
+-- =============================================================
+
+BEGIN;
+
+-- Tabela principal
+CREATE TABLE IF NOT EXISTS public.notifications_sent (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  category text NOT NULL CHECK (category IN ('Aprovadas','Limpeza','Correção Externa')),
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  recorded_by uuid NULL REFERENCES public.users(id) ON DELETE SET NULL
+);
+
+-- Índices e unicidade (um registro por evento+categoria)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_notifications_sent_event_cat
+  ON public.notifications_sent(event_id, category);
+CREATE INDEX IF NOT EXISTS idx_notifications_sent_event
+  ON public.notifications_sent(event_id);
+
+-- RLS liberal para protótipo
+ALTER TABLE IF EXISTS public.notifications_sent ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS notifications_sent_sel ON public.notifications_sent;
+CREATE POLICY notifications_sent_sel ON public.notifications_sent FOR SELECT USING (true);
+DROP POLICY IF EXISTS notifications_sent_ins ON public.notifications_sent;
+CREATE POLICY notifications_sent_ins ON public.notifications_sent FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS notifications_sent_del ON public.notifications_sent;
+CREATE POLICY notifications_sent_del ON public.notifications_sent FOR DELETE USING (true);
+
+COMMIT;
+
+-- =============================================================
+-- ROLLBACK - Persistência Global de Notificações Enviadas
+-- =============================================================
+
+BEGIN;
+DROP TABLE IF EXISTS public.notifications_sent;
+COMMIT;
+
 -- =============================================================
 -- ROLLBACK
 -- =============================================================

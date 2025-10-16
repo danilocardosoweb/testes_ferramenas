@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+
 import { Matrix } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AlertTriangle, Calendar, CheckCircle, Clock, RefreshCw, Search, ChevronDown } from "lucide-react";
+import { AlertTriangle, Calendar, CheckCircle, Clock, RefreshCw, Search, ChevronDown, ChevronUp } from "lucide-react";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { supabase } from "@/lib/supabaseClient";
 
 interface Props {
   matrices: Matrix[];
@@ -53,6 +55,7 @@ const formatDateTimeBR = (value: string) =>
   }).format(toDateTime(value));
 
 export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: Props) {
+
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<ActivityType | "all">("all");
   const [levelFilter, setLevelFilter] = useState<ActivitySeverity | "all">("all");
@@ -96,6 +99,24 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
       /* ignore */
     }
   };
+
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+
+  // Notificações enviadas (persistência global)
+  const [notifSent, setNotifSent] = useState<Array<{ event_id: string; category: string; recorded_at: string }>>([]);
+  useEffect(() => {
+    let mounted = true;
+    const fetchRemote = async () => {
+      const { data } = await supabase.from('notifications_sent').select('event_id, category, recorded_at');
+      if (!mounted) return;
+      setNotifSent((data || []) as any);
+    };
+    fetchRemote();
+    const channel = supabase.channel('realtime_activity_notif_sent')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications_sent' }, () => fetchRemote())
+      .subscribe();
+    return () => { mounted = false; try { channel.unsubscribe(); } catch {} };
+  }, []);
 
   // Monta atividades a partir das matrizes + eventos
   const activities = useMemo<ActivityEntry[]>(() => {
@@ -177,25 +198,31 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
       }
     }
 
-    // inclui entradas do log de notificações enviadas
-    try {
-      const raw = localStorage.getItem("notif_sent_log");
-      const log: Record<string, { id: string; eventDate: string; recordedAt: string; matrixCode: string; matrixId: string; action: string; description: string; category: string | null; }> = raw ? JSON.parse(raw) : {};
-      for (const item of Object.values(log)) {
-        if (item.category && notifCategories.length && !notifCategories.includes(item.category)) continue;
-        list.push({
-          id: `notif-sent-${item.id}`,
-          eventDate: item.eventDate,
-          recordedAt: item.recordedAt,
-          matrixCode: item.matrixCode,
-          matrixId: item.matrixId,
-          action: "Notificação enviada",
-          description: `${item.matrixCode} — ${item.action} (e-mail enviado)` ,
-          type: "system",
-          severity: "info",
-        });
+    // Entradas do log de notificações enviadas (Supabase)
+    for (const row of notifSent) {
+      // localizar o evento para obter data e código
+      let found: { matrixId: string; matrixCode: string; eventDate: string; action: string } | null = null;
+      for (const m of matrices) {
+        const ev = (m.events || []).find(e => e.id === row.event_id);
+        if (ev) {
+          found = { matrixId: m.id, matrixCode: m.code, eventDate: ev.date, action: ev.type };
+          break;
+        }
       }
-    } catch {}
+      if (!found) continue;
+      if (notifCategories.length && !notifCategories.includes(row.category as any)) continue;
+      list.push({
+        id: `notif-sent-${row.event_id}`,
+        eventDate: found.eventDate,
+        recordedAt: row.recorded_at,
+        matrixCode: found.matrixCode,
+        matrixId: found.matrixId,
+        action: "Notificação enviada",
+        description: `${found.matrixCode} — ${found.action} (e-mail enviado)` ,
+        type: "system",
+        severity: "info",
+      });
+    }
 
     // ordena do mais recente para o mais antigo
     list.sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime());
@@ -203,7 +230,7 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
       persistStaleCache(nextStaleCache);
     }
     return list;
-  }, [matrices, staleDaysThreshold, nowTick, staleCache, notifCategories]);
+  }, [matrices, staleDaysThreshold, nowTick, staleCache, notifCategories, notifSent]);
 
   // filtros
   const filtered = useMemo(() => {
@@ -328,8 +355,24 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
       {/* Filtros */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">Filtros e Controles</CardTitle>
+          <CardTitle className="flex items-center justify-between">
+            <span>Filtros e Controles</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setFiltersCollapsed((v) => !v)}
+              title={filtersCollapsed ? "Expandir filtros" : "Recolher filtros"}
+            >
+              {filtersCollapsed ? (
+                <span className="inline-flex items-center gap-1"><ChevronDown className="w-4 h-4" />Expandir</span>
+              ) : (
+                <span className="inline-flex items-center gap-1"><ChevronUp className="w-4 h-4" />Recolher</span>
+              )}
+            </Button>
+          </CardTitle>
         </CardHeader>
+        {!filtersCollapsed && (
         <CardContent className="space-y-4">
           <div className="flex gap-4 items-center">
             <div className="flex-1">
@@ -344,7 +387,7 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
               </div>
             </div>
             <Button variant={autoRefresh ? "default" : "outline"} onClick={() => setAutoRefresh((v) => !v)} className="flex items-center gap-2">
-              <RefreshCw className={`w-4 h-4 ${autoRefresh ? "animate-spin" : ""}`} />
+              <RefreshCw className={`${autoRefresh ? "animate-spin" : ""} w-4 h-4`} />
               Auto-refresh
             </Button>
           </div>
@@ -418,6 +461,7 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
             </div>
           </div>
         </CardContent>
+        )}
       </Card>
 
       {/* Lista */}

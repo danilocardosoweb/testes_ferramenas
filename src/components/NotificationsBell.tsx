@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Matrix } from "@/types";
+import { supabase } from "@/lib/supabaseClient";
 
 // Tipos e props
 export type NotifCategory = "Aprovadas" | "Limpeza" | "Correção Externa";
@@ -24,7 +25,8 @@ type SentLogEntry = {
 
 interface Props {
   matrices: Matrix[];
-  staleDaysThreshold?: number; // alinhado com Index.tsx (padrão 10)
+  staleDaysThreshold?: number;
+  readOnly?: boolean;
 }
 
 type Activity = {
@@ -78,14 +80,7 @@ function categorize(typeLower: string): NotifCategory | null {
   return null;
 }
 
-function loadSentLog(): Record<string, SentLogEntry> {
-  try {
-    const raw = localStorage.getItem(SENT_LOG_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
+function loadSentLog(): Record<string, SentLogEntry> { return {}; }
 
 function persistSentLog(log: Record<string, SentLogEntry>) {
   try {
@@ -188,12 +183,13 @@ function buildActivities(matrices: Matrix[], staleDaysThreshold: number, sentLog
   return list;
 }
 
-export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }: Props) {
+export default function NotificationsBell({ matrices, staleDaysThreshold = 10, readOnly = false }: Props) {
   const [open, setOpen] = useState(false);
   const [nowTick, setNowTick] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sentLog, setSentLog] = useState<Record<string, SentLogEntry>>(() => loadSentLog());
   const [visibleCats, setVisibleCats] = useState<NotifCategory[]>(() => loadNotifFilter());
+  const [loadingSent, setLoadingSent] = useState(false);
 
   // atividades e contagem de "novas"
   const activities = useMemo(() => buildActivities(matrices, staleDaysThreshold, sentLog, visibleCats), [matrices, staleDaysThreshold, nowTick, sentLog, visibleCats]);
@@ -207,16 +203,46 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
     }
   }, [open]);
 
-  const unreadCount = useMemo(() => {
-    if (!lastSeen) return visibleActivities.length;
-    const last = new Date(lastSeen).getTime();
-    return visibleActivities.filter((a) => new Date(a.recordedAt).getTime() > last).length;
-  }, [visibleActivities, lastSeen]);
+  const unsentCount = visibleActivities.length;
 
   // auto refresh leve
   useEffect(() => {
     const id = setInterval(() => setNowTick((v) => v + 1), 5000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchRemote = async () => {
+      setLoadingSent(true);
+      const { data } = await supabase.from('notifications_sent').select('event_id, category, recorded_at, recorded_by');
+      if (!mounted) return;
+      const rec: Record<string, SentLogEntry> = {};
+      for (const r of data || []) {
+        rec[(r as any).event_id] = {
+          id: (r as any).event_id,
+          eventDate: "",
+          recordedAt: (r as any).recorded_at,
+          matrixCode: "",
+          matrixId: "",
+          action: "",
+          description: "",
+          category: (r as any).category,
+        } as any;
+      }
+      setSentLog(rec);
+      setLoadingSent(false);
+    };
+    fetchRemote();
+    const channel = supabase.channel('realtime_notifications_sent')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications_sent' }, () => {
+        fetchRemote();
+      })
+      .subscribe();
+    return () => {
+      mounted = false;
+      try { channel.unsubscribe(); } catch {}
+    };
   }, []);
 
   // ouvir mudanças externas do filtro de categorias
@@ -245,6 +271,7 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
   }, [activities]);
 
   function toggleSelect(id: string) {
+    if (readOnly) return;
     setSelectedIds((prev) => {
       const n = new Set(prev);
       if (n.has(id)) n.delete(id); else n.add(id);
@@ -253,16 +280,19 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
   }
 
   function selectAll(cat: NotifCategory) {
+    if (readOnly) return;
     const ids = new Set(selectedIds);
     for (const a of grouped[cat]) ids.add(a.id);
     setSelectedIds(ids);
   }
 
   function clearSelection() {
+    if (readOnly) return;
     setSelectedIds(new Set());
   }
 
   function markAsRead() {
+    if (readOnly) return;
     try {
       localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
     } catch {}
@@ -297,7 +327,8 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
     return lines.join("%0D%0A"); // CRLF encoded
   }
 
-  function handleSendEmail() {
+  async function handleSendEmail() {
+    if (readOnly) return;
     const confirmed = window.confirm("Deseja enviar um e-mail de notificação com os eventos selecionados?");
     if (!confirmed) return;
 
@@ -311,30 +342,23 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
     const subject = encodeURIComponent(`Acompanhamento de Testes de Ferramenta - Notificação de Eventos - ${ts}`);
     const body = buildMailToBody();
 
-    // mailto padrão do SO
-    const href = `mailto:${to}?subject=${subject}&body=${body}`;
-    window.location.href = href;
-
-    // Registro e remoção automática
-    const sentAt = new Date().toISOString();
-    const nextLog = { ...sentLog };
-    for (const act of activities) {
-      if (!selectedIds.has(act.id)) continue;
-      nextLog[act.id] = {
-        id: act.id,
-        eventDate: act.eventDate,
-        recordedAt: sentAt,
-        matrixCode: act.matrixCode,
-        matrixId: act.matrixId,
-        action: act.action,
-        description: act.description,
-        category: act.category,
-      };
+    const rows: Array<{ event_id: string; category: string }> = [];
+    for (const cat of categories) {
+      for (const act of grouped[cat]) {
+        if (!selectedIds.has(act.id)) continue;
+        rows.push({ event_id: act.id, category: cat });
+      }
     }
-    persistSentLog(nextLog);
-    setSentLog(nextLog);
-    setSelectedIds(new Set());
-    setNowTick((v) => v + 1);
+    try {
+      if (rows.length) {
+        await supabase.from('notifications_sent').upsert(rows, { onConflict: 'event_id,category' });
+      }
+    } finally {
+      setSelectedIds(new Set());
+      setNowTick((v) => v + 1);
+      const href = `mailto:${to}?subject=${subject}&body=${body}`;
+      window.location.href = href;
+    }
   }
 
   return (
@@ -342,9 +366,9 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
       <PopoverTrigger asChild>
         <Button variant="outline" className="relative">
           <Bell className="w-4 h-4" />
-          {unreadCount > 0 && (
+          {unsentCount > 0 && (
             <span className="absolute -top-2 -right-2 text-[11px] font-bold bg-yellow-400 text-black rounded-full px-2 py-0.5">
-              {unreadCount}
+              {unsentCount}
             </span>
           )}
         </Button>
@@ -362,8 +386,8 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
                 <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50">
                   <div className="font-semibold">{cat}</div>
                   <div className="flex items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={() => selectAll(cat)}>Selecionar</Button>
-                    <Button size="sm" variant="ghost" onClick={clearSelection}>Limpar</Button>
+                    <Button size="sm" variant="outline" onClick={() => selectAll(cat)} disabled={readOnly}>Selecionar</Button>
+                    <Button size="sm" variant="ghost" onClick={clearSelection} disabled={readOnly}>Limpar</Button>
                   </div>
                 </div>
                 <div>
@@ -373,7 +397,7 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
                     <ul className="divide-y">
                       {grouped[cat].map((a) => (
                         <li key={a.id} className="flex items-start gap-3 px-3 py-2">
-                          <Checkbox checked={selectedIds.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
+                          <Checkbox checked={selectedIds.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} disabled={readOnly} />
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium">{a.matrixCode} — {a.action}</div>
                             <div className="text-xs text-muted-foreground space-y-0.5">
@@ -393,10 +417,10 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10 }:
 
         <Separator />
         <div className="p-3 flex items-center gap-2">
-          <Button variant="outline" className="flex items-center gap-2" onClick={markAsRead}>
+          <Button variant="outline" className="flex items-center gap-2" onClick={markAsRead} disabled={readOnly}>
             <Check className="w-4 h-4" /> Marcar como lidas
           </Button>
-          <Button className="ml-auto flex items-center gap-2" onClick={handleSendEmail}>
+          <Button className="ml-auto flex items-center gap-2" onClick={handleSendEmail} disabled={readOnly}>
             <Mail className="w-4 h-4" /> Enviar E-mail
           </Button>
         </div>

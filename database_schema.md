@@ -38,6 +38,15 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `url (text)` — URL pública do arquivo/imagem no Supabase Storage
   - `created_at (timestamptz)`
 
+- **notifications_sent** (16/10/2025)
+  - `id (uuid, PK)`
+  - `event_id (uuid, FK -> events.id, on delete cascade)`
+  - `category (text, check in ['Aprovadas','Limpeza','Correção Externa'])`
+  - `recorded_at (timestamptz, default now())`
+  - `recorded_by (uuid, FK -> users.id, on delete set null)`
+  - Índices: `ux_notifications_sent_event_cat (unique event_id, category)`, `idx_notifications_sent_event (event_id)`
+  - RLS habilitado; políticas liberais para protótipo (ajustar em produção)
+
 - **users**
   - `id (uuid, PK)`
   - `email (text, unique)`
