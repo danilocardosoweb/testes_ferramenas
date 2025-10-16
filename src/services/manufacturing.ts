@@ -18,30 +18,32 @@ export interface ManufacturingRecord {
   created_at: string;
   created_by?: string;
   updated_at: string;
+  processed_at?: string | null;
+  status?: 'pending' | 'received' | null;
 }
 
-export async function createManufacturingRecord(data: Omit<ManufacturingRecord, 'id' | 'created_at' | 'updated_at' | 'matrix_id'>): Promise<{ record: ManufacturingRecord; matrixId: string }> {
-  // 1. Criar a matriz no sistema
-  const newMatrixId = await createMatrix({
-    code: data.matrix_code,
-    receivedDate: new Date().toISOString().split('T')[0],
-    priority: 'normal',
-  });
+// Cache leve em memória (válido por 30 segundos)
+let _manufCache: ManufacturingRecord[] = [];
+let _manufCacheAt = 0; // epoch ms
+const MANUF_CACHE_TTL_MS = 30_000;
 
-  // 2. Criar evento de Recebimento
-  await createEvent(newMatrixId, {
-    id: crypto.randomUUID(),
-    date: new Date().toISOString().split('T')[0],
-    type: 'Recebimento',
-    comment: `Confecção registrada - ${data.manufacturing_type === 'nova' ? 'Matriz Nova' : 'Reposição'} - Fornecedor: ${data.supplier === 'Outro' ? data.custom_supplier : data.supplier}`,
-    location: 'Confecção',
-  });
+export function getCachedManufacturingRecords(): ManufacturingRecord[] {
+  return _manufCache;
+}
 
-  // 3. Salvar registro de confecção
+export async function prefetchManufacturingRecords(force = false): Promise<ManufacturingRecord[]> {
+  const now = Date.now();
+  const fresh = now - _manufCacheAt < MANUF_CACHE_TTL_MS;
+  if (!force && fresh && _manufCache.length) return _manufCache;
+  const data = await listManufacturingRecords();
+  return data;
+}
+
+export async function createManufacturingRecord(data: Omit<ManufacturingRecord, 'id' | 'created_at' | 'updated_at' | 'matrix_id'>): Promise<{ record: ManufacturingRecord }> {
+  // Apenas salvar registro de confecção - matriz será criada quando recebida
   const { data: record, error } = await supabase
     .from('manufacturing_records')
     .insert({
-      matrix_id: newMatrixId,
       matrix_code: data.matrix_code,
       manufacturing_type: data.manufacturing_type,
       profile_type: data.profile_type,
@@ -53,23 +55,28 @@ export async function createManufacturingRecord(data: Omit<ManufacturingRecord, 
       volume_produced: (data as any).volume_produced ?? null,
       technical_notes: data.technical_notes,
       justification: data.justification,
+      status: 'pending'
     })
     .select()
     .single();
 
   if (error) throw error;
 
-  return { record: record as ManufacturingRecord, matrixId: newMatrixId };
+  return { record: record as ManufacturingRecord };
 }
 
 export async function listManufacturingRecords(): Promise<ManufacturingRecord[]> {
   const { data, error } = await supabase
     .from('manufacturing_records')
     .select('*')
+    .is('processed_at', null) // Apenas registros não processados
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return (data || []) as ManufacturingRecord[];
+  const list = (data || []) as ManufacturingRecord[];
+  _manufCache = list;
+  _manufCacheAt = Date.now();
+  return list;
 }
 
 export async function getManufacturingRecordByMatrixId(matrixId: string): Promise<ManufacturingRecord | null> {
@@ -84,4 +91,133 @@ export async function getManufacturingRecordByMatrixId(matrixId: string): Promis
     throw error;
   }
   return data as ManufacturingRecord;
+}
+
+export async function receiveManufacturingMatrix(
+  recordId: string, 
+  matrixData: {
+    receivedDate: string;
+    priority: 'normal' | 'medium' | 'critical';
+    responsible?: string;
+    folder?: string;
+  }
+): Promise<{ matrixId: string }> {
+  // 1. Buscar o registro de confecção
+  const { data: record, error: fetchError } = await supabase
+    .from('manufacturing_records')
+    .select('*')
+    .eq('id', recordId)
+    .single();
+
+  if (fetchError) throw fetchError;
+  if (!record) throw new Error('Registro de confecção não encontrado');
+
+  // 2. Buscar ID da pasta pelo nome (se fornecido)
+  let folderId: string | undefined;
+  if (matrixData.folder) {
+    const { data: folderData, error: folderError } = await supabase
+      .from('folders')
+      .select('id')
+      .eq('name', matrixData.folder)
+      .single();
+    
+    if (!folderError && folderData) {
+      folderId = folderData.id;
+    } else {
+      // Se a pasta não existe, criar uma nova
+      const { data: newFolder, error: createError } = await supabase
+        .from('folders')
+        .insert({ name: matrixData.folder })
+        .select('id')
+        .single();
+      
+      if (!createError && newFolder) {
+        folderId = newFolder.id;
+      }
+    }
+  }
+
+  // 3. Verificar se a matriz já existe
+  const { data: existingMatrix, error: checkError } = await supabase
+    .from('matrices')
+    .select('id')
+    .eq('code', record.matrix_code)
+    .single();
+
+  let matrixId: string;
+  
+  if (!checkError && existingMatrix) {
+    // Matriz já existe, usar a existente
+    matrixId = existingMatrix.id;
+  } else {
+    // Matriz não existe, criar nova
+    const { createMatrix } = await import('./db');
+    matrixId = await createMatrix({
+      code: record.matrix_code,
+      receivedDate: matrixData.receivedDate,
+      priority: matrixData.priority,
+      responsible: matrixData.responsible,
+      folderId: folderId,
+    });
+  }
+
+  // 4. Garantir evento de Recebimento: se não existir na data, criar
+  {
+    // Verifica se já existe um evento de Recebimento nessa data
+    const { data: existingRecv, error: recvErr } = await supabase
+      .from('events')
+      .select('id')
+      .eq('matrix_id', matrixId)
+      .eq('type', 'Recebimento')
+      .eq('date', matrixData.receivedDate)
+      .maybeSingle();
+
+    if (!recvErr && !existingRecv) {
+      const { createEvent } = await import('./db');
+      await createEvent(matrixId, {
+        id: crypto.randomUUID(),
+        date: matrixData.receivedDate,
+        type: 'Recebimento',
+        comment: `Matriz recebida da confecção - ${record.manufacturing_type === 'nova' ? 'Matriz Nova' : 'Reposição'} - Fornecedor: ${record.supplier === 'Outro' ? record.custom_supplier : record.supplier}`,
+        location: 'Recebimento',
+      });
+    }
+  }
+
+  // 5. Marcar registro como processado e associar à matriz
+  const { error: updateError } = await supabase
+    .from('manufacturing_records')
+    .update({ 
+      matrix_id: matrixId,
+      processed_at: new Date().toISOString(),
+      status: 'received' 
+    })
+    .eq('id', recordId);
+
+  if (updateError) throw updateError;
+
+  return { matrixId: matrixId };
+}
+
+export async function deleteManufacturingRecord(recordId: string): Promise<void> {
+  // Função mantida para compatibilidade - agora apenas marca como processado
+  const { error } = await supabase
+    .from('manufacturing_records')
+    .update({ 
+      processed_at: new Date().toISOString(),
+      status: 'received' 
+    })
+    .eq('id', recordId);
+
+  if (error) throw error;
+}
+
+export async function permanentlyDeleteManufacturingRecord(recordId: string): Promise<void> {
+  // Deletar permanentemente o registro de confecção
+  const { error } = await supabase
+    .from('manufacturing_records')
+    .delete()
+    .eq('id', recordId);
+
+  if (error) throw error;
 }

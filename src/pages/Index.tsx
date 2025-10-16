@@ -12,6 +12,7 @@ import {
   deleteEvent as sbDeleteEvent,
   getFolderIdByName,
   createFolder as sbCreateFolder,
+  kanbanUpdateLatestAutoCardForMatrix,
 } from "@/services/db";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 import { MatrixSidebar } from "@/components/MatrixSidebar";
@@ -48,6 +49,15 @@ const Index = () => {
   const [folders, setFolders] = useState<string[]>([]);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null); // null = todas
   const [searchTerm, setSearchTerm] = useState("");
+  const formatDatePtBR = (iso: string) => {
+    const clean = (iso || "").split("T")[0];
+    const parts = clean.split("-");
+    if (parts.length === 3) {
+      const [y, m, d] = parts;
+      return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`;
+    }
+    try { return new Date(iso).toLocaleDateString("pt-BR"); } catch { return iso; }
+  };
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
@@ -61,6 +71,7 @@ const Index = () => {
     matrix: Matrix | null;
     event: MatrixEvent | null;
   }>({ open: false, matrix: null, event: null });
+  const [manufacturingViewKey, setManufacturingViewKey] = useState(0);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -498,7 +509,17 @@ const Index = () => {
                       if (selectedMatrix?.id === matrixId) {
                         setSelectedMatrix((prev) => (prev ? { ...prev, events: [...prev.events, newEvent] } : prev));
                       }
-                      toast({ title: "Data registrada", description: `${mapped.comment || mapped.type} em ${new Date(date).toLocaleDateString("pt-BR")}` });
+                      // Regra Kanban: se for retorno de Correção Externa, atualizar o cartão automático para "Entrada"
+                      if (["corr_return1","corr_return2","corr_return3","corr_return4"].includes(milestone)) {
+                        const mat = matrices.find((m) => m.id === matrixId);
+                        const code = mat?.code || "";
+                        const title = code ? `${code} - Correção Externa (Entrada)` : "Correção Externa (Entrada)";
+                        const description = code
+                          ? `Matriz ${code} retornou da correção externa em ${formatDatePtBR(date)}`
+                          : `Retornou da correção externa em ${formatDatePtBR(date)}`;
+                        try { await kanbanUpdateLatestAutoCardForMatrix(matrixId, title, description); } catch (_) {}
+                      }
+                      toast({ title: "Data registrada", description: `${mapped.comment || mapped.type} em ${formatDatePtBR(date)}` });
                     } catch (err: any) {
                       console.error(err);
                       toast({ title: "Erro ao registrar data", description: String(err?.message || err), variant: "destructive" });
@@ -562,7 +583,7 @@ const Index = () => {
               </div>
             ) : mainView === "manufacturing" ? (
               authSession ? (
-                <ManufacturingView onSuccess={reloadAll} />
+                <ManufacturingView key={manufacturingViewKey} onSuccess={reloadAll} />
               ) : (
                 <div className="h-full flex items-center justify-center">
                   <p className="text-muted-foreground">Faça login para registrar confecções</p>
@@ -578,14 +599,24 @@ const Index = () => {
               )
             ) : (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
-                <ApprovedToolsView matrices={mainMatrices} />
+                <ApprovedToolsView 
+                  matrices={mainMatrices} 
+                  onUpdateMatrix={(matrix) => {
+                    setMatrices(prev => prev.map(m => m.id === matrix.id ? matrix : m));
+                  }}
+                  onRefresh={reloadAll}
+                />
               </div>
             )}
           </div>
         </div>
         {/* Right Panel - Forms - apenas para usuários logados */}
         {selectedMatrix && authSession && (
-          <div className="min-w-[16rem] w-[18rem] md:w-[20rem] lg:w-[22rem] mr-3 md:mr-4 border-l border-border bg-background flex-shrink-0 overflow-y-auto">
+          <div
+            className="min-w-[16rem] w-[18rem] md:w-[20rem] lg:w-[22rem] mr-3 md:mr-4 border-l border-border bg-background flex-shrink-0 overflow-y-auto"
+            onDoubleClick={() => setSelectedMatrix(null)}
+            title="Duplo clique para fechar"
+          >
             <ScrollArea className="h-full">
               <div className="p-4 space-y-4">
                 <CollapsibleCard title="Resumo da Matriz" defaultOpen={false}>
@@ -617,6 +648,34 @@ const Index = () => {
             onCancel={() => setShowNewMatrixForm(false)}
             folders={folders}
             defaultFolder={selectedFolder}
+            onMatrixFromManufacturing={async (matrixId) => {
+              try {
+                // Recarregar lista de matrizes
+                const [mats] = await Promise.all([sbListMatrices()]);
+                setMatrices(mats);
+                
+                // Forçar reload do ManufacturingView
+                setManufacturingViewKey(prev => prev + 1);
+                
+                // Selecionar a matriz que veio da confecção
+                const matrix = mats.find(m => m.id === matrixId);
+                if (matrix) {
+                  setSelectedMatrix(matrix);
+                }
+                
+                toast({ 
+                  title: "Matriz de confecção recebida", 
+                  description: "A matriz foi movida para o sistema principal" 
+                });
+              } catch (err: any) {
+                console.error("Erro ao processar matriz de confecção:", err);
+                toast({ 
+                  title: "Erro", 
+                  description: "Não foi possível processar a matriz", 
+                  variant: "destructive" 
+                });
+              }
+            }}
           />
         </DialogContent>
       </Dialog>

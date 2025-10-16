@@ -219,3 +219,41 @@ DROP POLICY IF EXISTS kanban_card_history_del ON public.kanban_card_history;
 
 COMMIT;
 
+-- =============================================================
+-- Migração: Adicionar campos de controle na tabela manufacturing_records
+-- Objetivo: Permitir marcar registros como processados em vez de deletá-los
+-- Data: 15/10/2025
+-- =============================================================
+
+BEGIN;
+
+-- Adicionar colunas para controle de processamento
+ALTER TABLE IF EXISTS public.manufacturing_records 
+ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ NULL;
+
+ALTER TABLE IF EXISTS public.manufacturing_records 
+ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'received'));
+
+-- Criar índice para performance na consulta de registros não processados
+CREATE INDEX IF NOT EXISTS idx_manufacturing_records_processed 
+ON public.manufacturing_records (processed_at) 
+WHERE processed_at IS NULL;
+
+-- Habilitar RLS na tabela manufacturing_records se não estiver habilitado
+ALTER TABLE IF EXISTS public.manufacturing_records ENABLE ROW LEVEL SECURITY;
+
+-- Políticas liberais para operação (ajustar em produção)
+DROP POLICY IF EXISTS manufacturing_records_sel ON public.manufacturing_records;
+CREATE POLICY manufacturing_records_sel ON public.manufacturing_records FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS manufacturing_records_ins ON public.manufacturing_records;
+CREATE POLICY manufacturing_records_ins ON public.manufacturing_records FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS manufacturing_records_upd ON public.manufacturing_records;
+CREATE POLICY manufacturing_records_upd ON public.manufacturing_records FOR UPDATE USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS manufacturing_records_del ON public.manufacturing_records;
+CREATE POLICY manufacturing_records_del ON public.manufacturing_records FOR DELETE USING (true);
+
+COMMIT;
+

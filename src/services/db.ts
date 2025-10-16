@@ -388,3 +388,20 @@ export async function kanbanDeleteChecklist(itemId: string): Promise<void> {
   if (error) throw error;
   await logAudit('kanban.check.delete', 'KanbanChecklist', itemId, null);
 }
+
+// Atualiza o card automático (source='auto') mais recente de uma matriz
+export async function kanbanUpdateLatestAutoCardForMatrix(matrixId: string, title: string, description: string | null): Promise<void> {
+  // Busca o último card automático vinculado à matriz
+  const { data, error } = await supabase
+    .from(ktable.cards)
+    .select('id')
+    .eq('matrix_id', matrixId)
+    .eq('source', 'auto')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  const id = (data as any)?.id as string | undefined;
+  if (!id) return; // nenhum card automático encontrado
+  await kanbanUpdateCard(id, { title, description });
+}

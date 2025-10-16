@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord } from "@/services/manufacturing";
-import { Factory, X, Eye, Download } from "lucide-react";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface FormData {
@@ -37,6 +37,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [records, setRecords] = useState<ManufacturingRecord[]>([]);
   const [viewRecord, setViewRecord] = useState<ManufacturingRecord | null>(null);
+  const [isFormExpanded, setIsFormExpanded] = useState(true);
   
   const [formData, setFormData] = useState<FormData>({
     matrixCode: "",
@@ -80,6 +81,29 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
       setRecords(data);
     } catch (err: any) {
       console.error("Erro ao carregar registros:", err);
+    }
+  };
+
+  const handleDeleteRecord = async (recordId: string, matrixCode: string) => {
+    if (!confirm(`Tem certeza que deseja deletar o registro da matriz ${matrixCode}?`)) {
+      return;
+    }
+
+    try {
+      const { permanentlyDeleteManufacturingRecord } = await import("@/services/manufacturing");
+      await permanentlyDeleteManufacturingRecord(recordId);
+      await loadRecords();
+      toast({ 
+        title: "Registro deletado", 
+        description: `O registro da matriz ${matrixCode} foi removido permanentemente` 
+      });
+    } catch (err: any) {
+      console.error("Erro ao deletar registro:", err);
+      toast({ 
+        title: "Erro ao deletar", 
+        description: String(err?.message || err), 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -212,7 +236,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
       });
       
       await loadRecords();
-      toast({ title: "Confecção registrada!", description: "A matriz foi adicionada ao sistema" });
+      toast({ title: "Confecção registrada!", description: "O pedido de confecção foi registrado. A matriz será criada quando recebida." });
       if (onSuccess) onSuccess();
     } catch (err: any) {
       console.error("Erro ao registrar confecção:", err);
@@ -230,14 +254,36 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
           <Factory className="h-4 w-4 text-white" />
         </div>
         <h1 className="text-lg font-bold text-slate-800">Registro de Confecção</h1>
+        <Button 
+          onClick={loadRecords} 
+          variant="outline" 
+          size="sm"
+          className="ml-auto"
+        >
+          🔄 Recarregar
+        </Button>
       </div>
 
       {/* Formulário em Grid Compacto */}
       <Card className="mb-3 border border-slate-200 shadow-sm">
-        <CardHeader className="py-2 px-4">
-          <CardTitle className="text-sm font-semibold text-slate-800">Novo Registro</CardTitle>
+        <CardHeader className="py-2 px-4 cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => setIsFormExpanded(!isFormExpanded)}>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold text-slate-800">Novo Registro</CardTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsFormExpanded(!isFormExpanded);
+              }}
+            >
+              {isFormExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent className="p-3">
+        {isFormExpanded && <CardContent className="p-3">
           <form onSubmit={handleSubmit} className="space-y-3">
             {/* Grid de 6 colunas */}
             <div className="grid grid-cols-6 gap-3">
@@ -426,7 +472,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
               </Button>
             </div>
           </form>
-        </CardContent>
+        </CardContent>}
       </Card>
 
       {/* Tabela de Registros */}
@@ -498,8 +544,8 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                   <TableHead className="h-8 px-2">Tipo</TableHead>
                   <TableHead className="h-8 px-2">Perfil</TableHead>
                   <TableHead className="h-8 px-2">Fornecedor</TableHead>
-                  <TableHead className="h-8 px-2">Entrega</TableHead>
                   <TableHead className="h-8 px-2">Criado</TableHead>
+                  <TableHead className="h-8 px-2">Entrega</TableHead>
                   <TableHead className="h-8 px-2">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -535,21 +581,32 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                         {record.supplier === "Outro" ? record.custom_supplier : record.supplier}
                       </TableCell>
                       <TableCell className="px-2 py-1">
-                        {new Date(record.delivery_date).toLocaleDateString('pt-BR')}
-                      </TableCell>
-                      <TableCell className="px-2 py-1">
                         {new Date(record.created_at).toLocaleDateString('pt-BR')}
                       </TableCell>
                       <TableCell className="px-2 py-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          onClick={() => setViewRecord(record)}
-                          title="Visualizar detalhes"
-                        >
-                          <Eye className="h-3 w-3" />
-                        </Button>
+                        {new Date(record.delivery_date).toLocaleDateString('pt-BR')}
+                      </TableCell>
+                      <TableCell className="px-2 py-1">
+                        <div className="flex gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => setViewRecord(record)}
+                            title="Visualizar detalhes"
+                          >
+                            <Eye className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleDeleteRecord(record.id, record.matrix_code)}
+                            title="Deletar registro"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

@@ -2,10 +2,14 @@ import React from "react";
 import { Matrix, MatrixEvent } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ChevronDown, ChevronRight, Eye } from "lucide-react";
+import { FinalReportDialog } from "./FinalReportDialog";
 
 type Props = {
   matrices: Matrix[];
+  onUpdateMatrix?: (matrix: Matrix) => void;
+  onRefresh?: () => void;
 };
 
 // Extrai o primeiro evento de aprovação (mais antigo) com data do evento e de apontamento
@@ -33,7 +37,7 @@ function groupByYearMonth(matrices: Matrix[]) {
   return groups;
 }
 
-export const ApprovedToolsView: React.FC<Props> = ({ matrices }) => {
+export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, onRefresh }) => {
   // Filtra somente matrizes que possuem alguma aprovação
   const approved = React.useMemo(() => matrices.filter((m) => getApprovalInfo(m.events)), [matrices]);
 
@@ -43,6 +47,7 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices }) => {
   const [toolFilter, setToolFilter] = React.useState<string>("");
   const [expandedYears, setExpandedYears] = React.useState<Record<string, boolean>>({});
   const [expandedMonths, setExpandedMonths] = React.useState<Record<string, boolean>>({});
+  const [selectedTool, setSelectedTool] = React.useState<Matrix | null>(null);
 
   const toggleYear = (year: string) => {
     setExpandedYears((prev) => ({ ...prev, [year]: !(prev[year] ?? true) }));
@@ -190,16 +195,30 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices }) => {
                             const formatted = new Date(info.date).toLocaleDateString("pt-BR");
                             const apontado = info.createdAt ? new Date(info.createdAt).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : null;
                             return (
-                              <li key={m.id} className="px-3 py-2 flex items-center justify-between">
+                              <li key={m.id} className="px-3 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer group" onClick={() => setSelectedTool(m)}>
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium">{m.code}</span>
                                   {m.folder ? (
                                     <span className="text-xs px-2 py-0.5 rounded bg-muted">{m.folder}</span>
                                   ) : null}
                                 </div>
-                                <div className="text-sm text-muted-foreground flex flex-col items-end">
-                                  <span>Aprovada em {formatted}</span>
-                                  {apontado && <span className="text-xs">Apontado em {new Date(info.createdAt!).toLocaleDateString("pt-BR")} {apontado}</span>}
+                                <div className="flex items-center gap-3">
+                                  <div className="text-sm text-muted-foreground flex flex-col items-end">
+                                    <span>Aprovada em {formatted}</span>
+                                    {apontado && <span className="text-xs">Apontado em {new Date(info.createdAt!).toLocaleDateString("pt-BR")} {apontado}</span>}
+                                  </div>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedTool(m);
+                                    }}
+                                    title="Ver histórico"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
                                 </div>
                               </li>
                             );
@@ -214,6 +233,16 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices }) => {
           </div>
         );
       })}
+
+      {/* Relatório Final com histórico e anexos */}
+      <FinalReportDialog 
+        open={!!selectedTool}
+        onOpenChange={(open) => {
+          if (!open) setSelectedTool(null);
+        }}
+        matrix={selectedTool}
+        onRefresh={onRefresh}
+      />
     </div>
   );
 };

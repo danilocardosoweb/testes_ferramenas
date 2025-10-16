@@ -14,6 +14,17 @@ import "@xyflow/react/dist/style.css";
 import { Matrix, MatrixEvent } from "@/types";
 import { Calendar, MapPin, Tag } from "lucide-react";
 
+// Formata ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:mm) para DD/MM/AAAA sem impacto de fuso
+const fmtISODate = (iso: string) => {
+  const clean = (iso || '').split('T')[0];
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    return `${d.padStart(2,'0')}/${m.padStart(2,'0')}/${y}`;
+  }
+  try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return iso; }
+};
+
 interface FlowViewProps {
   matrices: Matrix[];
   onEventClick: (matrixId: string, event: MatrixEvent) => void;
@@ -90,7 +101,7 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                 <Calendar className="h-3 w-3 flex-shrink-0" />
-                <span>{new Date(event.date).toLocaleDateString("pt-BR")}</span>
+                <span>{fmtISODate(event.date)}</span>
               </div>
               {event.location && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">

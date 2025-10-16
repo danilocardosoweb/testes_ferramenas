@@ -87,6 +87,7 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
 
   // Helpers
   const isTestEvent = (e: MatrixEvent) => e.type === "Testes";
+  const isConcluded = (e: MatrixEvent) => /conclu|realizad|finalizad/i.test(e.comment || "");
 
   // Matrizes em teste (último evento "Testes" sem conclusão e sem eventos posteriores)
   const testingMatrices = useMemo(() => {
@@ -97,8 +98,8 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
 
         const latestTest = testEvents[testEvents.length - 1];
         
-        // Se o último teste tem comentário de conclusão, não está ativo
-        if (latestTest.comment && /concluído/i.test(latestTest.comment)) return null;
+        // Se o último teste está concluído, não está ativo
+        if (isConcluded(latestTest)) return null;
 
         // Verifica se há eventos posteriores ao último teste
         const latestTestTime = latestTest.createdAt || latestTest.date + 'T00:00:00Z';
@@ -176,30 +177,44 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
     };
   }, [p18Matrices, p19Matrices, availableMatrices, testingQueue]);
 
-  // Número do teste atual para um evento de Testes
+  // Número do teste "corrente": quantidade de testes CONCLUÍDOS + 1 (se estiver em andamento)
   const getTestNumber = (matrix: Matrix) => {
-    return (matrix.events || []).filter(isTestEvent).length;
+    const concluded = (matrix.events || []).filter(e => isTestEvent(e) && isConcluded(e)).length;
+    return concluded + 1;
   };
 
-  const handleTestCompleted = (matrixId: string) => {
-    // Finaliza o teste: cria evento "Testes" de conclusão (para Timeline/Planilha)
+  const handleTestCompleted = async (matrixId: string) => {
+    // Finaliza o teste: ATUALIZA o último evento "Testes" (não cria um novo)
     const item = testingMatrices.find((x) => x.matrix.id === matrixId);
-    const machine = item?.testEvent.machine;
-    // Número do teste = quantidade existente + 1 (este será o evento de conclusão)
+    if (!item) return;
+    const machine = item.testEvent.machine as "P18" | "P19" | undefined;
     const matrixFull = matrices.find(m => m.id === matrixId);
-    const testsCount = (matrixFull?.events || []).filter(isTestEvent).length;
-    const nth = testsCount + 1;
-    const newEvent: MatrixEvent = {
-      id: crypto.randomUUID(),
-      date: new Date().toISOString().split("T")[0],
-      type: "Testes",
-      comment: `${nth}º teste concluído`,
-      createdAt: new Date().toISOString(),
-      machine,
-    };
-    onTestCompleted(matrixId, newEvent);
-    setHiddenIds(prev => new Set(prev).add(matrixId));
-    toast({ title: "Teste concluído", description: "Teste finalizado com sucesso." });
+    const concludedCount = (matrixFull?.events || []).filter(e => isTestEvent(e) && isConcluded(e)).length;
+    const nth = concludedCount + 1;
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+
+    try {
+      if (onUpdateEvent) {
+        await onUpdateEvent(matrixId, item.testEvent.id, { 
+          comment: `${nth}º teste concluído`,
+          date: today,
+          machine
+        });
+      } else {
+        await sbUpdateEvent(item.testEvent.id, { 
+          comment: `${nth}º teste concluído`,
+          date: today,
+          machine
+        });
+      }
+      setHiddenIds(prev => new Set(prev).add(matrixId));
+      toast({ title: "Teste concluído", description: "Teste finalizado com sucesso." });
+      // Atualiza listas auxiliares
+      if (onRefresh) await onRefresh();
+    } catch (err: any) {
+      toast({ title: "Erro ao concluir teste", description: String(err?.message || err), variant: "destructive" });
+    }
   };
 
   const handleChangeMachine = async (matrixId: string, eventId: string, newMachine: "P18" | "P19") => {

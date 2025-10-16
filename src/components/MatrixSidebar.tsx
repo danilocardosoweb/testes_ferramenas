@@ -223,7 +223,15 @@ export const MatrixSidebar = ({
         )}
       </div>
 
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea
+        className="flex-1 p-4"
+        onDoubleClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('[data-card="matrix-item"]')) return; // não fechar quando clicar no cartão
+          onCollapse?.();
+        }}
+        title="Duplo clique para recolher"
+      >
         <div className="space-y-4">
           {(() => {
             if (matrices.length === 0) {
@@ -265,6 +273,7 @@ export const MatrixSidebar = ({
                           <div className="p-2 space-y-2">
                             {items.map((matrix) => (
                               <Card
+                                data-card="matrix-item"
                                 key={matrix.id}
                                 className={cn(
                                   "p-3 cursor-pointer transition-all hover:shadow-md",
@@ -326,6 +335,7 @@ export const MatrixSidebar = ({
                 </div>
                 {group.items.map((matrix) => (
                   <Card
+                    data-card="matrix-item"
                     key={matrix.id}
                     className={cn(
                       "p-3 cursor-pointer transition-all hover:shadow-md",
