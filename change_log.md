@@ -16,3 +16,13 @@
 [15/10/2025 12:48] - extrude-flow-main - Edição de itens da fila: campo images (JSONB) adicionado à testing_queue; cards da fila clicáveis para editar observação e imagens; diálogo de edição com upload múltiplo e lightbox; correções em sidebar (tipo "Testes" nos indicadores e status); clique em cards de teste ativo habilitado - Cascade
 
 [15/10/2025 13:54] - extrude-flow-main - Nova aba Confecção: ponto de partida do processo com formulário completo (tipo confecção, perfil, fornecedor, prazo, fotos matriz/problemas, observações técnicas, justificativa); tabela manufacturing_records criada; ao registrar confecção, matriz é criada automaticamente com evento Recebimento e aparece em Timeline/Planilha; design inovador com cards coloridos e upload de imagens com lightbox - Cascade
+
+[15/10/2025 20:15] - src/components - Timeline/Planilha: correção de fuso nas datas; Timeline com formatador estável; Planilha mais compacta (menos espaçamento e inputs de data ajustados). Conclusão de teste agora atualiza o último evento 'Testes' e Planilha conta apenas testes concluídos - Cascade
+
+[15/10/2025 20:28] - src/components - Kanban: ao registrar 'Correção Externa Entrada' pela Planilha, atualização do cartão automático para 'Entrada' com descrição de retorno; serviço `kanbanUpdateLatestAutoCardForMatrix` adicionado - Cascade
+
+[15/10/2025 20:36] - src/components - UX: duplo clique para fechar painel direito e recolher menu esquerdo (área vazia); ajustes no sininho de notificações para 'somente leitura' quando não autenticado (sem selecionar/limpar/marcar/mandar e-mail) - Cascade
+
+[15/10/2025 20:58] - src/components - Histórico: seção 'Filtros e Controles' recolhível/expandível com botão no cabeçalho - Cascade
+
+[15/10/2025 21:05] - src/components - Relatório Final/Anexos: correção de `e.currentTarget` nulo; acessibilidade do Dialog; serviço de arquivos compatível com `event_files` (mime_type, file_size) - Cascade

@@ -155,3 +155,47 @@
 ## Padrões (PT-BR)
 - Datas exibidas em formato brasileiro via `toLocaleDateString("pt-BR")`.
 - Textos e rotulagem em PT-BR.
+
+---
+
+## Iteração 15/10/2025 (Melhorias gerais)
+
+- **Notificações (somente leitura sem login)**
+  - Componente: `src/components/NotificationsBell.tsx`.
+  - Nova prop `readOnly`: quando `true` (usuário não logado) desabilita seleção, “Limpar”, “Marcar como lidas” e “Enviar E-mail”.
+  - Integrado em `src/pages/Index.tsx` com `readOnly={!authSession}`.
+
+- **Histórico – Filtros recolhíveis**
+  - Componente: `src/components/ActivityHistory.tsx`.
+  - Cabeçalho “Filtros e Controles” ganhou botão para recolher/expandir a área de filtros (`filtersCollapsed`).
+
+- **Planilha – Layout mais compacto**
+  - Componente: `src/components/MatrixSheet.tsx`.
+  - Redução de espaçamentos (head/células), `min-w` menor e inputs de data com largura específica (`w-28 md:w-32`).
+
+- **Datas estáveis (sem fuso)**
+  - `src/pages/Index.tsx`: helper `formatDatePtBR()` para mensagens/toasts e descrições do Kanban.
+  - `src/components/FlowView.tsx`: helper `fmtISODate()` para DD/MM/AAAA sem variação por fuso.
+  - `src/components/TestingView.tsx`: data “hoje” em local time (YYYY-MM-DD) ao concluir teste.
+
+- **Testes – 1 evento por ciclo**
+  - `src/components/TestingView.tsx`:
+    - “Teste Realizado” agora ATUALIZA o último evento `type: "Testes"` (não cria um novo).
+    - Badge “Teste N” considera apenas testes concluídos (`comment` contém "conclu/realizad/finalizad").
+  - `src/components/MatrixSheet.tsx`: colunas 1º/2º/3º teste contam apenas `Testes` concluídos (mantendo compatibilidade com tipos antigos que continham "Teste").
+
+- **Kanban – Correção Externa (Entrada)**
+  - Serviço: `src/services/db.ts` (`kanbanUpdateLatestAutoCardForMatrix`).
+  - `src/pages/Index.tsx`: ao registrar `corr_return*` (Correção Ext. Entrada) a partir da Planilha, atualiza o último card automático da matriz para “Correção Externa (Entrada)” com descrição contendo a data.
+
+- **Relatório Final / Anexos**
+  - `src/components/FinalReportDialog.tsx`:
+    - Correção de `e.currentTarget` nulo em upload (referência estável do input).
+    - Acessibilidade do `DialogContent` com `aria-describedby` e descrição oculta.
+  - `src/services/files.ts`:
+    - Metadados alinhados à tabela real `event_files` (`mime_type`, `file_size`).
+    - Seleção/Join atualizados em `listAttachments()`.
+
+- **Interações de UI adicionais**
+  - Duplo clique para fechar painel direito (formulários): `src/pages/Index.tsx`.
+  - Duplo clique em área vazia do menu esquerdo recolhe a sidebar: `src/components/MatrixSidebar.tsx`.
