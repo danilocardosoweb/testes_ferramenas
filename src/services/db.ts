@@ -129,6 +129,7 @@ export async function listMatrices(): Promise<Matrix[]> {
       location: e.location || undefined,
       responsible: e.responsible || undefined,
       machine: e.machine || undefined,
+      testStatus: e.test_status || undefined,
       images: [],
       observations: undefined,
       files: [],
@@ -204,6 +205,7 @@ export async function updateEvent(eventId: string, patch: Partial<MatrixEvent>):
   if (patch.createdAt !== undefined) payload.created_at = patch.createdAt;
   if (patch.location !== undefined) payload.location = patch.location;
   if (patch.responsible !== undefined) payload.responsible = patch.responsible;
+  if (patch.testStatus !== undefined) payload.test_status = patch.testStatus;
   const { error } = await supabase.from(table.events).update(payload).eq('id', eventId);
   if (error) throw error;
   await logAudit('event.update', 'Event', eventId, payload);

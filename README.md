@@ -1,73 +1,89 @@
-# Welcome to your Lovable project
+# Controle de Matrizes — App
 
-## Project info
+Aplicação React (Vite + TypeScript + Tailwind + shadcn-ui) integrada ao Supabase (Postgres, Storage e Realtime) para gestão de matrizes, timeline de eventos, planilha de datas e sistema de notificações por e-mail.
 
-**URL**: https://lovable.dev/projects/3609b99e-8486-425f-ba07-6161542b4e19
+## Visão Geral
+- Timeline com eventos por matriz (`Recebimento`, `Testes`, `Limpeza Saída/Entrada`, `Correção Externa Saída/Entrada`, `Aprovado` etc.).
+- Planilha de marcos com edição rápida e regras de negócio alinhadas.
+- Notificações por e-mail agrupadas por categoria com persistência global em banco e Realtime.
+- Dashboard e histórico com filtros.
 
-## How can I edit this code?
+## Stack
+- Vite + React + TypeScript
+- Tailwind CSS + shadcn-ui
+- Supabase (Postgres + Realtime + Storage)
 
-There are several ways of editing your application.
+## Requisitos
+- Node.js 18+
+- Conta Supabase
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/3609b99e-8486-425f-ba07-6161542b4e19) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
+## Setup do Projeto
+1. Instalar dependências:
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
 npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```
+2. Criar arquivo `.env` na raiz (exemplo):
+```env
+VITE_SUPABASE_URL=https://<PROJECT>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon_key>
+VITE_NOTIFY_GROUP_EMAILS=grupo@empresa.com, outro@empresa.com
+```
+3. Rodar em desenvolvimento:
+```sh
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Supabase — Banco de Dados
+- Migrations estão em `data_schema.sql` (DDL cumulativa com blocos e rollback).
+- Documentação do esquema em `database_schema.md`.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Aplicar migrações
+Use o console SQL do Supabase ou CLI para aplicar o conteúdo relevante de `data_schema.sql`.
 
-**Use GitHub Codespaces**
+Migrações recentes relevantes:
+- `events.test_status` (Aprovado/Reprovado) — status para eventos do tipo `Testes`.
+- `notifications_sent.category` inclui "Reprovado".
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Realtime
+Habilitar Realtime na tabela `public.notifications_sent`:
+1. Dashboard Supabase → Realtime.
+2. Add table → selecionar `public.notifications_sent`.
+3. Confirmar replicação.
 
-## What technologies are used for this project?
+O app assina o canal e atualiza o sino/histórico em tempo real.
 
-This project is built with:
+## Notificações — Fluxo
+- Componente: `src/components/NotificationsBell.tsx`.
+- Categorias: `Aprovadas`, `Reprovado`, `Limpeza`, `Correção Externa`.
+- Seleção por item/categoria e montagem de e-mail via `mailto:`.
+- Corpo do e-mail: usa `Cliente` (campo `Matrix.responsible`) e remove "Apontado".
+- Persistência global: `public.notifications_sent` (um registro por `event_id + categoria`).
+- Realtime: assinatura para refletir alterações entre abas/usuários.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Campos Importantes
+- `Matrix.responsible`: tratado como Cliente da matriz (exibido na Timeline).
+- `MatrixEvent.testStatus`: `Aprovado` | `Reprovado` (aparece em Notificações na categoria Reprovado quando `type = "Testes"`).
 
-## How can I deploy this project?
+## Convenções de Datas (PT-BR)
+- Exibição em `DD/MM/AAAA`.
+- Nunca converter `YYYY-MM-DD` com `new Date(...)` (timezone). Helpers formatam a string diretamente onde necessário.
 
-Simply open [Lovable](https://lovable.dev/projects/3609b99e-8486-425f-ba07-6161542b4e19) and click on Share -> Publish.
+## Scripts NPM
+- `dev`: inicia o servidor de desenvolvimento.
+- `build`: build de produção.
+- `preview`: preview local do build.
 
-## Can I connect a custom domain to my Lovable project?
+## Estrutura de Pastas
+- `src/components/` — componentes (Timeline/FlowView, Planilha/MatrixSheet, Notificações, etc.).
+- `src/types/` — tipos TS centrais (`Matrix`, `MatrixEvent`).
+- `src/pages/` — páginas e composição de visões.
+- `src/services/` — integrações com banco/serviços.
 
-Yes, you can!
+## Troubleshooting
+- "Reprovado" não aparece no sino: recarregar a página para migrar `notif_visible_categories` no localStorage. Verificar se `events.test_status = 'Reprovado'` e Realtime habilitado.
+- Datas -1 dia: conferir que a exibição usa helpers de formatação direta (`MatrixSheet.tsx` e `FlowView.tsx`).
+- E-mail sem destinatários: setar `VITE_NOTIFY_GROUP_EMAILS` no `.env`.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Histórico e Especificações
+- Alterações diárias: `change_log.md`.
+- Requisitos e decisões: `specs.md`.

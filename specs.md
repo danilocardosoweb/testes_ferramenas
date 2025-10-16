@@ -1,3 +1,21 @@
+## Iteração 16/10/2025 (Realtime + Reprovado)
+
+- **Status do Teste no evento**
+  - `src/components/EventDetailDialog.tsx`: campo "Status do Teste" (Aprovado/Reprovado) exibido somente quando `event.type === "Testes"`; persistido em `events.test_status`.
+  - `src/types/index.ts`: `MatrixEvent.testStatus?: "Aprovado" | "Reprovado"`.
+
+- **Notificações**
+  - Novas categorias: inclui "Reprovado".
+  - `src/components/NotificationsBell.tsx`: categorização usa `MatrixEvent.testStatus` para classificar "Testes" como "Reprovado" quando aplicável; filtro padrão e migração de localStorage incluindo a nova categoria.
+  - Envio de e-mail: substituído "Apontado" por "Cliente" no corpo; cliente vem de `Matrix.responsible`.
+  - Realtime: assinaturas de `notifications_sent` para atualizar em tempo real.
+
+- **Timeline**
+  - `src/components/FlowView.tsx`: exibe "Cliente: <responsible>" no cabeçalho da matriz.
+
+- **Planilha**
+  - `src/components/MatrixSheet.tsx`: correção de fuso (formatação direta) e ajuste do critério de testes (considera todos os `Testes`).
+
 # Especificações - Sistema de Controle de Matrizes (Iterações 1 e 2)
 
 ## Escopo Atual
@@ -95,11 +113,13 @@
 - `src/components/NotificationsBell.tsx`: exibe um sino com badge de contagem baseada nas atividades (mesma lógica do `ActivityHistory`).
 - Integração no topo de `src/pages/Index.tsx` (barra de botões de visão).
 - Popover com agrupamento e seleção por categorias para envio de e-mail:
-  - Categorias: "Aprovadas", "Limpeza", "Correção Externa".
+  - Categorias: "Aprovadas", "Reprovado", "Limpeza", "Correção Externa".
   - Permite selecionar itens por categoria ou individualmente.
   - Botão "Enviar E-mail" monta um `mailto:` com os itens selecionados, organizados por categoria.
+  - Template do e-mail: remove o campo "Apontado" e inclui o nome do cliente da matriz (campo `Matrix.responsible`).
   - Botão "Marcar como lidas" atualiza `lastSeen` em LocalStorage (`notif_last_seen`).
 - Variável de ambiente para destinatários de grupo: `VITE_NOTIFY_GROUP_EMAILS` (lista separada por vírgulas). Exemplo em `.env.example`.
+- Persistência global de itens já enviados via tabela `notifications_sent` (Supabase); atualização em tempo real usando Realtime (assinar alterações na tabela).
 
 ## Nova Aba: Ferramentas Aprovadas
 - Local: `src/pages/Index.tsx` (estado `mainView` = "approved").
@@ -117,7 +137,7 @@
 - Distribuição por pasta: tabela com as mesmas colunas (1, 2, 3, >4, Total) agregadas por pasta.
 
 ## Decisões e Próximos Passos
-- Manter LocalStorage nesta fase. Quando houver backend/BD, criar `database_schema.md` e `database_schema.sql` com migrações e rollback.
+- Persistência: combinamos LocalStorage (itens lidos) com banco (tabela `notifications_sent`) para sincronização global. Realtime habilitado para a tabela.
 - Iteração 2 (planejada):
   - Cores por tipo de evento no `FlowView`.
   - Filtros e busca por código, status e período; filtros rápidos (Aprovadas, Em correção, Paradas há +10 dias).
@@ -129,6 +149,7 @@
 
 ### Segurança
 - Ambiente de desenvolvimento usa hash Base64 simples nas senhas. Em produção, migrar para bcrypt (hash e comparação server-side) ou Supabase Auth.
+- Políticas RLS liberais nas tabelas de protótipo; revisar antes de produção.
 
 ## Aba Confecção (15/10/2025)
 - **Objetivo**: Ponto de partida do processo - registrar novas matrizes antes de chegarem à empresa.
@@ -153,7 +174,7 @@
 - **Segurança**: Requer login (apenas usuários autenticados podem registrar confecções).
 
 ## Padrões (PT-BR)
-- Datas exibidas em formato brasileiro via `toLocaleDateString("pt-BR")`.
+- Datas exibidas em formato brasileiro. Evitamos `new Date().toLocaleDateString` sobre datas `YYYY-MM-DD` para não haver variação por fuso; usamos helpers que formatam a string diretamente.
 - Textos e rotulagem em PT-BR.
 
 ---
@@ -172,11 +193,14 @@
 - **Planilha – Layout mais compacto**
   - Componente: `src/components/MatrixSheet.tsx`.
   - Redução de espaçamentos (head/células), `min-w` menor e inputs de data com largura específica (`w-28 md:w-32`).
+  - Datas renderizadas com helper sem fuso (formatação direta de `YYYY-MM-DD`).
+  - Coluna "1º teste" agora lista todos os eventos `type = "Testes"` (novo fluxo), mantendo compatibilidade com tipos legados contendo "Teste".
 
 - **Datas estáveis (sem fuso)**
   - `src/pages/Index.tsx`: helper `formatDatePtBR()` para mensagens/toasts e descrições do Kanban.
   - `src/components/FlowView.tsx`: helper `fmtISODate()` para DD/MM/AAAA sem variação por fuso.
   - `src/components/TestingView.tsx`: data “hoje” em local time (YYYY-MM-DD) ao concluir teste.
+  - `src/components/MatrixSheet.tsx`: exibição de `receivedDate` com formatador sem fuso (corrige exibição -1 dia).
 
 - **Testes – 1 evento por ciclo**
   - `src/components/TestingView.tsx`:

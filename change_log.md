@@ -26,3 +26,11 @@
 [15/10/2025 20:58] - src/components - Histórico: seção 'Filtros e Controles' recolhível/expandível com botão no cabeçalho - Cascade
 
 [15/10/2025 21:05] - src/components - Relatório Final/Anexos: correção de `e.currentTarget` nulo; acessibilidade do Dialog; serviço de arquivos compatível com `event_files` (mime_type, file_size) - Cascade
+
+[16/10/2025 16:10] - db - Migração: adicionar coluna `test_status` em `events` (Aprovado/Reprovado) e atualizar constraint de `notifications_sent.category` para incluir "Reprovado" - Cascade
+[16/10/2025 16:18] - src/components - EventDetailDialog: campo "Status do Teste" exibido para eventos `type = "Testes"`, persistindo em `events.test_status` - Cascade
+[16/10/2025 16:24] - src/components - NotificationsBell: nova categoria "Reprovado"; categorização via `MatrixEvent.testStatus`; migração automática do localStorage para incluir a categoria; e-mail usa "Cliente" em vez de "Apontado" - Cascade
+[16/10/2025 16:28] - src/components - ActivityHistory: suporte à categoria "Reprovado" nos filtros e migração de localStorage - Cascade
+[16/10/2025 16:32] - src/components - FlowView: exibir "Cliente: <responsible>" no cabeçalho da matriz - Cascade
+[16/10/2025 16:36] - src/components - MatrixSheet: corrigida exibição de data (sem fuso) e ajuste do critério de testes (lista todos os `Testes`); helper de formatação sem timezone - Cascade
+[16/10/2025 16:45] - docs - Atualização de `database_schema.md` (test_status, categorias de notificações) e `specs.md` (Realtime, Reprovado, e-mail com Cliente, correções de data) - Cascade
