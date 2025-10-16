@@ -277,13 +277,13 @@ export const MatrixForm = ({ onSubmit, onCancel, folders = [], defaultFolder = n
           <div className="space-y-2">
             <Label htmlFor="responsible" className="flex items-center gap-2 text-sm font-semibold">
               <User className="h-4 w-4 text-slate-600" />
-              Responsável (opcional)
+              Cliente
             </Label>
             <Input
               id="responsible"
               value={responsible}
               onChange={(e) => setResponsible(e.target.value)}
-              placeholder="Nome do responsável geral"
+              placeholder="Nome do cliente da matriz"
               className="h-9 text-sm border-slate-300 focus:border-blue-500 focus:ring-blue-500"
             />
           </div>
