@@ -5,6 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 
+// Helper para formatar data sem problema de fuso horário
+function formatDateBR(dateStr: string): string {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 export type SheetMilestone =
   | "test1"
   | "clean_send1"
@@ -94,9 +101,9 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
         </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">
-        <table className="min-w-[1500px] w-max text-xs md:text-sm">
+        <table className="min-w-[1100px] w-max text-xs md:text-sm">
           <thead className="sticky top-0 bg-background border-b">
-            <tr className="text-left [&>th]:py-2 [&>th]:px-2 [&>th]:whitespace-nowrap">
+            <tr className="text-left [&>th]:py-1 [&>th]:px-1 [&>th]:whitespace-nowrap">
               <th>Ferramenta</th>
               <th>Data de recebimento</th>
               <th>1º teste</th>
@@ -179,7 +186,7 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
 
   return (
     <>
-    <tr className="border-b align-top [&>td]:py-2 [&>td]:px-2">
+    <tr className="border-b align-top [&>td]:py-1 [&>td]:px-1">
       <td className="font-medium whitespace-nowrap">
         {onSelectMatrix ? (
           <button
@@ -194,7 +201,7 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
           matrix.code
         )}
       </td>
-      <td className="whitespace-nowrap">{new Date(matrix.receivedDate).toLocaleDateString("pt-BR")}</td>
+      <td className="whitespace-nowrap">{formatDateBR(matrix.receivedDate)}</td>
       {/* 1º teste */}
       <td><DateCell value={test1} onChange={(d) => onSetDate(matrix.id, "test1", d)} /></td>
       {/* ciclo 1 limpeza/correção */}
@@ -318,7 +325,7 @@ function DateCell({ value, onChange }: { value: string; onChange: (date: string)
       type="date"
       value={value || ""}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8"
+      className="h-8 w-28 md:w-32"
     />
   );
 }
