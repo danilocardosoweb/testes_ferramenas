@@ -205,9 +205,9 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10, r
 
   const unsentCount = visibleActivities.length;
 
-  // auto refresh leve
+  // auto refresh mais frequente para debug
   useEffect(() => {
-    const id = setInterval(() => setNowTick((v) => v + 1), 5000);
+    const id = setInterval(() => setNowTick((v) => v + 1), 2000);
     return () => clearInterval(id);
   }, []);
 
@@ -215,14 +215,14 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10, r
     let mounted = true;
     const fetchRemote = async () => {
       setLoadingSent(true);
-      const { data } = await supabase.from('notifications_sent').select('event_id, category, recorded_at, recorded_by');
+      const { data } = await supabase.from('notifications_sent').select('event_id, category, sent_at');
       if (!mounted) return;
       const rec: Record<string, SentLogEntry> = {};
       for (const r of data || []) {
         rec[(r as any).event_id] = {
           id: (r as any).event_id,
           eventDate: "",
-          recordedAt: (r as any).recorded_at,
+          recordedAt: (r as any).sent_at,
           matrixCode: "",
           matrixId: "",
           action: "",
@@ -342,17 +342,37 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10, r
     const subject = encodeURIComponent(`Acompanhamento de Testes de Ferramenta - Notificação de Eventos - ${ts}`);
     const body = buildMailToBody();
 
-    const rows: Array<{ event_id: string; category: string }> = [];
+    const rows: Array<{ event_id: string; category: string; emitter_id: string; user_agent?: string; platform?: string; language?: string }> = [];
+    const emitterId = crypto.randomUUID();
+    const userAgent = navigator.userAgent;
+    const platform = navigator.platform;
+    const language = navigator.language;
+    
     for (const cat of categories) {
       for (const act of grouped[cat]) {
         if (!selectedIds.has(act.id)) continue;
-        rows.push({ event_id: act.id, category: cat });
+        rows.push({ 
+          event_id: act.id, 
+          category: cat,
+          emitter_id: emitterId,
+          user_agent: userAgent,
+          platform: platform,
+          language: language
+        });
       }
     }
     try {
       if (rows.length) {
-        await supabase.from('notifications_sent').upsert(rows, { onConflict: 'event_id,category' });
+        console.log('Enviando registros para notifications_sent:', rows);
+        const { data, error } = await supabase.from('notifications_sent').upsert(rows, { onConflict: 'event_id,category' });
+        if (error) {
+          console.error('Erro ao inserir notificações:', error);
+        } else {
+          console.log('Notificações inseridas com sucesso:', data);
+        }
       }
+    } catch (error) {
+      console.error('Erro no upsert de notificações:', error);
     } finally {
       setSelectedIds(new Set());
       setNowTick((v) => v + 1);

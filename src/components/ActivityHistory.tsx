@@ -103,11 +103,11 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
 
   // Notificações enviadas (persistência global)
-  const [notifSent, setNotifSent] = useState<Array<{ event_id: string; category: string; recorded_at: string }>>([]);
+  const [notifSent, setNotifSent] = useState<Array<{ event_id: string; category: string; sent_at: string }>>([]);
   useEffect(() => {
     let mounted = true;
     const fetchRemote = async () => {
-      const { data } = await supabase.from('notifications_sent').select('event_id, category, recorded_at');
+      const { data } = await supabase.from('notifications_sent').select('event_id, category, sent_at');
       if (!mounted) return;
       setNotifSent((data || []) as any);
     };
@@ -214,7 +214,7 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
       list.push({
         id: `notif-sent-${row.event_id}`,
         eventDate: found.eventDate,
-        recordedAt: row.recorded_at,
+        recordedAt: row.sent_at,
         matrixCode: found.matrixCode,
         matrixId: found.matrixId,
         action: "Notificação enviada",
