@@ -27,6 +27,7 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `comment (text)`
   - `location (text)`
   - `responsible (text)`
+  - `test_status (text, check in ['Aprovado','Reprovado'], nullable)` — status para eventos tipo "Testes"
   - `created_at (timestamptz)`
 
 - **event_files**
@@ -41,7 +42,7 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
 - **notifications_sent** (16/10/2025)
   - `id (uuid, PK)`
   - `event_id (uuid, FK -> events.id, on delete cascade)`
-  - `category (text, check in ['Aprovadas','Limpeza','Correção Externa'])`
+  - `category (text, check in ['Aprovadas','Reprovado','Limpeza','Correção Externa'])`
   - `recorded_at (timestamptz, default now())`
   - `recorded_by (uuid, FK -> users.id, on delete set null)`
   - Índices: `ux_notifications_sent_event_cat (unique event_id, category)`, `idx_notifications_sent_event (event_id)`

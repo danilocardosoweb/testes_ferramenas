@@ -53,8 +53,11 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
       position: { x: 50, y: yOffset },
       data: {
         label: (
-          <div className="px-4 py-2 font-bold text-primary-foreground">
-            Matriz {matrix.code}
+          <div className="px-4 py-2 text-primary-foreground">
+            <div className="font-bold">Matriz {matrix.code}</div>
+            {matrix.responsible && (
+              <div className="text-xs mt-1 opacity-90">Cliente: {matrix.responsible}</div>
+            )}
           </div>
         ),
       },

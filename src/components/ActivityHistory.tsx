@@ -65,15 +65,34 @@ export default function ActivityHistory({ matrices, staleDaysThreshold = 10 }: P
   const [notifCategories, setNotifCategories] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem("notif_visible_categories");
-      if (!raw) return ["Aprovadas", "Limpeza", "Correção Externa"];
+      const all = ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa"];
+      
+      if (!raw) {
+        // Salva no localStorage para próxima vez
+        try {
+          localStorage.setItem("notif_visible_categories", JSON.stringify(all));
+        } catch {}
+        return all;
+      }
+      
       const parsed = JSON.parse(raw);
-      const all = ["Aprovadas", "Limpeza", "Correção Externa"];
-      const valid = Array.isArray(parsed) ? parsed.filter((x) => all.includes(x)) : all;
+      if (!Array.isArray(parsed)) return all;
+      
+      // Força migração: adiciona "Reprovado" se não existir
+      if (!parsed.includes("Reprovado")) {
+        const migrated = [...parsed, "Reprovado"];
+        try {
+          localStorage.setItem("notif_visible_categories", JSON.stringify(migrated));
+        } catch {}
+        return migrated;
+      }
+      
+      const valid = parsed.filter((x) => all.includes(x));
       return valid.length ? valid : all;
-    } catch { return ["Aprovadas", "Limpeza", "Correção Externa"]; }
+    } catch { return ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa"]; }
   });
   const saveNotifCategories = (list: string[]) => {
-    const order = ["Aprovadas", "Limpeza", "Correção Externa"];
+    const order = ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa"];
     const ordered = order.filter((x) => list.includes(x));
     try { localStorage.setItem("notif_visible_categories", JSON.stringify(ordered)); } catch {}
     setNotifCategories(ordered);

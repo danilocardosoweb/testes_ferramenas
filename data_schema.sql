@@ -264,6 +264,24 @@ DROP POLICY IF EXISTS kanban_card_history_del ON public.kanban_card_history;
 COMMIT;
 
 -- =============================================================
+-- Migração: Adicionar campo test_status à tabela events
+-- Objetivo: Registrar status do teste (Aprovado/Reprovado) para eventos tipo Testes
+-- Data: 16/10/2025
+-- =============================================================
+
+BEGIN;
+ALTER TABLE IF EXISTS public.events ADD COLUMN IF NOT EXISTS test_status TEXT CHECK (test_status IN ('Aprovado', 'Reprovado') OR test_status IS NULL);
+COMMIT;
+
+-- =============================================================
+-- ROLLBACK - Campo test_status na tabela events
+-- =============================================================
+
+BEGIN;
+ALTER TABLE IF EXISTS public.events DROP COLUMN IF EXISTS test_status;
+COMMIT;
+
+-- =============================================================
 -- Migração: Adicionar campos de controle na tabela manufacturing_records
 -- Objetivo: Permitir marcar registros como processados em vez de deletá-los
 -- Data: 15/10/2025

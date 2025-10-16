@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Tag, Upload, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
 interface EventDetailDialogProps {
@@ -27,6 +28,7 @@ export const EventDetailDialog = ({
   const [images, setImages] = useState<string[]>(Array.isArray(event?.images) ? [...(event!.images!)] : []);
   const [responsible, setResponsible] = useState(event?.responsible || "");
   const [files, setFiles] = useState<{ name: string; type: string; dataUrl: string }[]>(Array.isArray(event?.files) ? [...(event!.files!)] : []);
+  const [testStatus, setTestStatus] = useState<string>(event?.testStatus || "");
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
 
@@ -37,6 +39,7 @@ export const EventDetailDialog = ({
     setResponsible(event.responsible || "");
     setImages(Array.isArray(event.images) ? [...event.images] : []);
     setFiles(Array.isArray(event.files) ? [...event.files] : []);
+    setTestStatus(event.testStatus || "");
   }, [open, event?.id]);
 
   // Ao fechar, evita que o próximo evento herde valores do anterior
@@ -46,6 +49,7 @@ export const EventDetailDialog = ({
     setResponsible("");
     setImages([]);
     setFiles([]);
+    setTestStatus("");
   }, [open]);
 
   const savePartial = async (patch: Partial<MatrixEvent>) => {
@@ -146,6 +150,28 @@ export const EventDetailDialog = ({
               className="mt-2"
             />
           </div>
+
+          {/* Campo de Status apenas para eventos de Teste */}
+          {event?.type === "Testes" && (
+            <div>
+              <Label htmlFor="test-status">Status do Teste</Label>
+              <Select
+                value={testStatus}
+                onValueChange={(value) => {
+                  setTestStatus(value);
+                  savePartial({ testStatus: value as "Aprovado" | "Reprovado" });
+                }}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Selecione o status do teste" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Aprovado">Aprovado</SelectItem>
+                  <SelectItem value="Reprovado">Reprovado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="observations">Observações Adicionais</Label>

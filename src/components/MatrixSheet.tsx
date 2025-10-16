@@ -147,13 +147,12 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
   const byType = (t: string) => matrix.events.filter((e) => e.type === t).sort((a, b) => a.date.localeCompare(b.date));
   const nthDate = (arr: MatrixEvent[], n: number) => arr[n]?.date || "";
 
-  // Testes: considerar apenas CONCLUÍDOS quando o tipo for "Testes" (novo fluxo)
-  // e manter compatibilidade com tipos antigos que já eram marcados como "Teste ..."
+  // Testes: considerar todos os eventos do tipo "Testes" ou tipos legados com "Teste"
   const tests = matrix.events
     .filter((e) => {
+      // Novo fluxo: tipo "Testes" (todos, não apenas concluídos)
       if (e.type === "Testes") {
-        const c = (e.comment || "").toLowerCase();
-        return /conclu|realizad|finalizad/.test(c);
+        return true;
       }
       // legado: quaisquer tipos com a palavra "Teste" continuam valendo
       return /Teste/i.test(e.type);
