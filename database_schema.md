@@ -87,8 +87,11 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `delivery_date (date, not null)`
   - `matrix_images (jsonb, default '[]'::jsonb)` — Fotos da matriz
   - `problem_images (jsonb, default '[]'::jsonb)` — Fotos de problemas
+  - `volume_produced (integer, nullable)` — Volume produzido
   - `technical_notes (text, nullable)`
   - `justification (text, not null)`
+  - `status (text, default 'need', check in ['need','pending','approved','received'])` — Status do workflow (need=Necessidade, pending=Solicitação, approved=Em Fabricação, received=Recebida)
+  - `processed_at (timestamptz, nullable)` — Data de processamento/recebimento
   - `created_at (timestamptz, default now())`
   - `created_by (uuid, nullable)`
   - `updated_at (timestamptz, default now())`

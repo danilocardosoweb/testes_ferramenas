@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Matrix } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { listManufacturingRecords, calculateLeadTimeAverages } from "@/services/manufacturing";
 
 interface MatrixDashboardProps {
   matrices: Matrix[];
@@ -57,6 +58,23 @@ export function MatrixDashboard({ matrices, staleDaysThreshold = 10 }: MatrixDas
   // Filtros
   const [codeFilter, setCodeFilter] = useState("");
   const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
+  
+  // Dados de manufatura para Lead Time
+  const [manufLeadTimes, setManufLeadTimes] = useState<{
+    needToPending: number | null;
+    pendingToApproved: number | null;
+    approvedToReceived: number | null;
+    samplesNeedToPending: number;
+    samplesPendingToApproved: number;
+    samplesApprovedToReceived: number;
+  } | null>(null);
+
+  useEffect(() => {
+    listManufacturingRecords().then(records => {
+      const leadTimes = calculateLeadTimeAverages(records);
+      setManufLeadTimes(leadTimes);
+    }).catch(err => console.error("Erro ao carregar Lead Time de manufatura:", err));
+  }, []);
 
   // Pasta list derivada
   const folders = useMemo(() => {
@@ -341,6 +359,22 @@ export function MatrixDashboard({ matrices, staleDaysThreshold = 10 }: MatrixDas
         <MetricCard title="Eventos últimos 7 dias" value={data.recent7} />
         <MetricCard title="Eventos últimos 30 dias" value={data.recent30} />
         <MetricCard title="Média testes até aprovação" value={data.avgTestsToApproval} />
+      </div>
+
+      {/* Lead Time de manufatura (Nec→Sol, Sol→Fab, Fab→Receb) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <MetricCard
+          title={`Lead Médio: Necessidade → Solicitação (dias)${manufLeadTimes ? ` • amostras: ${manufLeadTimes.samplesNeedToPending}` : ""}`}
+          value={manufLeadTimes?.needToPending ?? "-"}
+        />
+        <MetricCard
+          title={`Lead Médio: Solicitação → Em Fabricação (dias)${manufLeadTimes ? ` • amostras: ${manufLeadTimes.samplesPendingToApproved}` : ""}`}
+          value={manufLeadTimes?.pendingToApproved ?? "-"}
+        />
+        <MetricCard
+          title={`Lead Médio: Em Fabricação → Recebida (dias)${manufLeadTimes ? ` • amostras: ${manufLeadTimes.samplesApprovedToReceived}` : ""}`}
+          value={manufLeadTimes?.approvedToReceived ?? "-"}
+        />
       </div>
 
       {/* Leads médios */}

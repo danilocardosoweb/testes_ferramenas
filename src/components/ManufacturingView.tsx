@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord } from "@/services/manufacturing";
-import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay } from "@/services/manufacturing";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface FormData {
@@ -19,10 +20,10 @@ interface FormData {
   profileType: "tubular" | "solido" | "";
   supplier: string;
   customSupplier: string;
-  deliveryDate: string;
+  priority: "low" | "medium" | "high" | "critical";
   replacedMatrix: string; // Matriz sendo substituída (só para reposição)
   images: string[];
-  volumeProduced: string; // número em string para input controlado
+  volumeProduced: string;
   technicalNotes: string;
   justification: string;
 }
@@ -45,7 +46,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
     profileType: "",
     supplier: "",
     customSupplier: "",
-    deliveryDate: "",
+    priority: "medium",
     replacedMatrix: "",
     images: [],
     volumeProduced: "",
@@ -57,6 +58,13 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
   const [filterYear, setFilterYear] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
   const [filterSupplier, setFilterSupplier] = useState("");
+  const [filterPriority, setFilterPriority] = useState("");
+  const [activeTab, setActiveTab] = useState<"need" | "pending" | "approved">("need");
+  
+  // Seleção múltipla
+  const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
+  const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
+  const [estimatedDate, setEstimatedDate] = useState("");
 
   // refs
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -101,6 +109,59 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
       console.error("Erro ao deletar registro:", err);
       toast({ 
         title: "Erro ao deletar", 
+        description: String(err?.message || err), 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const handleMoveToSolicitation = async (recordId: string, matrixCode: string) => {
+    try {
+      await moveToSolicitation(recordId);
+      await loadRecords();
+      toast({ 
+        title: "Movido para Solicitação!", 
+        description: `A matriz ${matrixCode} entrou no processo interno` 
+      });
+    } catch (err: any) {
+      console.error("Erro ao mover:", err);
+      toast({ 
+        title: "Erro ao mover", 
+        description: String(err?.message || err), 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const handleOpenApprovalDialog = (recordIds: string[]) => {
+    setSelectedRecords(recordIds);
+    // Calcular data padrão: 20 dias úteis a partir de hoje
+    const defaultDate = addBusinessDays(new Date(), 20);
+    setEstimatedDate(defaultDate.toISOString().split('T')[0]);
+    setApprovalDialogOpen(true);
+  };
+
+  const handleConfirmApproval = async () => {
+    try {
+      if (selectedRecords.length === 0) return;
+      
+      if (selectedRecords.length === 1) {
+        await approveManufacturingRequest(selectedRecords[0], estimatedDate);
+      } else {
+        await approveMultipleRequests(selectedRecords, estimatedDate);
+      }
+      
+      await loadRecords();
+      toast({ 
+        title: "Aprovado para fabricação!", 
+        description: `${selectedRecords.length} matriz(es) aprovada(s) para fabricação` 
+      });
+      setApprovalDialogOpen(false);
+      setSelectedRecords([]);
+    } catch (err: any) {
+      console.error("Erro ao aprovar:", err);
+      toast({ 
+        title: "Erro ao aprovar", 
         description: String(err?.message || err), 
         variant: "destructive" 
       });
@@ -154,7 +215,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
         'Tipo': r.manufacturing_type === 'nova' ? 'Matriz Nova' : 'Reposição',
         'Perfil': r.profile_type === 'tubular' ? 'Tubular' : 'Sólido',
         'Fornecedor': r.supplier === 'Outro' ? r.custom_supplier : r.supplier,
-        'Data Entrega': new Date(r.delivery_date).toLocaleDateString('pt-BR'),
+        'Data Entrega': r.estimated_delivery_date ? new Date(r.estimated_delivery_date).toLocaleDateString('pt-BR') : 'Não definida',
         'Volume Produzido': r.volume_produced || '-',
         'Observações': r.technical_notes || '-',
         'Justificativa': r.justification,
@@ -195,7 +256,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
     e.preventDefault();
     
     if (!formData.matrixCode || !formData.manufacturingType || !formData.profileType || 
-        !formData.supplier || !formData.deliveryDate || !formData.justification) {
+        !formData.supplier || !formData.justification) {
       toast({ title: "Formulário incompleto", description: "Preencha todos os campos obrigatórios", variant: "destructive" });
       return;
     }
@@ -213,7 +274,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
         profile_type: formData.profileType as "tubular" | "solido",
         supplier: formData.supplier,
         custom_supplier: formData.customSupplier,
-        delivery_date: formData.deliveryDate,
+        priority: formData.priority,
         matrix_images: formData.images,
         problem_images: [],
         volume_produced: formData.volumeProduced ? Number(formData.volumeProduced) : null,
@@ -227,7 +288,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
         profileType: "",
         supplier: "",
         customSupplier: "",
-        deliveryDate: "",
+        priority: "medium",
         replacedMatrix: "",
         images: [],
         volumeProduced: "",
@@ -335,15 +396,18 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                 </Select>
               </div>
               <div>
-                <Label className="text-xs font-semibold">Entrega <span className="text-red-500">*</span></Label>
-                <Input
-                  type="date"
-                  value={formData.deliveryDate}
-                  onChange={(e) => setFormData({ ...formData, deliveryDate: e.target.value })}
-                  className="h-7 text-xs"
-                  min={new Date().toISOString().split('T')[0]}
-                  required
-                />
+                <Label className="text-xs font-semibold">Prioridade <span className="text-red-500">*</span></Label>
+                <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value as "low" | "medium" | "high" | "critical" })}>
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Baixa</SelectItem>
+                    <SelectItem value="medium">Média</SelectItem>
+                    <SelectItem value="high">Alta</SelectItem>
+                    <SelectItem value="critical">Crítica</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               {/* Coluna 6: Volume Produzido */}
               <div>
@@ -455,9 +519,10 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                       profileType: "",
                       supplier: "",
                       customSupplier: "",
-                      deliveryDate: "",
+                      priority: "medium",
                       replacedMatrix: "",
                       images: [],
+                      volumeProduced: "",
                       technicalNotes: "",
                       justification: "",
                     });
@@ -475,18 +540,11 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
         </CardContent>}
       </Card>
 
-      {/* Tabela de Registros */}
+      {/* Sistema de Abas - Solicitação e Em Fabricação */}
       <Card className="flex-1 border border-slate-200 shadow-sm">
         <CardHeader className="py-2 px-4">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold text-slate-800">Matrizes em Confecção ({records.filter(r => {
-              const y = new Date(r.created_at).getFullYear().toString();
-              const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
-              const matchYear = !filterYear || y === filterYear;
-              const matchMonth = !filterMonth || m === filterMonth;
-              const matchSupplier = !filterSupplier || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
-              return matchYear && matchMonth && matchSupplier;
-            }).length})</CardTitle>
+            <CardTitle className="text-sm font-semibold text-slate-800">Matrizes em Confecção</CardTitle>
             <div className="flex gap-2 items-center">
               <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={handleExportToExcel} disabled={records.length === 0}>
                 <Download className="h-3 w-3 mr-1" />
@@ -527,93 +585,421 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                   ))}
                 </SelectContent>
               </Select>
-              {(filterYear || filterMonth || filterSupplier) && (
-                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => { setFilterYear(""); setFilterMonth(""); setFilterSupplier(""); }}>
+              {/* Prioridade */}
+              <Select value={filterPriority} onValueChange={setFilterPriority}>
+                <SelectTrigger className="h-6 text-xs w-24">
+                  <SelectValue placeholder="Prioridade" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value=" ">Todas</SelectItem>
+                  <SelectItem value="low">Baixa</SelectItem>
+                  <SelectItem value="medium">Média</SelectItem>
+                  <SelectItem value="high">Alta</SelectItem>
+                  <SelectItem value="critical">Crítica</SelectItem>
+                </SelectContent>
+              </Select>
+              {(filterYear || filterMonth || filterSupplier || filterPriority) && (
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => { setFilterYear(""); setFilterMonth(""); setFilterSupplier(""); setFilterPriority(""); }}>
                   Limpar
                 </Button>
               )}
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="max-h-[400px] overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="text-xs">
-                  <TableHead className="h-8 px-2">Código</TableHead>
-                  <TableHead className="h-8 px-2">Tipo</TableHead>
-                  <TableHead className="h-8 px-2">Perfil</TableHead>
-                  <TableHead className="h-8 px-2">Fornecedor</TableHead>
-                  <TableHead className="h-8 px-2">Criado</TableHead>
-                  <TableHead className="h-8 px-2">Entrega</TableHead>
-                  <TableHead className="h-8 px-2">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {records.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center text-xs text-muted-foreground py-4">
-                      Nenhum registro encontrado
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  records.filter(r => {
-                    const y = new Date(r.created_at).getFullYear().toString();
-                    const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
-                    const matchYear = !filterYear || filterYear === " " || y === filterYear;
-                    const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
-                    const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
-                    return matchYear && matchMonth && matchSupplier;
-                  }).map((record) => (
-                    <TableRow key={record.id} className="text-xs">
-                      <TableCell className="px-2 py-1 font-mono">{record.matrix_code}</TableCell>
-                      <TableCell className="px-2 py-1">
-                        <Badge variant={record.manufacturing_type === "nova" ? "default" : "secondary"} className="text-xs">
-                          {record.manufacturing_type === "nova" ? "Nova" : "Reposição"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="px-2 py-1">
-                        <Badge variant="outline" className="text-xs">
-                          {record.profile_type === "tubular" ? "Tubular" : "Sólido"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="px-2 py-1">
-                        {record.supplier === "Outro" ? record.custom_supplier : record.supplier}
-                      </TableCell>
-                      <TableCell className="px-2 py-1">
-                        {new Date(record.created_at).toLocaleDateString('pt-BR')}
-                      </TableCell>
-                      <TableCell className="px-2 py-1">
-                        {new Date(record.delivery_date).toLocaleDateString('pt-BR')}
-                      </TableCell>
-                      <TableCell className="px-2 py-1">
-                        <div className="flex gap-1">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6"
-                            onClick={() => setViewRecord(record)}
-                            title="Visualizar detalhes"
-                          >
-                            <Eye className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => handleDeleteRecord(record.id, record.matrix_code)}
-                            title="Deletar registro"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </TableCell>
+        <CardContent className="p-2">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "need" | "pending" | "approved")} className="w-full">
+            <TabsList className="grid w-full grid-cols-3 mb-2">
+              <TabsTrigger value="need" className="text-xs flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" />
+                Necessidade ({records.filter(r => r.status === 'need').length})
+              </TabsTrigger>
+              <TabsTrigger value="pending" className="text-xs flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Solicitação ({records.filter(r => r.status === 'pending').length})
+              </TabsTrigger>
+              <TabsTrigger value="approved" className="text-xs flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                Em Fabricação ({records.filter(r => r.status === 'approved').length})
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="need" className="mt-0">
+              <div className="max-h-[400px] overflow-auto border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs bg-red-50">
+                      <TableHead className="h-8 px-2">Código</TableHead>
+                      <TableHead className="h-8 px-2">Tipo</TableHead>
+                      <TableHead className="h-8 px-2">Perfil</TableHead>
+                      <TableHead className="h-8 px-2">Prioridade</TableHead>
+                      <TableHead className="h-8 px-2">Lead Time</TableHead>
+                      <TableHead className="h-8 px-2">Fornecedor</TableHead>
+                      <TableHead className="h-8 px-2">Registrado</TableHead>
+                      <TableHead className="h-8 px-2">Entrega</TableHead>
+                      <TableHead className="h-8 px-2">Ações</TableHead>
                     </TableRow>
-                  ))
+                  </TableHeader>
+                  <TableBody>
+                    {records.filter(r => {
+                      const y = new Date(r.created_at).getFullYear().toString();
+                      const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
+                      const matchYear = !filterYear || filterYear === " " || y === filterYear;
+                      const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
+                      const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+                      const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
+                      return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority;
+                    }).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center text-xs text-muted-foreground py-6">
+                          <AlertCircle className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                          <p>Nenhuma necessidade identificada</p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      records.filter(r => {
+                        const y = new Date(r.created_at).getFullYear().toString();
+                        const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
+                        const matchYear = !filterYear || filterYear === " " || y === filterYear;
+                        const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
+                        const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+                        const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
+                        return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority;
+                      }).map((record) => (
+                        <TableRow key={record.id} className="text-xs hover:bg-red-50/50">
+                          <TableCell className="px-2 py-1 font-mono">{record.matrix_code}</TableCell>
+                          <TableCell className="px-2 py-1">
+                            <Badge variant={record.manufacturing_type === "nova" ? "default" : "secondary"} className="text-xs">
+                              {record.manufacturing_type === "nova" ? "Nova" : "Reposição"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            <Badge variant="outline" className="text-xs">
+                              {record.profile_type === "tubular" ? "Tubular" : "Sólido"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs ${
+                                record.priority === 'critical' ? 'bg-red-100 text-red-700 border-red-300' :
+                                record.priority === 'high' ? 'bg-orange-100 text-orange-700 border-orange-300' :
+                                record.priority === 'medium' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
+                                'bg-gray-100 text-gray-700 border-gray-300'
+                              }`}
+                            >
+                              {record.priority === 'critical' ? 'Crítica' :
+                               record.priority === 'high' ? 'Alta' :
+                               record.priority === 'medium' ? 'Média' : 'Baixa'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-center font-mono text-xs">
+                            {getLeadTimeDisplay(record)}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {record.supplier === "Outro" ? record.custom_supplier : record.supplier}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {new Date(record.created_at).toLocaleDateString('pt-BR')}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {record.estimated_delivery_date ? new Date(record.estimated_delivery_date).toLocaleDateString('pt-BR') : '-'}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            <div className="flex gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={() => setViewRecord(record)}
+                                title="Visualizar detalhes"
+                              >
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => handleMoveToSolicitation(record.id, record.matrix_code)}
+                                title="Mover para Solicitação"
+                              >
+                                <Clock className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleDeleteRecord(record.id, record.matrix_code)}
+                                title="Deletar necessidade"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="pending" className="mt-0">
+              <div className="space-y-2">
+                {selectedRecords.length > 0 && (
+                  <div className="flex items-center justify-between p-2 bg-amber-50 border border-amber-200 rounded-md">
+                    <span className="text-xs font-medium">{selectedRecords.length} selecionada(s)</span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => setSelectedRecords([])}
+                      >
+                        Limpar Seleção
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                        onClick={() => handleOpenApprovalDialog(selectedRecords)}
+                      >
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Aprovar Selecionadas
+                      </Button>
+                    </div>
+                  </div>
                 )}
-              </TableBody>
-            </Table>
-          </div>
+                <div className="max-h-[400px] overflow-auto border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="text-xs bg-amber-50">
+                        <TableHead className="h-8 px-2 w-10">
+                          <input
+                            type="checkbox"
+                            checked={selectedRecords.length > 0 && selectedRecords.length === records.filter(r => r.status === 'pending').length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedRecords(records.filter(r => r.status === 'pending').map(r => r.id));
+                              } else {
+                                setSelectedRecords([]);
+                              }
+                            }}
+                            className="cursor-pointer"
+                          />
+                        </TableHead>
+                        <TableHead className="h-8 px-2">Código</TableHead>
+                        <TableHead className="h-8 px-2">Tipo</TableHead>
+                        <TableHead className="h-8 px-2">Perfil</TableHead>
+                        <TableHead className="h-8 px-2">Prioridade</TableHead>
+                        <TableHead className="h-8 px-2">Lead Time</TableHead>
+                        <TableHead className="h-8 px-2">Fornecedor</TableHead>
+                        <TableHead className="h-8 px-2">Solicitado</TableHead>
+                        <TableHead className="h-8 px-2">Entrega</TableHead>
+                        <TableHead className="h-8 px-2">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                  <TableBody>
+                    {records.filter(r => {
+                      const y = new Date(r.created_at).getFullYear().toString();
+                      const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
+                      const matchYear = !filterYear || filterYear === " " || y === filterYear;
+                      const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
+                      const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+                      const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
+                      return r.status === 'pending' && matchYear && matchMonth && matchSupplier && matchPriority;
+                    }).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={9} className="text-center text-xs text-muted-foreground py-6">
+                          <Clock className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                          <p>Nenhuma solicitação pendente</p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      records.filter(r => {
+                        const y = new Date(r.created_at).getFullYear().toString();
+                        const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
+                        const matchYear = !filterYear || filterYear === " " || y === filterYear;
+                        const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
+                        const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+                        const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
+                        return r.status === 'pending' && matchYear && matchMonth && matchSupplier && matchPriority;
+                      }).map((record) => (
+                        <TableRow key={record.id} className="text-xs hover:bg-amber-50/50">
+                          <TableCell className="px-2 py-1">
+                            <input
+                              type="checkbox"
+                              checked={selectedRecords.includes(record.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedRecords([...selectedRecords, record.id]);
+                                } else {
+                                  setSelectedRecords(selectedRecords.filter(id => id !== record.id));
+                                }
+                              }}
+                              className="cursor-pointer"
+                            />
+                          </TableCell>
+                          <TableCell className="px-2 py-1 font-mono">{record.matrix_code}</TableCell>
+                          <TableCell className="px-2 py-1">
+                            <Badge variant={record.manufacturing_type === "nova" ? "default" : "secondary"} className="text-xs">
+                              {record.manufacturing_type === "nova" ? "Nova" : "Reposição"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            <Badge variant="outline" className="text-xs">
+                              {record.profile_type === "tubular" ? "Tubular" : "Sólido"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs ${
+                                record.priority === 'critical' ? 'bg-red-100 text-red-700 border-red-300' :
+                                record.priority === 'high' ? 'bg-orange-100 text-orange-700 border-orange-300' :
+                                record.priority === 'medium' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
+                                'bg-gray-100 text-gray-700 border-gray-300'
+                              }`}
+                            >
+                              {record.priority === 'critical' ? 'Crítica' :
+                               record.priority === 'high' ? 'Alta' :
+                               record.priority === 'medium' ? 'Média' : 'Baixa'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-center font-mono text-xs">
+                            {getLeadTimeDisplay(record)}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {record.supplier === "Outro" ? record.custom_supplier : record.supplier}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {new Date(record.created_at).toLocaleDateString('pt-BR')}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {record.estimated_delivery_date ? new Date(record.estimated_delivery_date).toLocaleDateString('pt-BR') : '-'}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            <div className="flex gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={() => setViewRecord(record)}
+                                title="Visualizar detalhes"
+                              >
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleDeleteRecord(record.id, record.matrix_code)}
+                                title="Deletar solicitação"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="approved" className="mt-0">
+              <div className="max-h-[400px] overflow-auto border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs bg-green-50">
+                      <TableHead className="h-8 px-2">Código</TableHead>
+                      <TableHead className="h-8 px-2">Tipo</TableHead>
+                      <TableHead className="h-8 px-2">Perfil</TableHead>
+                      <TableHead className="h-8 px-2">Lead Time</TableHead>
+                      <TableHead className="h-8 px-2">Fornecedor</TableHead>
+                      <TableHead className="h-8 px-2">Aprovado</TableHead>
+                      <TableHead className="h-8 px-2">Entrega</TableHead>
+                      <TableHead className="h-8 px-2">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {records.filter(r => {
+                      const y = new Date(r.created_at).getFullYear().toString();
+                      const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
+                      const matchYear = !filterYear || filterYear === " " || y === filterYear;
+                      const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
+                      const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+                      return r.status === 'approved' && matchYear && matchMonth && matchSupplier;
+                    }).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-xs text-muted-foreground py-6">
+                          <Factory className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                          <p>Nenhuma matriz em fabricação</p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      records.filter(r => {
+                        const y = new Date(r.created_at).getFullYear().toString();
+                        const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
+                        const matchYear = !filterYear || filterYear === " " || y === filterYear;
+                        const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
+                        const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+                        return r.status === 'approved' && matchYear && matchMonth && matchSupplier;
+                      }).map((record) => (
+                        <TableRow key={record.id} className="text-xs hover:bg-green-50/50">
+                          <TableCell className="px-2 py-1 font-mono">{record.matrix_code}</TableCell>
+                          <TableCell className="px-2 py-1">
+                            <Badge variant={record.manufacturing_type === "nova" ? "default" : "secondary"} className="text-xs">
+                              {record.manufacturing_type === "nova" ? "Nova" : "Reposição"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            <Badge variant="outline" className="text-xs">
+                              {record.profile_type === "tubular" ? "Tubular" : "Sólido"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-center font-mono text-xs">
+                            {getLeadTimeDisplay(record)}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {record.supplier === "Outro" ? record.custom_supplier : record.supplier}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {new Date(record.created_at).toLocaleDateString('pt-BR')}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            {record.estimated_delivery_date ? new Date(record.estimated_delivery_date).toLocaleDateString('pt-BR') : '-'}
+                          </TableCell>
+                          <TableCell className="px-2 py-1">
+                            <div className="flex gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={() => setViewRecord(record)}
+                                title="Visualizar detalhes"
+                              >
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleDeleteRecord(record.id, record.matrix_code)}
+                                title="Deletar registro"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
@@ -627,6 +1013,47 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
+                  <Label className="font-semibold">Status:</Label>
+                  <div className="mt-1">
+                    {viewRecord.status === 'need' ? (
+                      <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        Necessidade
+                      </Badge>
+                    ) : viewRecord.status === 'pending' ? (
+                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
+                        <Clock className="h-3 w-3 mr-1" />
+                        Em Solicitação
+                      </Badge>
+                    ) : viewRecord.status === 'approved' ? (
+                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Em Fabricação
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline">Recebida</Badge>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <Label className="font-semibold">Prioridade:</Label>
+                  <div className="mt-1">
+                    <Badge 
+                      variant="outline" 
+                      className={`text-xs ${
+                        viewRecord.priority === 'critical' ? 'bg-red-100 text-red-700 border-red-300' :
+                        viewRecord.priority === 'high' ? 'bg-orange-100 text-orange-700 border-orange-300' :
+                        viewRecord.priority === 'medium' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
+                        'bg-gray-100 text-gray-700 border-gray-300'
+                      }`}
+                    >
+                      {viewRecord.priority === 'critical' ? 'Crítica' :
+                       viewRecord.priority === 'high' ? 'Alta' :
+                       viewRecord.priority === 'medium' ? 'Média' : 'Baixa'}
+                    </Badge>
+                  </div>
+                </div>
+                <div>
                   <Label className="font-semibold">Tipo:</Label>
                   <p>{viewRecord.manufacturing_type === 'nova' ? 'Matriz Nova' : 'Reposição'}</p>
                 </div>
@@ -639,8 +1066,8 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                   <p>{viewRecord.supplier === 'Outro' ? viewRecord.custom_supplier : viewRecord.supplier}</p>
                 </div>
                 <div>
-                  <Label className="font-semibold">Data de Entrega:</Label>
-                  <p>{new Date(viewRecord.delivery_date).toLocaleDateString('pt-BR')}</p>
+                  <Label className="font-semibold">Data Prevista de Entrega:</Label>
+                  <p>{viewRecord.estimated_delivery_date ? new Date(viewRecord.estimated_delivery_date).toLocaleDateString('pt-BR') : 'Não definida'}</p>
                 </div>
                 {viewRecord.volume_produced && (
                   <div>
@@ -692,6 +1119,53 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
         <DialogContent className="max-w-4xl">
           <div className="w-full h-full flex items-center justify-center">
             {previewImage && <img src={previewImage} className="max-h-[80vh] w-auto object-contain rounded" alt="Preview" />}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Aprovação com Data */}
+      <Dialog open={approvalDialogOpen} onOpenChange={setApprovalDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Aprovar para Fabricação</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Você está aprovando <strong>{selectedRecords.length}</strong> matriz(es) para fabricação no fornecedor.
+            </p>
+            <div>
+              <Label htmlFor="estimated-date" className="font-semibold">Data Prevista de Entrega</Label>
+              <Input
+                id="estimated-date"
+                type="date"
+                value={estimatedDate}
+                onChange={(e) => setEstimatedDate(e.target.value)}
+                className="mt-2"
+                min={new Date().toISOString().split('T')[0]}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Data padrão: 20 dias úteis a partir de hoje
+              </p>
+            </div>
+            <div className="flex gap-2 pt-4">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setApprovalDialogOpen(false);
+                  setSelectedRecords([]);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                className="flex-1 bg-green-600 hover:bg-green-700"
+                onClick={handleConfirmApproval}
+              >
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Confirmar Aprovação
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

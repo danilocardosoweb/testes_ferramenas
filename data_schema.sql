@@ -319,3 +319,26 @@ CREATE POLICY manufacturing_records_del ON public.manufacturing_records FOR DELE
 
 COMMIT;
 
+-- =============================================================
+-- Migração: Implementar workflow completo com 4 status
+-- Objetivo: Permitir fluxo need -> pending -> approved -> received
+-- Data: 20/10/2025 12:06
+-- =============================================================
+
+BEGIN;
+
+-- Remover constraint antiga
+ALTER TABLE IF EXISTS public.manufacturing_records 
+DROP CONSTRAINT IF EXISTS manufacturing_records_status_check;
+
+-- Adicionar nova constraint com 4 status
+ALTER TABLE IF EXISTS public.manufacturing_records 
+ADD CONSTRAINT manufacturing_records_status_check 
+CHECK (status IN ('need', 'pending', 'approved', 'received'));
+
+-- Atualizar o default para 'need' (novos registros começam em Necessidade)
+ALTER TABLE IF EXISTS public.manufacturing_records 
+ALTER COLUMN status SET DEFAULT 'need';
+
+COMMIT;
+

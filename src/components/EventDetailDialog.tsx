@@ -156,17 +156,18 @@ export const EventDetailDialog = ({
             <div>
               <Label htmlFor="test-status">Status do Teste</Label>
               <Select
-                value={testStatus}
+                value={testStatus || "none"}
                 onValueChange={(value) => {
-                  setTestStatus(value);
-                  savePartial({ testStatus: value as "Aprovado" | "Reprovado" });
+                  const newStatus = value === "none" ? "" : value;
+                  setTestStatus(newStatus);
+                  savePartial({ testStatus: newStatus as "Aprovado" | "Reprovado" });
                 }}
               >
                 <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Selecione o status do teste" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Aprovado">Aprovado</SelectItem>
+                  <SelectItem value="none">Sem status</SelectItem>
                   <SelectItem value="Reprovado">Reprovado</SelectItem>
                 </SelectContent>
               </Select>
