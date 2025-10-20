@@ -25,6 +25,7 @@ import { MatrixForm } from "@/components/MatrixForm";
 import { EventForm } from "@/components/EventForm";
 import { ImportExport } from "@/components/ImportExport";
 import { EventDetailDialog } from "@/components/EventDetailDialog";
+import { MatrixEditDialog } from "@/components/MatrixEditDialog";
 import { MatrixSummary } from "@/components/MatrixSummary";
 import { CollapsibleCard } from "@/components/CollapsibleCard";
 import KanbanBoard from "@/components/KanbanBoard";
@@ -71,6 +72,10 @@ const Index = () => {
     matrix: Matrix | null;
     event: MatrixEvent | null;
   }>({ open: false, matrix: null, event: null });
+  const [matrixEditDialog, setMatrixEditDialog] = useState<{
+    open: boolean;
+    matrix: Matrix | null;
+  }>({ open: false, matrix: null });
   const [manufacturingViewKey, setManufacturingViewKey] = useState(0);
   const { toast } = useToast();
 
@@ -248,6 +253,20 @@ const Index = () => {
       // Abre o diálogo de detalhes do evento
       setEventDetailDialog({ open: true, matrix, event });
     }
+  };
+
+  const handleMatrixClick = (matrixId: string) => {
+    // Apenas admin pode editar
+    if (authSession?.user?.role !== 'admin') return;
+    const matrix = matrices.find(m => m.id === matrixId);
+    if (matrix) {
+      setMatrixEditDialog({ open: true, matrix });
+    }
+  };
+
+  const handleUpdateMatrix = async (matrixId: string, updates: { responsible?: string; receivedDate?: string }) => {
+    await sbUpdateMatrix(matrixId, updates);
+    reloadAll();
   };
 
   const handleUpdateEvent = async (
@@ -462,8 +481,7 @@ const Index = () => {
                 onBlankClick={() => setSelectedMatrix(null)}
                 isReadOnly={!authSession}
                 onMatrixClick={(id) => {
-                  const m = matrices.find((x) => x.id === id) || null;
-                  setSelectedMatrix(m);
+                  handleMatrixClick(id);
                 }}
               />
             ) : mainView === "sheet" ? (
@@ -689,6 +707,17 @@ const Index = () => {
         matrix={eventDetailDialog.matrix}
         event={eventDetailDialog.event}
         onUpdateEvent={handleUpdateEvent}
+      />
+
+      {/* Matrix Edit Dialog (apenas admin) */}
+      <MatrixEditDialog
+        open={matrixEditDialog.open}
+        onOpenChange={(open) =>
+          setMatrixEditDialog({ open, matrix: null })
+        }
+        matrix={matrixEditDialog.matrix}
+        onUpdateMatrix={handleUpdateMatrix}
+        isAdmin={authSession?.user?.role === 'admin'}
       />
 
       {/* Login Dialog */}

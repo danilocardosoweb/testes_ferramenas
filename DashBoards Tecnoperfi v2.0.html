@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Portal de Dashboards Tecno</title>
+
+     <meta http-equiv="Content-Language" content="pt-br">
+     <script src="https://kit.fontawesome.com/df049154bd.js" crossorigin="anonymous"></script>
+     <link rel="icon" href="https://i.im.ge/2023/06/20/iZU1G0.LogoPagina.png" type="image/png">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <meta charset="UTF-8">
+     <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <style>
+
+      @import url('https://fonts.googleapis.com/css2?family=Horizon+BT&display=swap');
+
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden; // barra de Rolagem
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 80px;
+      height: 100%;
+      background-color: #333;
+      color: #fff;
+      padding: 0px 0px;
+      transition: width 0.3s;
+      overflow: hidden;
+    }
+
+    .sidebar.active {
+      width: 150px;
+    }
+
+    .sidebar .menu-header {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 60px;
+      font-weight: Regular;
+      font-size: 24px;
+      background-color: #444;
+      color: #fff;
+      cursor: pointer;
+      transition: width 0.3s;
+      font-family: 'Horizon BT', Arial, sans-serif; /* Fonte modificada aqui */
+
+    }
+
+    .sidebar.active .menu-header {
+      width: 150px;
+    }
+
+    .sidebar .menu-icon {
+      display: block;
+      text-align: center;
+      margin-bottom: 20px;
+      cursor: pointer;
+      transition: transform 0.3s;
+    }
+
+    .sidebar.active .menu-icon {
+      transform: rotate(180deg);
+    }
+
+    .sidebar .menu-icon span {
+      display: block;
+      width: 30px;
+      height: 4px;
+      background-color: #fff;
+      margin: 6px auto;
+      transition: background-color 0.3s;
+    }
+
+    .sidebar .menu-icon.active span {
+      background-color: transparent;
+    }
+
+    .sidebar .menu-items {
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      transition: opacity 0.3s;
+      //height: 4px;
+    }
+
+    .sidebar.active .menu-items {
+      opacity: 1;
+      //height: 490px;
+    }
+
+    .sidebar .menu-item {
+      display: none;
+      padding: 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .sidebar.active .menu-item {
+      display: block;
+    }
+
+    .sidebar .menu-item:hover {
+      background-color: #444;
+    }
+
+    .sidebar .close-button {
+      display: none;
+      padding: 10px;
+      text-align: center;
+      cursor: pointer;
+      background-color: #444;
+      transition: background-color 0.3s;
+      color: #ff7f7f; /* Adicione esta linha */
+    }
+
+    .sidebar.active .close-button {
+      display: block;
+    }
+
+    .sidebar .close-button:hover {
+      background-color: #666;
+    }
+
+    .content {
+      flex: 1;
+      padding: 20px;
+      transition: margin-left 0.3s;
+      //overflow: auto;                                    // ativar barra de rolagem
+    }
+
+    .content.active {
+      margin-left: 0px;
+    }
+
+    .powerbi-dashboard {                                 
+      width: 100%;
+      height: 107%;
+    }
+
+    .submenu {
+      display: none;
+      height: 0;
+      overflow: hidden;
+      transition: height 0.3s;
+    }
+
+    .submenu.active {
+      display: block;
+      height: auto;
+    }
+
+    .group {
+      font-weight: bold;
+    }
+
+
+    .sidebar .menu-item.active {
+      background-color: #555;
+    }
+
+    #logo {
+      position: absolute;
+      top: 90%;
+      left: 10px;
+      width: 40px; /* Reduzindo a largura para 40 pixels */
+      height: 40px; /* Reduzindo a altura para 40 pixels */
+      padding: 5px 8px;
+      border-radius: 30% 50% 30% 30%;
+    }
+
+    .popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: #fff;
+      padding: 12px;
+      border: 1px solid #ccc;
+      box-shadow: 0 20px 30px rgba(0, 0, 0, 0.9);
+      z-index: 9999;
+      display: none;
+      width: 600px;
+      height: 600px;
+    }
+
+    .popup img {
+      width: 100%;
+      height: 100%;
+      border-radius: 3% 3% 3% 3%;
+    }
+
+    .popup .close-button {
+      position: absolute;
+      top: 3px;
+      right: 5px;
+      cursor: pointer;
+      color: #ff7f7f;
+      font-size: 20px;
+    }
+
+    /* Estilo padrão do menu */
+    .menu-item {
+      color: #fff; /* Cor do texto padrão */
+    }
+
+    /* Estilo quando o mouse está sobre o item do menu */
+    .menu-item:hover {
+      color: #0066CC; /* Cor do texto quando o mouse está sobre o item */
+    }
+
+    @media only screen and (max-width: 1200px) { /* Ajuste o valor máximo para a largura desejada */
+      .logo {
+        display: none;
+      }
+    }
+
+    .sidebar .menu-item:hover {
+      background-color: #444;
+      font-size: 1.2em; /* Ajuste o tamanho da fonte aumentando em 10% */
+      font-weight: bold; /* Definir a fonte como negrito */
+    }
+
+
+    .sidebar .menu-item:not(.active) {
+  opacity: 0.6; /* Define a opacidade para os itens de menu não selecionados */
+}
+
+   
+
+
+  </style>
+
+  <script>
+
+   
+    
+
+
+    function toggleMenu() {
+      const sidebar = document.querySelector('.sidebar');
+      const content = document.querySelector('.content');
+      const menuIcon = document.querySelector('.menu-icon');
+      const menuHeader = document.querySelector('.menu-header');
+      const closeButton = document.querySelector('.close-button');
+
+      sidebar.classList.toggle('active');
+      content.classList.toggle('active');
+      menuIcon.classList.toggle('active');
+      menuHeader.textContent = sidebar.classList.contains('active') ? 'Tecnoperfil' : 'Tecno'; // Modificação feita aqui
+      closeButton.textContent = sidebar.classList.contains('active') ? 'Fechar' : '';
+
+      if (!sidebar.classList.contains('active')) {
+        closeMenu();
+      }
+    }
+
+    function openDashboard(url) {
+      const iframe = document.getElementById('dashboard-iframe');
+      iframe.src = url;
+    }
+
+    function closeMenu() {
+      const sidebar = document.querySelector('.sidebar');
+      const content = document.querySelector('.content');
+      const menuIcon = document.querySelector('.menu-icon');
+      const menuHeader = document.querySelector('.menu-header');
+      const closeButton = document.querySelector('.close-button');
+
+      sidebar.classList.remove('active');
+      content.classList.remove('active');
+      menuIcon.classList.remove('active');
+      menuHeader.textContent = 'Tecno'; // Modificação feita aqui
+      closeButton.textContent = '';
+    }
+
+    window.addEventListener('DOMContentLoaded', function () {
+      openDashboard('https://app.powerbi.com/view?r=eyJrIjoiMDZmZjUxZGUtNWRjMC00YzJjLWI5NjMtYTY5YWE4ZDRlMzM3IiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9');
+    });
+
+    // Função para exibir/ocultar o submenu ao clicar em um grupo
+    function toggleSubMenu(submenuId) {
+      const submenu = document.getElementById(submenuId);
+      const isActive = submenu.classList.toggle('active');
+      const menuItem = document.querySelector(`[onclick="toggleSubMenu('${submenuId}')"]`);
+
+      if (isActive) {
+        const submenuItems = submenu.getElementsByClassName('menu-item');
+        const submenuHeight = Array.from(submenuItems).reduce((totalHeight, item) => {
+          return totalHeight + item.offsetHeight;
+        }, 0);
+        submenu.style.height = submenuHeight + 'px';
+        menuItem.classList.add('active'); // Adiciona a classe 'active' ao grupo selecionado
+      } else {
+        submenu.style.height = '0';
+        menuItem.classList.remove('active'); // Remove a classe 'active' do grupo desselecionado
+      }
+
+      // Ocultar outros submenus ativos
+      const allSubmenus = document.getElementsByClassName('submenu');
+      Array.from(allSubmenus).forEach((item) => {
+        if (item.id !== submenuId && item.classList.contains('active')) {
+          item.classList.remove('active');
+          item.style.height = '0';
+        }
+      });
+
+      // Remover a classe 'active' de outros grupos
+      const allMenuItems = document.getElementsByClassName('menu-item');
+      Array.from(allMenuItems).forEach((item) => {
+        if (item !== menuItem && item.classList.contains('active')) {
+          item.classList.remove('active');
+        }
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', function () {
+      const popup = document.getElementById('popup');
+      popup.style.display = 'block';
+    });
+
+    function closePopup() {
+      const popup = document.getElementById('popup');
+      popup.style.display = 'none';
+    }
+
+    // Adicionando eventos para abrir e recolher o menu quando o mouse estiver sobre ele
+    window.addEventListener('DOMContentLoaded', function () {
+      const sidebar = document.querySelector('.sidebar');
+      let timer;
+
+      sidebar.addEventListener('mouseenter', function () {
+        timer = setTimeout(toggleMenu, 200); // Abre o menu depois de 3 segundos
+      });
+
+      sidebar.addEventListener('mouseleave', function () {
+        clearTimeout(timer); // Cancela a abertura do menu se o mouse sair antes dos 3 segundos
+        closeMenu(); // Fecha o menu
+      });
+    });
+
+  </script>
+
+</head>
+
+
+<body>
+
+<div class="container">
+  <div class="sidebar">
+    <div class="menu-header">Tecno</div>
+    <div class="menu-icon">
+      <span></span>
+      <span></span>
+      <span></span>   
+    </div>
+    
+    <div class="menu-item group" onclick="toggleSubMenu('grupo1')">Comercial</div>
+    <div id="grupo1" class="submenu">
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiMDZmZjUxZGUtNWRjMC00YzJjLWI5NjMtYTY5YWE4ZDRlMzM3IiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Resumo</div>
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiZWRiNmM3YTAtNWQ3OS00OTAyLWFjOWYtMGE4NDg0MmZjNTAxIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Carteira</div>
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiYWVmYTViYzctM2QyMC00MTYwLTk5NGItZTZlZWE2NzljYThiIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Revenda Est.</div>
+
+<div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiNjBhMjY5MWQtMDY1ZS00Mjk0LTgyYTItYTkwMzIzYTc2YmNjIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Vendas</div>
+
+<div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiYTM3OGQwZjMtYTFlZi00YmM2LTkxZjUtZjExZDZjODlhM2RmIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Catálogo</div>
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiODM3Yzg0M2EtZjM3MS00NzRkLTgzMTMtZjFjODJkNTFlYzMwIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Atendimento</div>
+    </div>
+
+    <div class="menu-item group" onclick="toggleSubMenu('grupo2')">Produção</div>
+    <div id="grupo2" class="submenu">
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiYzZkY2UxMTEtZTk1OC00Y2YzLWJmY2UtYWU2ZTRiMzZkNDdjIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Produção</div>
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiNWFlY2NiNzgtNzQyMi00NDUxLWJkZWMtMTMxODUxMDg2ZGQzIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Embalagem</div>
+
+ <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiN2FmODhlNzQtNWQ0Zi00ZTkxLTk0YTUtYjMwMjk2OWMwZmNkIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Ferramentaria</div>
+    </div>
+
+    <div class="menu-item group" onclick="toggleSubMenu('grupo3')">Logística</div>
+    <div id="grupo3" class="submenu">
+
+<div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiNTMzYzRlNjMtMGI0Zi00ODg3LWJmNmYtMmUwZTVjMmMxMTA3IiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Roteirização</div>
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiYWViZDZlN2ItOTFmMS00NjhmLTlhZDMtNjQ2MWJhNzgwZjBmIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Depósito</div>
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiMzc2NWNkZWYtMWM3Yy00MjZkLWE3OGEtY2I2NjRiODdmMTk3IiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Tarugos</div>
+    </div>
+
+    <div class="menu-item group" onclick="toggleSubMenu('grupo4')">Manutenção</div>
+    <div id="grupo4" class="submenu">
+
+      <div class="menu-item" onclick="openDashboard('https://app.powerbi.com/view?r=eyJrIjoiMzRiYmJkZWItYTE2OS00N2M4LWI3NDYtYzE1YWFmOTY4NzlhIiwidCI6Ijg0NGJmOGNhLTg3M2UtNDVjMi1iZGU0LWNjNDZlZjUzOTkyOSJ9')">Indicadores</div>
+    </div>
+
+    
+    <div id="grupo5" class="submenu">
+
+      
+    </div>
+
+    
+  </div>
+  <div class="content">
+    <iframe id="dashboard-iframe" class="powerbi-dashboard" src=""></iframe>
+  </div>
+</div>
+
+
+<img id="logo" class="logo" src="https://i.im.ge/2023/06/20/iZLJXM.logoDanilo.png" alt="Logo">
+
+</body>
+</html>
