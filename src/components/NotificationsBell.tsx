@@ -10,7 +10,7 @@ import { Matrix } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
 
 // Tipos e props
-export type NotifCategory = "Aprovadas" | "Reprovado" | "Limpeza" | "Correção Externa";
+export type NotifCategory = "Aprovadas" | "Reprovado" | "Limpeza" | "Correção Externa" | "Recebidas";
 
 type SentLogEntry = {
   id: string;
@@ -78,6 +78,7 @@ function categorize(typeLower: string, testStatus?: string): NotifCategory | nul
   if (typeLower.includes("teste") && testStatus === "Reprovado") return "Reprovado";
   if (typeLower.includes("limpeza")) return "Limpeza";
   if (typeLower.includes("correção") || typeLower.includes("correcao")) return "Correção Externa";
+  if (typeLower.includes("receb")) return "Recebidas";
   return null;
 }
 
@@ -92,7 +93,7 @@ function persistSentLog(log: Record<string, SentLogEntry>) {
 function loadNotifFilter(): NotifCategory[] {
   try {
     const raw = localStorage.getItem(NOTIF_FILTER_KEY);
-    const all: NotifCategory[] = ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa"];
+    const all: NotifCategory[] = ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa", "Recebidas"];
     
     if (!raw) {
       // Salva no localStorage para próxima vez
@@ -104,9 +105,16 @@ function loadNotifFilter(): NotifCategory[] {
     
     const arr = JSON.parse(raw) as NotifCategory[];
     
-    // Força migração: se não tem "Reprovado", adiciona e salva
+    // Força migração: se não tem "Reprovado" ou "Recebidas", adiciona e salva
+    let migrated = [...arr];
     if (!arr.includes("Reprovado")) {
-      const migrated = [...arr, "Reprovado"];
+      migrated = [...migrated, "Reprovado"];
+    }
+    if (!arr.includes("Recebidas")) {
+      migrated = [...migrated, "Recebidas"];
+    }
+    
+    if (migrated.length !== arr.length) {
       try {
         localStorage.setItem(NOTIF_FILTER_KEY, JSON.stringify(migrated));
       } catch {}
@@ -117,7 +125,7 @@ function loadNotifFilter(): NotifCategory[] {
     const result = valid.length ? valid : all;
     return result;
   } catch {
-    return ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa"];
+    return ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa", "Recebidas"];
   }
 }
 
@@ -277,13 +285,14 @@ export default function NotificationsBell({ matrices, staleDaysThreshold = 10, r
   }, []);
 
   // seleção por categoria
-  const categories: NotifCategory[] = ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa"];
+  const categories: NotifCategory[] = ["Aprovadas", "Reprovado", "Limpeza", "Correção Externa", "Recebidas"];
   const grouped = useMemo(() => {
     const g: Record<NotifCategory, Activity[]> = {
       Aprovadas: [],
       Reprovado: [],
       Limpeza: [],
       "Correção Externa": [],
+      Recebidas: [],
     };
     for (const a of activities) {
       if (a.category && categories.includes(a.category)) g[a.category].push(a);

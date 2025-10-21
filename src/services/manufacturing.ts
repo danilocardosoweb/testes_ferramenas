@@ -7,6 +7,8 @@ export interface ManufacturingRecord {
   matrix_code: string;
   manufacturing_type: 'nova' | 'reposicao';
   profile_type: 'tubular' | 'solido';
+  package_size?: string | null;
+  hole_count?: number | null;
   supplier: string;
   custom_supplier?: string;
   estimated_delivery_date?: string | null;
@@ -146,6 +148,8 @@ export async function createManufacturingRecord(data: Omit<ManufacturingRecord, 
       matrix_code: data.matrix_code,
       manufacturing_type: data.manufacturing_type,
       profile_type: data.profile_type,
+      package_size: data.package_size ?? null,
+      hole_count: data.hole_count ?? null,
       supplier: data.supplier,
       custom_supplier: data.custom_supplier,
       priority: data.priority || 'medium',

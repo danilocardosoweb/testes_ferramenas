@@ -342,3 +342,34 @@ ALTER COLUMN status SET DEFAULT 'need';
 
 COMMIT;
 
+
+-- =============================================================
+-- Migração: Adicionar campos de Pacote e QTD Furos em manufacturing_records
+-- Objetivo: Registrar informações complementares da confecção
+-- Data: 21/10/2025 08:56
+-- =============================================================
+
+BEGIN;
+
+ALTER TABLE IF EXISTS public.manufacturing_records
+ADD COLUMN IF NOT EXISTS package_size TEXT;
+
+ALTER TABLE IF EXISTS public.manufacturing_records
+ADD COLUMN IF NOT EXISTS hole_count INTEGER;
+
+COMMIT;
+
+-- =============================================================
+-- ROLLBACK - Campos de Pacote e QTD Furos
+-- =============================================================
+
+BEGIN;
+
+ALTER TABLE IF EXISTS public.manufacturing_records
+DROP COLUMN IF EXISTS package_size;
+
+ALTER TABLE IF EXISTS public.manufacturing_records
+DROP COLUMN IF EXISTS hole_count;
+
+COMMIT;
+

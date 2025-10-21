@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,13 +11,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay } from "@/services/manufacturing";
-import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface FormData {
   matrixCode: string;
   manufacturingType: "nova" | "reposicao" | "";
   profileType: "tubular" | "solido" | "";
+  packageSize: string;
+  holeCount: string;
   supplier: string;
   customSupplier: string;
   priority: "low" | "medium" | "high" | "critical";
@@ -32,18 +34,25 @@ interface ManufacturingViewProps {
   onSuccess?: () => void;
 }
 
+const PACKAGE_OPTIONS: Record<"tubular" | "solido", string[]> = {
+  tubular: ["250x170", "300x170", "350x170", "400x170", "350x209", "400x209"],
+  solido: ["250x170", "300x170", "350x170", "400x170", "350x209", "400x209", "228x130"],
+};
+
 export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [records, setRecords] = useState<ManufacturingRecord[]>([]);
   const [viewRecord, setViewRecord] = useState<ManufacturingRecord | null>(null);
-  const [isFormExpanded, setIsFormExpanded] = useState(true);
+  const [isFormExpanded, setIsFormExpanded] = useState(false);
   
   const [formData, setFormData] = useState<FormData>({
     matrixCode: "",
     manufacturingType: "",
     profileType: "",
+    packageSize: "",
+    holeCount: "",
     supplier: "",
     customSupplier: "",
     priority: "medium",
@@ -63,6 +72,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
   
   // Seleção múltipla
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
+  const [selectedNeedRecords, setSelectedNeedRecords] = useState<string[]>([]);
   const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
   const [estimatedDate, setEstimatedDate] = useState("");
 
@@ -79,6 +89,13 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
     { value: "10", label: "Out" }, { value: "11", label: "Nov" }, { value: "12", label: "Dez" },
   ];
 
+  const availablePackages = useMemo(() => {
+    if (formData.profileType === "tubular" || formData.profileType === "solido") {
+      return PACKAGE_OPTIONS[formData.profileType];
+    }
+    return [];
+  }, [formData.profileType]);
+
   useEffect(() => {
     loadRecords();
   }, []);
@@ -89,6 +106,74 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
       setRecords(data);
     } catch (err: any) {
       console.error("Erro ao carregar registros:", err);
+    }
+  };
+
+  const handleExportToExcel = async () => {
+    setLoading(true);
+    try {
+      const filtered = records.filter((record) => {
+        const createdAt = new Date(record.created_at);
+        const year = createdAt.getFullYear();
+        const month = String(createdAt.getMonth() + 1).padStart(2, "0");
+        const matchYear = !filterYear || filterYear === " " || filterYear === "" || String(year) === filterYear;
+        const matchMonth = !filterMonth || filterMonth === " " || filterMonth === "" || month === filterMonth;
+        const matchSupplier = !filterSupplier || filterSupplier === " " || filterSupplier === "" || record.supplier === filterSupplier || (record.supplier === "Outro" && record.custom_supplier === filterSupplier);
+        const matchPriority = !filterPriority || filterPriority === " " || filterPriority === "" || record.priority === filterPriority;
+        return matchYear && matchMonth && matchSupplier && matchPriority;
+      });
+
+      const headers = [
+        "Código",
+        "Tipo",
+        "Perfil",
+        "Pacote",
+        "QTD Furos",
+        "Prioridade",
+        "Lead Time",
+        "Fornecedor",
+        "Registrado",
+        "Entrega",
+      ];
+
+      const mapRecord = (record: ManufacturingRecord) => ({
+        "Código": record.matrix_code,
+        "Tipo": record.manufacturing_type === "nova" ? "Nova" : "Reposição",
+        "Perfil": record.profile_type === "tubular" ? "Tubular" : "Sólido",
+        "Pacote": record.package_size || "-",
+        "QTD Furos": record.hole_count ?? "-",
+        "Prioridade": record.priority === "critical" ? "Crítica" : record.priority === "high" ? "Alta" : record.priority === "medium" ? "Média" : "Baixa",
+        "Lead Time": getLeadTimeDisplay(record),
+        "Fornecedor": record.supplier === "Outro" ? record.custom_supplier : record.supplier,
+        "Registrado": new Date(record.created_at).toLocaleDateString("pt-BR"),
+        "Entrega": record.estimated_delivery_date ? new Date(record.estimated_delivery_date).toLocaleDateString("pt-BR") : "-",
+      });
+
+      const statusSections = [
+        { key: "need" as const, label: "Necessidade" },
+        { key: "pending" as const, label: "Solicitação" },
+        { key: "approved" as const, label: "Em Fabricação" },
+      ];
+
+      const workbook = XLSX.utils.book_new();
+
+      statusSections.forEach(({ key, label }) => {
+        const rows = filtered.filter((record) => record.status === key).map(mapRecord);
+        const worksheet = XLSX.utils.aoa_to_sheet([headers]);
+        if (rows.length) {
+          XLSX.utils.sheet_add_json(worksheet, rows, { origin: "A2", skipHeader: true });
+        }
+        XLSX.utils.book_append_sheet(workbook, worksheet, label);
+      });
+
+      XLSX.writeFile(workbook, `matrizes_confecao_${new Date().toISOString().split("T")[0]}.xlsx`);
+
+      toast({ title: "Exportado com sucesso", description: `${filtered.length} registro(s) exportado(s)` });
+    } catch (err: any) {
+      console.error("Erro ao exportar:", err);
+      toast({ title: "Erro ao exportar", description: String(err?.message || err), variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -168,6 +253,68 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
     }
   };
 
+  const handleSendApprovalEmail = () => {
+    if (selectedNeedRecords.length === 0) {
+      toast({ 
+        title: "Nenhuma matriz selecionada", 
+        description: "Selecione pelo menos uma matriz para enviar o e-mail", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    const selectedMatrices = records.filter(r => selectedNeedRecords.includes(r.id));
+    
+    // Agrupar por fornecedor
+    const groupedBySupplier = selectedMatrices.reduce((acc, matrix) => {
+      const supplier = matrix.supplier === "Outro" ? matrix.custom_supplier : matrix.supplier;
+      if (!acc[supplier]) acc[supplier] = [];
+      acc[supplier].push(matrix);
+      return acc;
+    }, {} as Record<string, ManufacturingRecord[]>);
+
+    // Gerar conteúdo do e-mail
+    let emailBody = "Solicitação de Aprovação para Confecção de Matrizes\n\n";
+    emailBody += "Prezados,\n\n";
+    emailBody += "Solicitamos a aprovação para confecção das seguintes matrizes:\n\n";
+
+    Object.entries(groupedBySupplier).forEach(([supplier, matrices]) => {
+      emailBody += `FORNECEDOR: ${supplier}\n`;
+      emailBody += "=".repeat(50) + "\n";
+      
+      matrices.forEach((matrix, index) => {
+        const priorityText = matrix.priority === 'critical' ? 'Crítica' : 
+                           matrix.priority === 'high' ? 'Alta' : 
+                           matrix.priority === 'medium' ? 'Média' : 'Baixa';
+        
+        emailBody += `${index + 1}. ${matrix.matrix_code} | ${matrix.manufacturing_type === 'nova' ? 'Nova' : 'Reposição'} | ${matrix.profile_type === 'tubular' ? 'Tubular' : 'Sólido'} | ${matrix.package_size || 'N/A'} | ${matrix.hole_count || 'N/A'} furos | ${priorityText} | ${matrix.justification}`;
+        
+        if (matrix.technical_notes) {
+          emailBody += ` | Obs: ${matrix.technical_notes}`;
+        }
+        
+        emailBody += "\n";
+      });
+      emailBody += "\n";
+    });
+
+    emailBody += "Aguardamos sua aprovação para prosseguir com a confecção.\n\n";
+    emailBody += "Atenciosamente,\n";
+    emailBody += "Ferramentaria";
+
+    // Criar link mailto
+    const subject = `Solicitação de Aprovação - ${selectedMatrices.length} Matriz(es)`;
+    const mailtoLink = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
+    
+    // Abrir cliente de e-mail
+    window.open(mailtoLink);
+    
+    toast({ 
+      title: "E-mail gerado!", 
+      description: `E-mail criado para ${selectedMatrices.length} matriz(es) selecionada(s)` 
+    });
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -197,66 +344,11 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
     }));
   };
 
-  const handleExportToExcel = () => {
-    try {
-      // Filtrar registros
-      const filtered = records.filter(r => {
-        const y = new Date(r.created_at).getFullYear().toString();
-        const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
-        const matchYear = !filterYear || filterYear === " " || y === filterYear;
-        const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
-        const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
-        return matchYear && matchMonth && matchSupplier;
-      });
-
-      // Preparar dados para Excel
-      const excelData = filtered.map(r => ({
-        'Código': r.matrix_code,
-        'Tipo': r.manufacturing_type === 'nova' ? 'Matriz Nova' : 'Reposição',
-        'Perfil': r.profile_type === 'tubular' ? 'Tubular' : 'Sólido',
-        'Fornecedor': r.supplier === 'Outro' ? r.custom_supplier : r.supplier,
-        'Data Entrega': r.estimated_delivery_date ? new Date(r.estimated_delivery_date).toLocaleDateString('pt-BR') : 'Não definida',
-        'Volume Produzido': r.volume_produced || '-',
-        'Observações': r.technical_notes || '-',
-        'Justificativa': r.justification,
-        'Data Criação': new Date(r.created_at).toLocaleDateString('pt-BR'),
-      }));
-
-      // Criar workbook
-      const ws = XLSX.utils.json_to_sheet(excelData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Confecções');
-
-      // Ajustar largura das colunas
-      const colWidths = [
-        { wch: 15 }, // Código
-        { wch: 15 }, // Tipo
-        { wch: 10 }, // Perfil
-        { wch: 15 }, // Fornecedor
-        { wch: 12 }, // Data Entrega
-        { wch: 15 }, // Volume
-        { wch: 30 }, // Observações
-        { wch: 40 }, // Justificativa
-        { wch: 12 }, // Data Criação
-      ];
-      ws['!cols'] = colWidths;
-
-      // Download
-      const fileName = `confeccoes_${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      
-      toast({ title: "Exportado com sucesso", description: `${filtered.length} registro(s) exportado(s)` });
-    } catch (err: any) {
-      console.error("Erro ao exportar:", err);
-      toast({ title: "Erro ao exportar", description: String(err?.message || err), variant: "destructive" });
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.matrixCode || !formData.manufacturingType || !formData.profileType || 
-        !formData.supplier || !formData.justification) {
+
+    if (!formData.matrixCode || !formData.manufacturingType || !formData.profileType ||
+        !formData.packageSize || !formData.holeCount || !formData.supplier || !formData.justification) {
       toast({ title: "Formulário incompleto", description: "Preencha todos os campos obrigatórios", variant: "destructive" });
       return;
     }
@@ -272,6 +364,8 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
         matrix_code: formData.matrixCode,
         manufacturing_type: formData.manufacturingType as "nova" | "reposicao",
         profile_type: formData.profileType as "tubular" | "solido",
+        package_size: formData.packageSize || null,
+        hole_count: formData.holeCount ? Number(formData.holeCount) : null,
         supplier: formData.supplier,
         custom_supplier: formData.customSupplier,
         priority: formData.priority,
@@ -286,6 +380,8 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
         matrixCode: "",
         manufacturingType: "",
         profileType: "",
+        packageSize: "",
+        holeCount: "",
         supplier: "",
         customSupplier: "",
         priority: "medium",
@@ -346,8 +442,8 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
         </CardHeader>
         {isFormExpanded && <CardContent className="p-3">
           <form onSubmit={handleSubmit} className="space-y-3">
-            {/* Grid de 6 colunas */}
-            <div className="grid grid-cols-6 gap-3">
+            {/* Linha 1: identificação básica */}
+            <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
               <div>
                 <Label className="text-xs font-semibold">Código <span className="text-red-500">*</span></Label>
                 <Input
@@ -358,6 +454,18 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                   required
                 />
               </div>
+              {formData.manufacturingType === "reposicao" && (
+                <div>
+                  <Label className="text-xs font-semibold">Matriz Substituída <span className="text-red-500">*</span></Label>
+                  <Input
+                    placeholder="Ex: TMP-001/24"
+                    value={formData.replacedMatrix}
+                    onChange={(e) => setFormData({ ...formData, replacedMatrix: e.target.value.toUpperCase() })}
+                    className="h-7 text-xs"
+                    required
+                  />
+                </div>
+              )}
               <div>
                 <Label className="text-xs font-semibold">Tipo <span className="text-red-500">*</span></Label>
                 <Select value={formData.manufacturingType} onValueChange={(value) => setFormData({ ...formData, manufacturingType: value as "nova" | "reposicao" })}>
@@ -372,7 +480,11 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
               </div>
               <div>
                 <Label className="text-xs font-semibold">Perfil <span className="text-red-500">*</span></Label>
-                <Select value={formData.profileType} onValueChange={(value) => setFormData({ ...formData, profileType: value as "tubular" | "solido" })}>
+                <Select value={formData.profileType} onValueChange={(value) => setFormData({
+                  ...formData,
+                  profileType: value as "tubular" | "solido",
+                  packageSize: "",
+                })}>
                   <SelectTrigger className="h-7 text-xs">
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
@@ -383,6 +495,27 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                 </Select>
               </div>
               <div>
+                <Label className="text-xs font-semibold">Pacote <span className="text-red-500">*</span></Label>
+                <Select
+                  value={formData.packageSize}
+                  onValueChange={(value) => setFormData({ ...formData, packageSize: value })}
+                  disabled={!formData.profileType}
+                >
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue placeholder={formData.profileType ? "Selecione" : "Escolha um perfil"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePackages.map((pkg) => (
+                      <SelectItem key={pkg} value={pkg}>{pkg}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Linha 2: demais campos */}
+            <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
+              <div className={formData.manufacturingType === "reposicao" ? "lg:col-span-2" : ""}>
                 <Label className="text-xs font-semibold">Fornecedor <span className="text-red-500">*</span></Label>
                 <Select value={formData.supplier} onValueChange={(value) => setFormData({ ...formData, supplier: value, customSupplier: value !== "Outro" ? "" : formData.customSupplier })}>
                   <SelectTrigger className="h-7 text-xs">
@@ -409,7 +542,6 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                   </SelectContent>
                 </Select>
               </div>
-              {/* Coluna 6: Volume Produzido */}
               <div>
                 <Label className="text-xs font-semibold">Volume Produzido</Label>
                 <Input
@@ -421,35 +553,35 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                   className="h-7 text-xs"
                 />
               </div>
+              <div>
+                <Label className="text-xs font-semibold">QTD Furos <span className="text-red-500">*</span></Label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={formData.holeCount}
+                  onChange={(e) => setFormData({ ...formData, holeCount: e.target.value.replace(/[^0-9]/g, "") })}
+                  className="h-7 text-xs"
+                  required
+                />
+              </div>
+              {formData.manufacturingType !== "reposicao" && <div />}
+              {formData.manufacturingType !== "reposicao" && <div />}
             </div>
 
             {/* Segunda linha: Campos condicionais */}
-            {(formData.supplier === "Outro" || formData.manufacturingType === "reposicao") && (
-              <div className="grid grid-cols-5 gap-2">
-                {formData.supplier === "Outro" && (
-                  <div className="col-span-2">
-                    <Label className="text-xs font-semibold">Nome do Fornecedor <span className="text-red-500">*</span></Label>
-                    <Input
-                      placeholder="Nome do fornecedor"
-                      value={formData.customSupplier}
-                      onChange={(e) => setFormData({ ...formData, customSupplier: e.target.value })}
-                      className="h-7 text-xs"
-                      required
-                    />
-                  </div>
-                )}
-                {formData.manufacturingType === "reposicao" && (
-                  <div className="col-span-2">
-                    <Label className="text-xs font-semibold">Matriz Substituída <span className="text-red-500">*</span></Label>
-                    <Input
-                      placeholder="Ex: TMP-001/24"
-                      value={formData.replacedMatrix}
-                      onChange={(e) => setFormData({ ...formData, replacedMatrix: e.target.value.toUpperCase() })}
-                      className="h-7 text-xs"
-                      required
-                    />
-                  </div>
-                )}
+            {formData.supplier === "Outro" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs font-semibold">Nome do Fornecedor <span className="text-red-500">*</span></Label>
+                  <Input
+                    placeholder="Nome do fornecedor"
+                    value={formData.customSupplier}
+                    onChange={(e) => setFormData({ ...formData, customSupplier: e.target.value })}
+                    className="h-7 text-xs"
+                    required
+                  />
+                </div>
               </div>
             )}
 
@@ -476,37 +608,38 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
               </div>
             </div>
 
-            {/* Linha 4: Upload de Imagens - Minimalista */}
-            <div className="flex items-center gap-2">
-              <Label className="text-xs font-semibold whitespace-nowrap">Fotos:</Label>
-              <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
-              <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => fileInputRef.current?.click()}>
-                Adicionar
-              </Button>
-              {formData.images.length > 0 && (
-                <Badge variant="secondary" className="text-xs">{formData.images.length} arquivo(s)</Badge>
-              )}
-              {formData.images.length > 0 && (
-                <div className="flex gap-1">
-                  {formData.images.slice(0, 3).map((img, i) => (
-                    <div key={i} className="relative">
-                      <img src={img} alt={`${i + 1}`} className="w-6 h-6 object-cover rounded border cursor-pointer" onClick={() => setPreviewImage(img)} />
-                      <Button type="button" size="icon" variant="destructive" className="absolute -top-1 -right-1 h-3 w-3 p-0" onClick={() => removeImage(i)}>
-                        <X className="h-1.5 w-1.5" />
-                      </Button>
-                    </div>
-                  ))}
-                  {formData.images.length > 3 && (
-                    <div className="w-6 h-6 rounded border bg-slate-100 flex items-center justify-center text-[8px] font-bold cursor-pointer" onClick={() => setPreviewImage(formData.images[3])}>
-                      +{formData.images.length - 3}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Botões */}
-            <div className="flex gap-2 justify-end">
+            {/* Linha 4: Upload de Imagens e Botões - Alinhados */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs font-semibold whitespace-nowrap">Fotos:</Label>
+                <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
+                <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => fileInputRef.current?.click()}>
+                  Adicionar
+                </Button>
+                {formData.images.length > 0 && (
+                  <Badge variant="secondary" className="text-xs">{formData.images.length} arquivo(s)</Badge>
+                )}
+                {formData.images.length > 0 && (
+                  <div className="flex gap-1">
+                    {formData.images.slice(0, 3).map((img, i) => (
+                      <div key={i} className="relative">
+                        <img src={img} alt={`${i + 1}`} className="w-6 h-6 object-cover rounded border cursor-pointer" onClick={() => setPreviewImage(img)} />
+                        <Button type="button" size="icon" variant="destructive" className="absolute -top-1 -right-1 h-3 w-3 p-0" onClick={() => removeImage(i)}>
+                          <X className="h-1.5 w-1.5" />
+                        </Button>
+                      </div>
+                    ))}
+                    {formData.images.length > 3 && (
+                      <div className="w-6 h-6 rounded border bg-slate-100 flex items-center justify-center text-[8px] font-bold cursor-pointer" onClick={() => setPreviewImage(formData.images[3])}>
+                        +{formData.images.length - 3}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              {/* Botões alinhados à direita */}
+              <div className="flex gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -517,6 +650,8 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                       matrixCode: "",
                       manufacturingType: "",
                       profileType: "",
+                      packageSize: "",
+                      holeCount: "",
                       supplier: "",
                       customSupplier: "",
                       priority: "medium",
@@ -535,6 +670,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
               <Button type="submit" size="sm" disabled={loading} className="min-w-[100px]">
                 {loading ? "Registrando..." : "Registrar"}
               </Button>
+              </div>
             </div>
           </form>
         </CardContent>}
@@ -624,21 +760,61 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
             </TabsList>
             
             <TabsContent value="need" className="mt-0">
-              <div className="max-h-[400px] overflow-auto border rounded-md">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="text-xs bg-red-50">
-                      <TableHead className="h-8 px-2">Código</TableHead>
-                      <TableHead className="h-8 px-2">Tipo</TableHead>
-                      <TableHead className="h-8 px-2">Perfil</TableHead>
-                      <TableHead className="h-8 px-2">Prioridade</TableHead>
-                      <TableHead className="h-8 px-2">Lead Time</TableHead>
-                      <TableHead className="h-8 px-2">Fornecedor</TableHead>
-                      <TableHead className="h-8 px-2">Registrado</TableHead>
-                      <TableHead className="h-8 px-2">Entrega</TableHead>
-                      <TableHead className="h-8 px-2">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
+              <div className="space-y-2">
+                {selectedNeedRecords.length > 0 && (
+                  <div className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded-md">
+                    <span className="text-xs font-medium">{selectedNeedRecords.length} selecionada(s)</span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => setSelectedNeedRecords([])}
+                      >
+                        Limpar Seleção
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                        onClick={handleSendApprovalEmail}
+                      >
+                        <Mail className="h-3 w-3 mr-1" />
+                        Enviar E-mail de Aprovação
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <div className="max-h-[400px] overflow-auto border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="text-xs bg-red-50">
+                        <TableHead className="h-8 px-2 w-10">
+                          <input
+                            type="checkbox"
+                            checked={selectedNeedRecords.length > 0 && selectedNeedRecords.length === records.filter(r => r.status === 'need').length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedNeedRecords(records.filter(r => r.status === 'need').map(r => r.id));
+                              } else {
+                                setSelectedNeedRecords([]);
+                              }
+                            }}
+                            className="cursor-pointer"
+                          />
+                        </TableHead>
+                        <TableHead className="h-8 px-2">Código</TableHead>
+                        <TableHead className="h-8 px-2">Tipo</TableHead>
+                        <TableHead className="h-8 px-2">Perfil</TableHead>
+                        <TableHead className="h-8 px-2">Pacote</TableHead>
+                        <TableHead className="h-8 px-2">QTD Furos</TableHead>
+                        <TableHead className="h-8 px-2">Prioridade</TableHead>
+                        <TableHead className="h-8 px-2">Lead Time</TableHead>
+                        <TableHead className="h-8 px-2">Fornecedor</TableHead>
+                        <TableHead className="h-8 px-2">Registrado</TableHead>
+                        <TableHead className="h-8 px-2">Entrega</TableHead>
+                        <TableHead className="h-8 px-2">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
                   <TableBody>
                     {records.filter(r => {
                       const y = new Date(r.created_at).getFullYear().toString();
@@ -650,7 +826,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                       return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority;
                     }).length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center text-xs text-muted-foreground py-6">
+                        <TableCell colSpan={11} className="text-center text-xs text-muted-foreground py-6">
                           <AlertCircle className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
                           <p>Nenhuma necessidade identificada</p>
                         </TableCell>
@@ -666,6 +842,20 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                         return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority;
                       }).map((record) => (
                         <TableRow key={record.id} className="text-xs hover:bg-red-50/50">
+                          <TableCell className="px-2 py-1">
+                            <input
+                              type="checkbox"
+                              checked={selectedNeedRecords.includes(record.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedNeedRecords([...selectedNeedRecords, record.id]);
+                                } else {
+                                  setSelectedNeedRecords(selectedNeedRecords.filter(id => id !== record.id));
+                                }
+                              }}
+                              className="cursor-pointer"
+                            />
+                          </TableCell>
                           <TableCell className="px-2 py-1 font-mono">{record.matrix_code}</TableCell>
                           <TableCell className="px-2 py-1">
                             <Badge variant={record.manufacturing_type === "nova" ? "default" : "secondary"} className="text-xs">
@@ -676,6 +866,12 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                             <Badge variant="outline" className="text-xs">
                               {record.profile_type === "tubular" ? "Tubular" : "Sólido"}
                             </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-xs">
+                            {record.package_size || "-"}
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-xs text-center">
+                            {record.hole_count ?? "-"}
                           </TableCell>
                           <TableCell className="px-2 py-1">
                             <Badge 
@@ -741,6 +937,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                   </TableBody>
                 </Table>
               </div>
+              </div>
             </TabsContent>
 
             <TabsContent value="pending" className="mt-0">
@@ -790,6 +987,8 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                         <TableHead className="h-8 px-2">Tipo</TableHead>
                         <TableHead className="h-8 px-2">Perfil</TableHead>
                         <TableHead className="h-8 px-2">Prioridade</TableHead>
+                        <TableHead className="h-8 px-2">Pacote</TableHead>
+                        <TableHead className="h-8 px-2">QTD Furos</TableHead>
                         <TableHead className="h-8 px-2">Lead Time</TableHead>
                         <TableHead className="h-8 px-2">Fornecedor</TableHead>
                         <TableHead className="h-8 px-2">Solicitado</TableHead>
@@ -914,9 +1113,11 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                     <TableRow className="text-xs bg-green-50">
                       <TableHead className="h-8 px-2">Código</TableHead>
                       <TableHead className="h-8 px-2">Tipo</TableHead>
-                      <TableHead className="h-8 px-2">Perfil</TableHead>
-                      <TableHead className="h-8 px-2">Lead Time</TableHead>
-                      <TableHead className="h-8 px-2">Fornecedor</TableHead>
+                        <TableHead className="h-8 px-2">Perfil</TableHead>
+                        <TableHead className="h-8 px-2">Pacote</TableHead>
+                        <TableHead className="h-8 px-2">QTD Furos</TableHead>
+                        <TableHead className="h-8 px-2">Lead Time</TableHead>
+                        <TableHead className="h-8 px-2">Fornecedor</TableHead>
                       <TableHead className="h-8 px-2">Aprovado</TableHead>
                       <TableHead className="h-8 px-2">Entrega</TableHead>
                       <TableHead className="h-8 px-2">Ações</TableHead>
