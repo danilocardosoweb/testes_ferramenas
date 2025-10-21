@@ -9,8 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { UserPlus, Edit, Trash2, Key, Users, Shield } from "lucide-react";
+import { UserPlus, Edit, Trash2, Key, Users, Shield, Mails } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EmailTemplatesSettings } from "./EmailTemplatesSettings";
+import { EmailGroupsSettings } from "./EmailGroupsSettings";
 
 interface SettingsViewProps {
   currentUser: User;
@@ -195,15 +198,15 @@ export function SettingsView({ currentUser }: SettingsViewProps) {
   }
 
   return (
-    <div className="h-full flex flex-col p-6 space-y-6">
+    <div className="h-full flex flex-col p-6 space-y-6 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-shrink-0">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Users className="h-8 w-8" />
             Configurações do Sistema
           </h1>
-          <p className="text-muted-foreground mt-1">Gerenciar usuários e permissões</p>
+          <p className="text-muted-foreground mt-1">Administração</p>
         </div>
         <Button onClick={() => setShowNewUser(true)} disabled={loading}>
           <UserPlus className="h-4 w-4 mr-2" />
@@ -211,63 +214,86 @@ export function SettingsView({ currentUser }: SettingsViewProps) {
         </Button>
       </div>
 
-      {/* Lista de Usuários */}
-      <ScrollArea className="flex-1">
-        <div className="grid gap-4">
-          {users.map((user) => (
-            <Card key={user.id}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <CardTitle className="text-lg">{user.name}</CardTitle>
-                      <CardDescription>{user.email}</CardDescription>
-                    </div>
-                    {getRoleBadge(user.role)}
-                    {user.id === currentUser.id && (
-                      <Badge variant="outline" className="border-green-500 text-green-700">Você</Badge>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openEditDialog(user)}
-                      disabled={loading}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setChangingPassword(user);
-                        setNewPassword("");
-                        setConfirmPassword("");
-                      }}
-                      disabled={loading}
-                    >
-                      <Key className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-red-600 hover:bg-red-50"
-                      onClick={() => handleDeleteUser(user)}
-                      disabled={loading || user.id === currentUser.id}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{getRoleDescription(user.role)}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </ScrollArea>
+      <div className="flex-1 overflow-hidden">
+        <Tabs defaultValue="users" className="h-full flex flex-col">
+          <TabsList className="flex-shrink-0">
+            <TabsTrigger value="users">Usuários & Permissões</TabsTrigger>
+            <TabsTrigger value="emails">Cadastro das Mensagens</TabsTrigger>
+            <TabsTrigger value="groups">Grupos de E-mail</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="users" className="mt-4 flex-1 overflow-hidden">
+            <ScrollArea className="h-full">
+              <div className="grid gap-4">
+                {users.map((user) => (
+                  <Card key={user.id}>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <CardTitle className="text-lg">{user.name}</CardTitle>
+                            <CardDescription>{user.email}</CardDescription>
+                          </div>
+                          {getRoleBadge(user.role)}
+                          {user.id === currentUser.id && (
+                            <Badge variant="outline" className="border-green-500 text-green-700">Você</Badge>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditDialog(user)}
+                            disabled={loading}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setChangingPassword(user);
+                              setNewPassword("");
+                              setConfirmPassword("");
+                            }}
+                            disabled={loading}
+                          >
+                            <Key className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-600 hover:bg-red-50"
+                            onClick={() => handleDeleteUser(user)}
+                            disabled={loading || user.id === currentUser.id}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">{getRoleDescription(user.role)}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="emails" className="mt-4 flex-1 overflow-hidden">
+            <div className="h-full overflow-y-auto">
+              <EmailTemplatesSettings />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="groups" className="mt-4 flex-1 overflow-hidden">
+            <div className="h-full overflow-y-auto">
+              <EmailGroupsSettings />
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
 
       {/* Dialog: Novo Usuário */}
       <Dialog open={showNewUser} onOpenChange={setShowNewUser}>

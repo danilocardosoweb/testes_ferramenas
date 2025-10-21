@@ -414,14 +414,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           <Factory className="h-4 w-4 text-white" />
         </div>
         <h1 className="text-lg font-bold text-slate-800">Registro de Confecção</h1>
-        <Button 
-          onClick={loadRecords} 
-          variant="outline" 
-          size="sm"
-          className="ml-auto"
-        >
-          🔄 Recarregar
-        </Button>
+        <div className="ml-auto" />
       </div>
 
       {/* Formulário em Grid Compacto */}
@@ -891,6 +884,12 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                record.priority === 'medium' ? 'Média' : 'Baixa'}
                             </Badge>
                           </TableCell>
+                          <TableCell className="px-2 py-1 text-xs">
+                            {record.package_size || "-"}
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-xs text-center">
+                            {record.hole_count ?? "-"}
+                          </TableCell>
                           <TableCell className="px-2 py-1 text-center font-mono text-xs">
                             {getLeadTimeDisplay(record)}
                           </TableCell>
@@ -1024,7 +1023,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                       return r.status === 'pending' && matchYear && matchMonth && matchSupplier && matchPriority;
                     }).length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center text-xs text-muted-foreground py-6">
+                        <TableCell colSpan={12} className="text-center text-xs text-muted-foreground py-6">
                           <Clock className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
                           <p>Nenhuma solicitação pendente</p>
                         </TableCell>
@@ -1079,6 +1078,12 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                record.priority === 'high' ? 'Alta' :
                                record.priority === 'medium' ? 'Média' : 'Baixa'}
                             </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-xs">
+                            {record.package_size || "-"}
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-xs text-center">
+                            {record.hole_count ?? "-"}
                           </TableCell>
                           <TableCell className="px-2 py-1 text-center font-mono text-xs">
                             {getLeadTimeDisplay(record)}
@@ -1161,7 +1166,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                       return r.status === 'approved' && matchYear && matchMonth && matchSupplier;
                     }).length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-xs text-muted-foreground py-6">
+                        <TableCell colSpan={10} className="text-center text-xs text-muted-foreground py-6">
                           <Factory className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
                           <p>Nenhuma matriz em fabricação</p>
                         </TableCell>
@@ -1186,6 +1191,12 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                             <Badge variant="outline" className="text-xs">
                               {record.profile_type === "tubular" ? "Tubular" : "Sólido"}
                             </Badge>
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-xs">
+                            {record.package_size || "-"}
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-xs text-center">
+                            {record.hole_count ?? "-"}
                           </TableCell>
                           <TableCell className="px-2 py-1 text-center font-mono text-xs">
                             {getLeadTimeDisplay(record)}
