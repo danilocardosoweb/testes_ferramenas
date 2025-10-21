@@ -231,6 +231,9 @@ export const FlowView = ({ matrices, onEventClick, onBlankClick, onMatrixClick, 
         <p className="text-sm text-muted-foreground">
           {matrices.length} matriz(es) • {matrices.reduce((acc, m) => acc + m.events.length, 0)} evento(s) total
         </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Use <kbd className="px-1 py-0.5 bg-muted rounded">Ctrl</kbd> + <kbd className="px-1 py-0.5 bg-muted rounded">L</kbd> para abrir a busca e filtrar pelo código da matriz.
+        </p>
       </div>
       <div className="h-[calc(100%-80px)]">
         <ReactFlow

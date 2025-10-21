@@ -48,6 +48,7 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
   const [filter, setFilter] = useState("");
   const [folder, setFolder] = useState<string>("__all__");
   const [showCycles, setShowCycles] = useState(false); // recolher/expandir colunas entre teste e correção ext. entrada
+  const [testStage, setTestStage] = useState<string>("__all__");
   const sorted = useMemo(() => [...matrices].sort((a, b) => a.code.localeCompare(b.code, "pt-BR")), [matrices]);
   const folders = useMemo(() => {
     const set = new Set<string>();
@@ -60,9 +61,32 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
       const codeOk = term ? m.code.toLowerCase().includes(term) : true;
       const fName = m.folder || "(Sem pasta)";
       const folderOk = folder === "__all__" ? true : fName === folder;
-      return codeOk && folderOk;
+      if (!codeOk || !folderOk) return false;
+
+      if (testStage === "__all__") return true;
+
+      const tests = m.events
+        .filter((e) => e.type === "Testes" || /Teste/i.test(e.type))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const testsCount = tests.length;
+      const hasAdditionalTests = testsCount > 3;
+
+      switch (testStage) {
+        case "none":
+          return testsCount === 0;
+        case "test1":
+          return testsCount >= 1 && testsCount < 2;
+        case "test2":
+          return testsCount >= 2 && testsCount < 3;
+        case "test3":
+          return testsCount >= 3 && !hasAdditionalTests;
+        case "extra":
+          return hasAdditionalTests;
+        default:
+          return true;
+      }
     });
-  }, [sorted, filter, folder]);
+  }, [sorted, filter, folder, testStage]);
 
   return (
     <Card className="h-full" onClick={(e) => e.stopPropagation()}>
@@ -87,6 +111,19 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
                 {folders.map((f) => (
                   <SelectItem key={f} value={f}>{f}</SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-60 min-w-[200px]">
+            <Select value={testStage} onValueChange={setTestStage}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Etapa de teste" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todas as etapas</SelectItem>
+                <SelectItem value="none">Sem testes</SelectItem>
+                <SelectItem value="test1">Em 1º teste</SelectItem>
+                <SelectItem value="test2">Em 2º teste</SelectItem>
+                <SelectItem value="test3">Em 3º teste</SelectItem>
+                <SelectItem value="extra">Testes extras (4º+)</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Matrix, MatrixEvent, AuthSession } from "@/types";
 // Supabase services
 import {
@@ -34,11 +34,12 @@ import { TestingView } from "@/components/TestingView";
 import { SettingsView } from "@/components/SettingsView";
 import { LoginDialog } from "@/components/LoginDialog";
 import { ManufacturingView } from "@/components/ManufacturingView";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import NotificationsBell from "@/components/NotificationsBell";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
 import { getCurrentSession, logout } from "@/services/auth";
 import { LogIn, LogOut, Settings, RefreshCw } from "lucide-react";
@@ -77,6 +78,9 @@ const Index = () => {
     matrix: Matrix | null;
   }>({ open: false, matrix: null });
   const [manufacturingViewKey, setManufacturingViewKey] = useState(0);
+  const [timelineSearchOpen, setTimelineSearchOpen] = useState(false);
+  const [timelineSearch, setTimelineSearch] = useState("");
+  const timelineSearchInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -138,6 +142,28 @@ const Index = () => {
       if (timer) window.clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.ctrlKey && (event.key === "l" || event.key === "L")) {
+        event.preventDefault();
+        setMainView("timeline");
+        setTimelineSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (timelineSearchOpen) {
+      window.setTimeout(() => {
+        timelineSearchInputRef.current?.focus();
+      }, 0);
+    }
+  }, [timelineSearchOpen]);
 
   const handleNewMatrix = async (matrix: Matrix) => {
     try {
@@ -310,10 +336,53 @@ const Index = () => {
   const sidebarMatrices = baseFiltered.filter((m) => !hasApproval(m));
   // Main: sem aprovadas apenas para timeline/planilha; dashboard e approved mostram todas conforme a aba
   const hideApprovedInMain = mainView === "timeline" || mainView === "sheet";
-  const mainMatrices = hideApprovedInMain ? baseFiltered.filter((m) => !hasApproval(m)) : baseFiltered;
+  let mainMatrices = hideApprovedInMain ? baseFiltered.filter((m) => !hasApproval(m)) : baseFiltered;
+  if (mainView === "timeline" && timelineSearch.trim()) {
+    const term = timelineSearch.trim().toLowerCase();
+    mainMatrices = mainMatrices.filter((m) => m.code.toLowerCase().includes(term));
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
+      <Dialog open={timelineSearchOpen} onOpenChange={setTimelineSearchOpen}>
+        <DialogContent className="sm:max-w-[28rem]">
+          <DialogHeader>
+            <DialogTitle>Buscar na timeline</DialogTitle>
+            <DialogDescription>
+              Digite o código da matriz que deseja visualizar. A filtragem é aplicada enquanto você digita.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              ref={timelineSearchInputRef}
+              value={timelineSearch}
+              onChange={(e) => setTimelineSearch(e.target.value)}
+              placeholder="Ex.: DIN-1027/01"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === "Escape") {
+                  event.preventDefault();
+                  setTimelineSearchOpen(false);
+                }
+              }}
+            />
+            <div className="flex items-center gap-2 justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setTimelineSearch("");
+                  timelineSearchInputRef.current?.focus();
+                }}
+              >Limpar</Button>
+              <Button
+                type="button"
+                onClick={() => setTimelineSearchOpen(false)}
+              >Fechar</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Sidebar - apenas para usuários logados */}
       {!sidebarCollapsed && authSession ? (
         <div className="w-80 flex-shrink-0">
@@ -446,6 +515,15 @@ const Index = () => {
               </>
             )}
             <div className="ml-2 md:ml-auto flex items-center gap-2 shrink-0">
+              {mainView === "timeline" && timelineSearch.trim() && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setTimelineSearch("")}
+                  title="Limpar filtro da timeline"
+                  aria-label="Limpar filtro da timeline"
+                >Limpar filtro</Button>
+              )}
               <NotificationsBell matrices={matrices} staleDaysThreshold={STALE_DAYS} readOnly={!authSession} />
               <Button size="sm" variant="outline" onClick={reloadAll} title="Atualizar" aria-label="Atualizar">
                 <RefreshCw className="h-4 w-4" />
