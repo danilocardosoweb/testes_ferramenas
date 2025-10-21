@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay } from "@/services/manufacturing";
+import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord } from "@/services/manufacturing";
 import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail } from "lucide-react";
 import * as XLSX from 'xlsx';
 
@@ -32,6 +32,7 @@ interface FormData {
 
 interface ManufacturingViewProps {
   onSuccess?: () => void;
+  isAdmin?: boolean;
 }
 
 const PACKAGE_OPTIONS: Record<"tubular" | "solido", string[]> = {
@@ -39,12 +40,14 @@ const PACKAGE_OPTIONS: Record<"tubular" | "solido", string[]> = {
   solido: ["250x170", "300x170", "350x170", "400x170", "350x209", "400x209", "228x130"],
 };
 
-export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
+export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingViewProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [records, setRecords] = useState<ManufacturingRecord[]>([]);
   const [viewRecord, setViewRecord] = useState<ManufacturingRecord | null>(null);
+  const [editingRecord, setEditingRecord] = useState<ManufacturingRecord | null>(null);
+  const [editDraft, setEditDraft] = useState<Partial<ManufacturingRecord>>({});
   const [isFormExpanded, setIsFormExpanded] = useState(false);
   
   const [formData, setFormData] = useState<FormData>({
@@ -577,7 +580,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                   <Input
                     placeholder="Nome do fornecedor"
                     value={formData.customSupplier}
-                    onChange={(e) => setFormData({ ...formData, customSupplier: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, customSupplier: e.target.value.toUpperCase() })}
                     className="h-7 text-xs"
                     required
                   />
@@ -592,7 +595,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                 <Textarea
                   placeholder="Detalhes técnicos..."
                   value={formData.technicalNotes}
-                  onChange={(e) => setFormData({ ...formData, technicalNotes: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, technicalNotes: e.target.value.toUpperCase() })}
                   className="h-12 text-xs resize-none"
                 />
               </div>
@@ -601,7 +604,7 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                 <Textarea
                   placeholder="Motivo da confecção..."
                   value={formData.justification}
-                  onChange={(e) => setFormData({ ...formData, justification: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, justification: e.target.value.toUpperCase() })}
                   className="h-12 text-xs resize-none"
                   required
                 />
@@ -911,6 +914,20 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                               >
                                 <Eye className="h-3 w-3" />
                               </Button>
+                            {isAdmin && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => {
+                                  setEditingRecord(record);
+                                  setEditDraft({ ...record });
+                                }}
+                                title="Editar registro"
+                              >
+                                <span className="font-bold text-xs">✎</span>
+                              </Button>
+                            )}
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -1086,6 +1103,17 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                               >
                                 <Eye className="h-3 w-3" />
                               </Button>
+                            {isAdmin && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => { setEditingRecord(record); setEditDraft({ ...record }); }}
+                                title="Editar solicitação"
+                              >
+                                <span className="font-bold text-xs">✎</span>
+                              </Button>
+                            )}
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -1182,6 +1210,17 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
                               >
                                 <Eye className="h-3 w-3" />
                               </Button>
+                            {isAdmin && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => { setEditingRecord(record); setEditDraft({ ...record }); }}
+                                title="Editar fabricação"
+                              >
+                                <span className="font-bold text-xs">✎</span>
+                              </Button>
+                            )}
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -1370,6 +1409,125 @@ export function ManufacturingView({ onSuccess }: ManufacturingViewProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Diálogo de Edição (apenas admin) */}
+      {isAdmin && (
+        <Dialog open={!!editingRecord} onOpenChange={(o) => !o && setEditingRecord(null)}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Editar Registro - {editingRecord?.matrix_code}</DialogTitle>
+            </DialogHeader>
+            {editingRecord && (
+              <div className="space-y-3 text-xs">
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-2">
+                  <div>
+                    <Label className="font-semibold">Código</Label>
+                    <Input value={(editDraft.matrix_code as string) || editingRecord.matrix_code}
+                      onChange={(e) => setEditDraft({ ...editDraft, matrix_code: e.target.value.toUpperCase() })} className="h-7" />
+                  </div>
+                  <div>
+                    <Label className="font-semibold">Tipo</Label>
+                    <Select value={(editDraft.manufacturing_type as any) || editingRecord.manufacturing_type}
+                      onValueChange={(v) => setEditDraft({ ...editDraft, manufacturing_type: v as any })}>
+                      <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="nova">Nova</SelectItem>
+                        <SelectItem value="reposicao">Reposição</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="font-semibold">Perfil</Label>
+                    <Select value={(editDraft.profile_type as any) || editingRecord.profile_type}
+                      onValueChange={(v) => setEditDraft({ ...editDraft, profile_type: v as any })}>
+                      <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="tubular">Tubular</SelectItem>
+                        <SelectItem value="solido">Sólido</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="font-semibold">Pacote</Label>
+                    <Input value={(editDraft.package_size as string) ?? editingRecord.package_size ?? ''}
+                      onChange={(e) => setEditDraft({ ...editDraft, package_size: e.target.value })} className="h-7" />
+                  </div>
+                  <div>
+                    <Label className="font-semibold">QTD Furos</Label>
+                    <Input type="number" min={0} value={(editDraft.hole_count as number) ?? (editingRecord.hole_count ?? 0)}
+                      onChange={(e) => setEditDraft({ ...editDraft, hole_count: Number(e.target.value || 0) })} className="h-7" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-2">
+                  <div>
+                    <Label className="font-semibold">Fornecedor</Label>
+                    <Select value={(editDraft.supplier as any) || editingRecord.supplier}
+                      onValueChange={(v) => setEditDraft({ ...editDraft, supplier: v as any })}>
+                      <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {suppliers.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="font-semibold">Fornecedor (Outro)</Label>
+                    <Input value={(editDraft.custom_supplier as string) ?? (editingRecord.custom_supplier || '')}
+                      onChange={(e) => setEditDraft({ ...editDraft, custom_supplier: e.target.value.toUpperCase() })} className="h-7" />
+                  </div>
+                  <div>
+                    <Label className="font-semibold">Prioridade</Label>
+                    <Select value={(editDraft.priority as any) || (editingRecord.priority || 'medium')}
+                      onValueChange={(v) => setEditDraft({ ...editDraft, priority: v as any })}>
+                      <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Baixa</SelectItem>
+                        <SelectItem value="medium">Média</SelectItem>
+                        <SelectItem value="high">Alta</SelectItem>
+                        <SelectItem value="critical">Crítica</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="font-semibold">Entrega Prevista</Label>
+                    <Input type="date" value={(editDraft.estimated_delivery_date as string) ?? (editingRecord.estimated_delivery_date || '')}
+                      onChange={(e) => setEditDraft({ ...editDraft, estimated_delivery_date: e.target.value })} className="h-7" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="font-semibold">Observações Técnicas</Label>
+                    <Textarea className="h-16" value={(editDraft.technical_notes as string) ?? (editingRecord.technical_notes || '')}
+                      onChange={(e) => setEditDraft({ ...editDraft, technical_notes: e.target.value.toUpperCase() })} />
+                  </div>
+                  <div>
+                    <Label className="font-semibold">Justificativa</Label>
+                    <Textarea className="h-16" value={(editDraft.justification as string) ?? (editingRecord.justification || '')}
+                      onChange={(e) => setEditDraft({ ...editDraft, justification: e.target.value.toUpperCase() })} />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setEditingRecord(null)}>Cancelar</Button>
+                  <Button className="bg-blue-600 hover:bg-blue-700" onClick={async () => {
+                    try {
+                      await updateManufacturingRecord(editingRecord.id, editDraft as any);
+                      setEditingRecord(null);
+                      setEditDraft({});
+                      await loadRecords();
+                      toast({ title: 'Registro atualizado', description: 'Os dados foram corrigidos com sucesso.' });
+                    } catch (err: any) {
+                      console.error(err);
+                      toast({ title: 'Erro ao atualizar', description: String(err?.message || err), variant: 'destructive' });
+                    }
+                  }}>Salvar</Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

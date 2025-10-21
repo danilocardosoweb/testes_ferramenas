@@ -601,7 +601,7 @@ const Index = () => {
               </div>
             ) : mainView === "manufacturing" ? (
               authSession ? (
-                <ManufacturingView key={manufacturingViewKey} onSuccess={reloadAll} />
+                <ManufacturingView key={manufacturingViewKey} onSuccess={reloadAll} isAdmin={authSession?.user?.role === 'admin'} />
               ) : (
                 <div className="h-full flex items-center justify-center">
                   <p className="text-muted-foreground">Faça login para registrar confecções</p>

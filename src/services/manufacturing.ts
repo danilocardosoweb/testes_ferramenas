@@ -366,6 +366,35 @@ export async function approveMultipleRequests(recordIds: string[], estimatedDeli
   if (error) throw error;
 }
 
+// Atualiza campos do registro de confecção (uso administrativo para correções)
+export async function updateManufacturingRecord(
+  recordId: string,
+  patch: Partial<Pick<ManufacturingRecord,
+    'matrix_code' | 'manufacturing_type' | 'profile_type' | 'package_size' | 'hole_count' |
+    'supplier' | 'custom_supplier' | 'priority' | 'volume_produced' | 'technical_notes' | 'justification' | 'estimated_delivery_date'
+  >>
+): Promise<void> {
+  const payload: any = {};
+  if (patch.matrix_code !== undefined) payload.matrix_code = patch.matrix_code;
+  if (patch.manufacturing_type !== undefined) payload.manufacturing_type = patch.manufacturing_type;
+  if (patch.profile_type !== undefined) payload.profile_type = patch.profile_type;
+  if (patch.package_size !== undefined) payload.package_size = patch.package_size ?? null;
+  if (patch.hole_count !== undefined) payload.hole_count = patch.hole_count ?? null;
+  if (patch.supplier !== undefined) payload.supplier = patch.supplier;
+  if (patch.custom_supplier !== undefined) payload.custom_supplier = patch.custom_supplier;
+  if (patch.priority !== undefined) payload.priority = patch.priority;
+  if ((patch as any).volume_produced !== undefined) payload.volume_produced = (patch as any).volume_produced ?? null;
+  if (patch.technical_notes !== undefined) payload.technical_notes = patch.technical_notes;
+  if (patch.justification !== undefined) payload.justification = patch.justification;
+  if (patch.estimated_delivery_date !== undefined) payload.estimated_delivery_date = patch.estimated_delivery_date ?? null;
+
+  const { error } = await supabase
+    .from('manufacturing_records')
+    .update(payload)
+    .eq('id', recordId);
+  if (error) throw error;
+}
+
 export async function updatePriority(recordId: string, priority: 'low' | 'medium' | 'high' | 'critical'): Promise<void> {
   // Atualizar prioridade de uma necessidade
   const { error } = await supabase
