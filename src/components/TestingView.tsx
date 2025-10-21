@@ -77,6 +77,7 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
   const [editComment, setEditComment] = useState("");
   const [editImages, setEditImages] = useState<string[]>([]);
   const [editPreviewSrc, setEditPreviewSrc] = useState<string | null>(null);
+  const [matrixSearch, setMatrixSearch] = useState("");
   
   // Estados para edição de item da fila
   const [queueEditOpen, setQueueEditOpen] = useState(false);
@@ -176,6 +177,12 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
       queueP19: testingQueue.filter(item => item.press === 'P19').length,
     };
   }, [p18Matrices, p19Matrices, availableMatrices, testingQueue]);
+
+  const filteredAvailableMatrices = useMemo(() => {
+    if (!matrixSearch.trim()) return availableMatrices;
+    const term = matrixSearch.trim().toLowerCase();
+    return availableMatrices.filter((matrix) => matrix.code.toLowerCase().includes(term));
+  }, [availableMatrices, matrixSearch]);
 
   // Número do teste "corrente": quantidade de testes CONCLUÍDOS + 1 (se estiver em andamento)
   const getTestNumber = (matrix: Matrix) => {
@@ -474,10 +481,27 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
                 <p className="text-sm text-muted-foreground">
                   {stats.available} matriz(es) disponível(is) para teste
                 </p>
+                {stats.available > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="Filtrar por código (ex.: DIN-1027/01)"
+                      value={matrixSearch}
+                      onChange={(e) => setMatrixSearch(e.target.value)}
+                      className="h-9"
+                    />
+                    {matrixSearch && (
+                      <Button variant="outline" size="sm" onClick={() => setMatrixSearch("")}>
+                        Limpar
+                      </Button>
+                    )}
+                  </div>
+                )}
                 {availableMatrices.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8">Nenhuma matriz disponível</p>
+                ) : filteredAvailableMatrices.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">Nenhuma matriz encontrada com esse filtro</p>
                 ) : (
-                  availableMatrices.map((matrix) => (
+                  filteredAvailableMatrices.map((matrix) => (
                     <Card key={matrix.id}>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-base">{matrix.code}</CardTitle>

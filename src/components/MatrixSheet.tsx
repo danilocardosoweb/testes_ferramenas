@@ -12,6 +12,24 @@ function formatDateBR(dateStr: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function getLatestEventDate(matrix: Matrix): string {
+  let latest = matrix.receivedDate || "0000-00-00";
+  const events = matrix.events || [];
+  for (const event of events) {
+    if (event?.date && event.date > latest) {
+      latest = event.date;
+    }
+  }
+  return latest;
+}
+
+function getReceivedSortKey(matrix: Matrix, mode: "oldest" | "latest"): string {
+  if (!matrix.receivedDate) {
+    return mode === "latest" ? "0000-00-00" : "9999-12-31";
+  }
+  return matrix.receivedDate;
+}
+
 export type SheetMilestone =
   | "test1"
   | "clean_send1"
@@ -49,7 +67,29 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
   const [folder, setFolder] = useState<string>("__all__");
   const [showCycles, setShowCycles] = useState(false); // recolher/expandir colunas entre teste e correção ext. entrada
   const [testStage, setTestStage] = useState<string>("__all__");
-  const sorted = useMemo(() => [...matrices].sort((a, b) => a.code.localeCompare(b.code, "pt-BR")), [matrices]);
+  const [sortMode, setSortMode] = useState<"oldest" | "latest">("oldest");
+  const sorted = useMemo(() => {
+    return [...matrices].sort((a, b) => {
+      if (sortMode === "latest") {
+        const lastEventDateA = getLatestEventDate(a);
+        const lastEventDateB = getLatestEventDate(b);
+        if (lastEventDateA !== lastEventDateB) {
+          return lastEventDateB.localeCompare(lastEventDateA);
+        }
+      }
+
+      const keyA = getReceivedSortKey(a, sortMode);
+      const keyB = getReceivedSortKey(b, sortMode);
+      const compareReceived = sortMode === "latest"
+        ? keyB.localeCompare(keyA)
+        : keyA.localeCompare(keyB);
+      if (compareReceived !== 0) {
+        return compareReceived;
+      }
+
+      return a.code.localeCompare(b.code, "pt-BR");
+    });
+  }, [matrices, sortMode]);
   const folders = useMemo(() => {
     const set = new Set<string>();
     for (const m of matrices) set.add(m.folder || "(Sem pasta)");
@@ -127,6 +167,15 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
               </SelectContent>
             </Select>
           </div>
+          <div className="w-56 min-w-[200px]">
+            <Select value={sortMode} onValueChange={(value: "oldest" | "latest") => setSortMode(value)}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Ordenação" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="oldest">Data de recebimento (mais antigas primeiro)</SelectItem>
+                <SelectItem value="latest">Últimos lançamentos primeiro</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <button
             type="button"
             className={`h-8 px-3 rounded border text-sm ${showCycles ? "bg-primary text-primary-foreground border-primary" : "bg-background"}`}
@@ -143,6 +192,7 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
             <tr className="text-left [&>th]:py-1 [&>th]:px-1 [&>th]:whitespace-nowrap">
               <th>Ferramenta</th>
               <th>Data de recebimento</th>
+          <th>Dias em andamento</th>
               <th>1º teste</th>
               {showCycles && (
                 <>
@@ -163,7 +213,6 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
               )}
               <th>3º teste</th>
               <th>Aprovação</th>
-              <th>lead time</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -220,9 +269,14 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
   const lead = daysSinceLastEvent(matrix);
   const status = getStatusFromLastEvent(matrix);
 
+  const daysSinceReceived = matrix.receivedDate
+    ? Math.max(0, Math.floor((Date.now() - new Date(matrix.receivedDate).getTime()) / (1000 * 60 * 60 * 24)))
+    : null;
+  const highlight = typeof daysSinceReceived === "number" && daysSinceReceived > 30;
+
   return (
     <>
-    <tr className="border-b align-top [&>td]:py-1 [&>td]:px-1">
+    <tr className={`border-b align-top [&>td]:py-1 [&>td]:px-1 ${highlight ? "bg-red-100/80" : ""}`}>
       <td className="font-medium whitespace-nowrap">
         {onSelectMatrix ? (
           <button
@@ -238,6 +292,7 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
         )}
       </td>
       <td className="whitespace-nowrap">{formatDateBR(matrix.receivedDate)}</td>
+      <td className="text-center font-semibold">{daysSinceReceived ?? "-"}</td>
       {/* 1º teste */}
       <td><DateCell value={test1} onChange={(d) => onSetDate(matrix.id, "test1", d)} /></td>
       {/* ciclo 1 limpeza/correção */}
@@ -276,12 +331,11 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
       </td>
       {/* aprovação */}
       <td><DateCell value={byType("Aprovado")[0]?.date || ""} onChange={(d) => onSetDate(matrix.id, "approval", d)} /></td>
-      {/* lead & status */}
-      <td className="text-center">{lead}</td>
+      {/* status */}
       <td>{status}</td>
     </tr>
     {extraOpen && (
-      <tr className="bg-muted/30 align-top [&>td]:py-1 [&>td]:px-2">
+      <tr className={`bg-muted/30 align-top [&>td]:py-1 [&>td]:px-2 ${highlight ? "bg-red-100/80" : ""}`}>
         {/* Ferramenta (rótulo) */}
         <td className="text-xs text-muted-foreground whitespace-nowrap">Testes extras:</td>
         {/* Data de recebimento (vazio) */}
@@ -345,8 +399,7 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
             </button>
           </div>
         </td>
-        {/* Aprovação, lead, status (vazios) */}
-        <td />
+        {/* Aprovação, status (vazios) */}
         <td />
         <td />
       </tr>
