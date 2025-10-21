@@ -62,7 +62,7 @@ export const MatrixForm = ({ onSubmit, onCancel, folders = [], defaultFolder = n
     setReceivedDate(new Date().toISOString().split("T")[0]); // Data atual (chegada na empresa)
     setPriority("normal");
     setResponsible("");
-    setFolder("");
+    setFolder((prev) => prev || defaultFolder || "");
     setShowSuggestions(false);
   };
 
@@ -187,7 +187,9 @@ export const MatrixForm = ({ onSubmit, onCancel, folders = [], defaultFolder = n
                   {manufacturingRecords.map((record) => {
                     const tipo = record.manufacturing_type === 'nova' ? 'Nova' : 'Reposição';
                     const fornecedor = record.supplier === 'Outro' ? record.custom_supplier : record.supplier;
-                    const entrega = new Date(record.delivery_date).toLocaleDateString('pt-BR');
+                    const entrega = record.estimated_delivery_date
+                      ? new Date(record.estimated_delivery_date).toLocaleDateString('pt-BR')
+                      : "-";
                     return (
                       <option 
                         key={record.id} 
@@ -218,7 +220,9 @@ export const MatrixForm = ({ onSubmit, onCancel, folders = [], defaultFolder = n
                     {selectedRecord.supplier === 'Outro' ? selectedRecord.custom_supplier : selectedRecord.supplier}
                   </span>
                   <span className="text-green-700">
-                    Entrega: {new Date(selectedRecord.delivery_date).toLocaleDateString('pt-BR')}
+                    Entrega: {selectedRecord.estimated_delivery_date
+                      ? new Date(selectedRecord.estimated_delivery_date).toLocaleDateString('pt-BR')
+                      : 'Não definida'}
                   </span>
                 </div>
                 <p className="text-[10px] text-green-700 mt-1 italic">

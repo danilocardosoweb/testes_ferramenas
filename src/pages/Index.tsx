@@ -358,10 +358,6 @@ const Index = () => {
         <div className="flex-1 flex flex-col">
           <div className="p-3 border-b flex items-center gap-1.5 md:gap-2 overflow-x-auto">
             <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "timeline" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => setMainView("timeline")}
-            >Timeline</button>
-            <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "manufacturing" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => {
                 if (!authSession) {
@@ -372,6 +368,10 @@ const Index = () => {
                 }
               }}
             >Confecção</button>
+            <button
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "timeline" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => setMainView("timeline")}
+            >Timeline</button>
             <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => {

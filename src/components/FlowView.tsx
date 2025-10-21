@@ -44,8 +44,6 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
   let yOffset = 50;
   
   matrices.forEach((matrix) => {
-    if (matrix.events.length === 0) return;
-    
     // Nó de cabeçalho da matriz
     nodes.push({
       id: `matrix-${matrix.id}`,
@@ -75,6 +73,37 @@ const createNodesAndEdges = (matrices: Matrix[]) => {
     const eventsSorted = [...matrix.events].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
+
+    if (eventsSorted.length === 0) {
+      nodes.push({
+        id: `matrix-${matrix.id}-placeholder`,
+        type: "default",
+        position: { x: 300, y: yOffset },
+        data: {
+          label: (
+            <div className="p-4 min-w-[220px] max-w-[260px] text-xs text-muted-foreground">
+              <div className="font-semibold text-sm text-foreground mb-1">Sem eventos registrados</div>
+              <p>
+                Recebida em {fmtISODate(matrix.receivedDate)}
+              </p>
+              <p className="mt-1">Adicione eventos para acompanhar a linha do tempo.</p>
+            </div>
+          ),
+        },
+        style: {
+          background: "#f1f5f9",
+          border: "2px dashed #94a3b8",
+          borderRadius: "12px",
+          color: "#0f172a",
+          padding: 0,
+          boxShadow: "var(--shadow-sm)",
+          width: "auto",
+          height: "auto",
+        },
+      });
+      yOffset += 200;
+      return;
+    }
 
     // Add event nodes
     eventsSorted.forEach((event, index) => {
