@@ -564,33 +564,46 @@ export default function KanbanBoard({ matrices }: Props) {
   // Função para gerar imagem do Kanban
   const exportToImage = async () => {
     try {
-      const kanbanElement = document.querySelector('.min-w-\[960px\]') as HTMLElement;
-      if (!kanbanElement) {
+      // Usando o container principal do Kanban que contém os cards
+      const kanbanBoard = document.getElementById('kanban-board');
+      if (!kanbanBoard) {
         toast({
           title: "Erro",
-          description: "Elemento do Kanban não encontrado.",
+          description: "Área do Kanban não encontrada.",
           variant: "destructive"
         });
         return;
       }
 
-      // Ajustar estilos temporariamente para melhor captura
-      const originalStyles = kanbanElement.getAttribute('style') || '';
-      kanbanElement.style.padding = '20px';
-      kanbanElement.style.background = 'white';
-      kanbanElement.style.borderRadius = '8px';
+      // Criar um container temporário para a captura
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.top = '0';
+      container.style.left = '0';
+      container.style.width = '100%';
+      container.style.padding = '20px';
+      container.style.backgroundColor = 'white';
+      container.style.zIndex = '9999';
+      
+      // Adicionar o board ao container
+      const boardClone = kanbanBoard.cloneNode(true) as HTMLElement;
+      boardClone.style.width = '100%';
+      container.appendChild(boardClone);
+      
+      // Adicionar o container ao body
+      document.body.appendChild(container);
       
       // Gerar a imagem
-      const dataUrl = await toPng(kanbanElement, {
-        backgroundColor: '#ffffff',
+      const dataUrl = await toPng(container, {
+        backgroundColor: 'white',
         quality: 1,
-        pixelRatio: 2 // Melhor qualidade para a imagem
+        pixelRatio: 1
       });
-
-      // Restaurar estilos originais
-      kanbanElement.setAttribute('style', originalStyles);
-
-      // Criar link para download
+      
+      // Remover o container temporário
+      document.body.removeChild(container);
+      
+      // Criar link de download
       const link = document.createElement('a');
       link.download = `kanban_${new Date().toISOString().split('T')[0]}.png`;
       link.href = dataUrl;
@@ -613,10 +626,9 @@ export default function KanbanBoard({ matrices }: Props) {
   };
 
   return (
-    <div className="h-full flex flex-col gap-3">
-      {/* Controles */}
-      <Card>
-        <CardHeader>
+    <div className="flex flex-col h-full">
+      <Card className="mb-4">
+        <CardHeader className="export-hide">
           <CardTitle className="flex items-center justify-between">
             Kanban
             <Button size="sm" variant="outline" onClick={() => setFiltersOpen((v) => !v)}>
@@ -625,7 +637,7 @@ export default function KanbanBoard({ matrices }: Props) {
           </CardTitle>
         </CardHeader>
         {filtersOpen && (
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 export-hide">
             {/* Linha 1: 5 colunas com filtros */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <Input placeholder="Buscar por código, título ou descrição..." value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -691,11 +703,14 @@ export default function KanbanBoard({ matrices }: Props) {
                   <RefreshCw className="w-4 h-4" />
                   <span>Recarregar</span>
                 </Button>
+                <Button size="sm" variant="outline" onClick={exportToExcel} className="flex items-center gap-1">
+                  <Download className="w-4 h-4" />
+                  <span>Exportar Excel</span>
+                </Button>
                 <Button size="sm" variant="outline" onClick={exportToImage} className="flex items-center gap-1">
                   <ImageIcon className="w-4 h-4" />
                   <span>Exportar Imagem</span>
                 </Button>
-                
                 {!creating ? (
                   <Button onClick={() => setCreating(true)} size="sm" className="ml-2 flex items-center gap-1">
                     <Plus className="w-4 h-4" />
@@ -732,7 +747,7 @@ export default function KanbanBoard({ matrices }: Props) {
 
       {/* Board */}
       <ScrollArea className={`flex-1 ${state.compact ? "[&_.card-content]:p-2" : ""}`}>
-        <div id="kanban-board" className="flex gap-3 min-w-[960px] p-4 bg-white rounded-lg">
+        <div id="kanban-board" className="flex gap-3 min-w-[960px] p-4 bg-white rounded-lg shadow-sm">
           <Column id="backlog" title="Backlog" hint="Ideias e entradas" />
           <Column id="em_andamento" title="Em Andamento" hint="Em execução" />
           <Column id="concluido" title="Concluído" hint="Finalizado" />

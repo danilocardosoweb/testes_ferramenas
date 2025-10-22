@@ -132,6 +132,15 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
   }, [sorted, filter, folder, testStage]);
 
   const exportToExcel = () => {
+    // Função para calcular dias corridos desde a data de recebimento
+    const calculateDaysSinceReceived = (receivedDate: string | undefined): number => {
+      if (!receivedDate) return 0;
+      const received = new Date(receivedDate);
+      const today = new Date();
+      const diffTime = Math.abs(today.getTime() - received.getTime());
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    };
+
     // Preparar os dados para exportação
     const data = filtered.map(matrix => {
       const eventsByType: Record<string, string> = {};
@@ -141,15 +150,19 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
         eventsByType[event.type] = formatDateBR(event.date);
       });
       
+      // Calcular dias em andamento (desde o recebimento)
+      const diasEmAndamento = calculateDaysSinceReceived(matrix.receivedDate);
+      
       return {
         'Código': matrix.code,
         'Pasta': matrix.folder || '(Sem pasta)',
         'Data de Recebimento': formatDateBR(matrix.receivedDate || ''),
-        'Dias em Andamento': daysSinceLastEvent(matrix),
+        'Dias em Andamento': diasEmAndamento,
         '1º Teste': eventsByType['1º Teste'] || '',
         '2º Teste': eventsByType['2º Teste'] || '',
         '3º Teste': eventsByType['3º Teste'] || '',
         'Aprovação': eventsByType['Aprovação'] || '',
+        'Dias sem Evento': daysSinceLastEvent(matrix), // Mantendo a informação de dias sem evento
         'Status': getStatusFromLastEvent(matrix)
       };
     });
@@ -167,6 +180,7 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
       { wch: 15 }, // 2º Teste
       { wch: 15 }, // 3º Teste
       { wch: 15 }, // Aprovação
+      { wch: 15 }, // Dias sem Evento
       { wch: 20 }  // Status
     ];
     ws['!cols'] = wscols;
@@ -297,17 +311,28 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
   // Testes: considerar todos os eventos do tipo "Testes" ou tipos legados com "Teste"
   const tests = matrix.events
     .filter((e) => {
-      // Novo fluxo: tipo "Testes" (todos, não apenas concluídos)
-      if (e.type === "Testes") {
-        return true;
+      // Novo fluxo: tipo "Testes" com comentário indicando o número do teste
+      if (e.type === "Testes" && e.comment) {
+        return /^\d+º teste$/i.test(e.comment.trim());
       }
-      // legado: quaisquer tipos com a palavra "Teste" continuam valendo
+      // legado: tipos antigos com a palavra "Teste"
       return /Teste/i.test(e.type);
     })
     .sort((a, b) => a.date.localeCompare(b.date));
-  const test1 = tests[0]?.date || "";
-  const test2 = tests[1]?.date || "";
-  const test3 = tests[2]?.date || "";
+  
+  // Mapear testes por ordem numérica do comentário (1º, 2º, 3º, etc.)
+  const orderedTests = tests.sort((a, b) => {
+    const getTestNumber = (comment: string) => {
+      const match = comment.match(/^(\d+)/);
+      return match ? parseInt(match[1], 10) : 0;
+    };
+    return getTestNumber(a.comment || '') - getTestNumber(b.comment || '');
+  });
+
+  const test1 = orderedTests[0]?.date || "";
+  const test2 = orderedTests[1]?.date || "";
+  const test3 = orderedTests[2]?.date || "";
+  
   // Limpeza e Correção Externa por direção (suporta tipos novos e antigos)
   const cleanOutNew = byType("Limpeza Saída");
   const cleanInNew = byType("Limpeza Entrada");
@@ -322,6 +347,7 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
   const corrOutOld = oldCorr.filter((e) => /Enviad[ao]|Sa[ií]da/i.test(e.comment || ""));
   const corrInOld = oldCorr.filter((e) => /Retorn|Entrad/i.test(e.comment || ""));
 
+  // Juntar eventos novos e antigos, ordenando por data
   const cleanOut = [...cleanOutNew, ...cleanOutOld].sort((a, b) => a.date.localeCompare(b.date));
   const cleanIn = [...cleanInNew, ...cleanInOld].sort((a, b) => a.date.localeCompare(b.date));
   const corrOut = [...corrOutNew, ...corrOutOld].sort((a, b) => a.date.localeCompare(b.date));
