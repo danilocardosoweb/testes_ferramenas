@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,9 +78,29 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   const [selectedNeedRecords, setSelectedNeedRecords] = useState<string[]>([]);
   const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
   const [estimatedDate, setEstimatedDate] = useState("");
+  const [searchMatrix, setSearchMatrix] = useState("");
+  const [matrixStatus, setMatrixStatus] = useState<{
+    status: 'need' | 'pending' | 'approved' | 'not_found' | '';
+    message: string;
+  }>({ status: '', message: '' });
 
   // refs
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Buscar registros
+  const loadRecords = useCallback(async () => {
+    try {
+      const data = await listManufacturingRecords();
+      setRecords(data);
+    } catch (err: any) {
+      console.error("Erro ao carregar registros:", err);
+    }
+  }, []);
+
+  // Carregar registros ao montar o componente
+  useEffect(() => {
+    loadRecords();
+  }, [loadRecords]);
 
   const suppliers = ["FEP", "EXXO", "FELJ", "Outro"];
   const currentYear = new Date().getFullYear();
@@ -103,14 +123,49 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     loadRecords();
   }, []);
 
-  const loadRecords = async () => {
-    try {
-      const data = await listManufacturingRecords();
-      setRecords(data);
-    } catch (err: any) {
-      console.error("Erro ao carregar registros:", err);
+  // Verificar status da matriz
+  const checkMatrixStatus = useCallback((matrixCode: string) => {
+    if (!matrixCode) {
+      setMatrixStatus({ status: '', message: '' });
+      return;
     }
-  };
+
+    const normalizedSearch = matrixCode.trim().toUpperCase();
+    
+    // Verificar em cada status
+    const inNeed = records.some(r => 
+      r.status === 'need' && r.matrix_code.toUpperCase().includes(normalizedSearch)
+    );
+    const inPending = records.some(r => 
+      r.status === 'pending' && r.matrix_code.toUpperCase().includes(normalizedSearch)
+    );
+    const inApproved = records.some(r => 
+      r.status === 'approved' && r.matrix_code.toUpperCase().includes(normalizedSearch)
+    );
+
+    if (inNeed) {
+      setMatrixStatus({ 
+        status: 'need', 
+        message: 'Esta matriz está em NECESSIDADE' 
+      });
+    } else if (inPending) {
+      setMatrixStatus({ 
+        status: 'pending', 
+        message: 'Esta matriz está em SOLICITAÇÃO' 
+      });
+    } else if (inApproved) {
+      setMatrixStatus({ 
+        status: 'approved', 
+        message: 'Esta matriz está EM FABRICAÇÃO' 
+      });
+    } else {
+      setMatrixStatus({ 
+        status: 'not_found', 
+        message: 'Matriz não encontrada em nenhum processo' 
+      });
+    }
+  }, [records]);
+
 
   const handleExportToExcel = async () => {
     setLoading(true);
@@ -407,18 +462,19 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   };
 
   return (
-    <div className="h-full flex flex-col p-3 bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Header Compacto */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="p-1.5 bg-gradient-to-br from-blue-500 to-blue-600 rounded shadow">
-          <Factory className="h-4 w-4 text-white" />
+    <div className="h-screen flex flex-col">
+      <div className="flex-1 overflow-y-auto p-3 bg-gradient-to-br from-slate-50 to-slate-100">
+        {/* Header Compacto */}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="p-1.5 bg-gradient-to-br from-blue-500 to-blue-600 rounded shadow">
+            <Factory className="h-4 w-4 text-white" />
+          </div>
+          <h1 className="text-lg font-bold text-slate-800">Registro de Confecção</h1>
+          <div className="ml-auto" />
         </div>
-        <h1 className="text-lg font-bold text-slate-800">Registro de Confecção</h1>
-        <div className="ml-auto" />
-      </div>
 
-      {/* Formulário em Grid Compacto */}
-      <Card className="mb-3 border border-slate-200 shadow-sm">
+        {/* Formulário em Grid Compacto */}
+        <Card className="mb-3 border border-slate-200 shadow-sm">
         <CardHeader className="py-2 px-4 cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => setIsFormExpanded(!isFormExpanded)}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-semibold text-slate-800">Novo Registro</CardTitle>
@@ -675,8 +731,35 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       {/* Sistema de Abas - Solicitação e Em Fabricação */}
       <Card className="flex-1 border border-slate-200 shadow-sm">
         <CardHeader className="py-2 px-4">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold text-slate-800">Matrizes em Confecção</CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold text-slate-800 whitespace-nowrap">Matrizes em Confecção</CardTitle>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Input
+                  type="text"
+                  placeholder="Buscar matriz..."
+                  value={searchMatrix}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSearchMatrix(value);
+                    checkMatrixStatus(value);
+                  }}
+                  className="h-8 text-xs w-48"
+                />
+              </div>
+              {matrixStatus.message && (
+                <div className={`inline-flex items-center px-3 py-1 rounded-md text-xs font-medium ${
+                  matrixStatus.status === 'need' ? 'bg-amber-100 text-amber-800' :
+                  matrixStatus.status === 'pending' ? 'bg-blue-100 text-blue-800' :
+                  matrixStatus.status === 'approved' ? 'bg-green-100 text-green-800' :
+                  'bg-gray-100 text-gray-800'
+                }`}>
+                  {matrixStatus.message}
+                </div>
+              )}
+            </div>
+          </div>
             <div className="flex gap-2 items-center">
               <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={handleExportToExcel} disabled={records.length === 0}>
                 <Download className="h-3 w-3 mr-1" />
@@ -1539,6 +1622,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           </DialogContent>
         </Dialog>
       )}
+      </div>
     </div>
   );
 }
