@@ -3,8 +3,17 @@ import { Matrix, MatrixEvent } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronRight, Eye } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, Download, Calendar as CalendarIcon, X, Filter as FilterIcon } from "lucide-react";
 import { FinalReportDialog } from "./FinalReportDialog";
+import * as XLSX from "xlsx";
+import { useToast } from "@/components/ui/use-toast";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { ptBR } from 'date-fns/locale';
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 
 type Props = {
   matrices: Matrix[];
@@ -37,17 +46,239 @@ function groupByYearMonth(matrices: Matrix[]) {
   return groups;
 }
 
+// Interface para os filtros
+type ReportFilters = {
+  startDate: Date | undefined;
+  endDate: Date | undefined;
+  matrixCode: string;
+  filterType: 'period' | 'matrix' | 'all';
+};
+
 export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, onRefresh }) => {
+  // Garantindo que o componente retorne um elemento React
+  if (!matrices) return <div>Carregando...</div>;
+  
+  const { toast } = useToast();
+  const [isFilterOpen, setIsFilterOpen] = React.useState(false);
+  const [filters, setFilters] = React.useState<ReportFilters>({
+    startDate: undefined,
+    endDate: undefined,
+    matrixCode: '',
+    filterType: 'all'
+  });
+  
   // Filtra somente matrizes que possuem alguma aprovação
   const approved = React.useMemo(() => matrices.filter((m) => getApprovalInfo(m.events)), [matrices]);
+  
+  // Filtra as matrizes de acordo com os filtros selecionados
+  const filteredMatrices = React.useMemo(() => {
+    return approved.filter(matrix => {
+      // Se o filtro for por código de matriz
+      if (filters.filterType === 'matrix' && filters.matrixCode) {
+        return matrix.code.toLowerCase().includes(filters.matrixCode.toLowerCase());
+      }
+      
+      // Se o filtro for por período
+      if (filters.filterType === 'period' && (filters.startDate || filters.endDate)) {
+        const approvalInfo = getApprovalInfo(matrix.events);
+        if (!approvalInfo) return false;
+        
+        const approvalDate = new Date(approvalInfo.date);
+        
+        if (filters.startDate && filters.endDate) {
+          return approvalDate >= filters.startDate && approvalDate <= filters.endDate;
+        } else if (filters.startDate) {
+          return approvalDate >= filters.startDate;
+        } else if (filters.endDate) {
+          return approvalDate <= filters.endDate;
+        }
+      }
+      
+      // Se não houver filtro específico, retorna todas as aprovadas
+      return true;
+    });
+  }, [approved, filters]);
+  
+  // Limpa os filtros
+  const clearFilters = () => {
+    setFilters({
+      startDate: undefined,
+      endDate: undefined,
+      matrixCode: '',
+      filterType: 'all'
+    });
+  };
 
-  // Estado dos filtros
+  // Função para exportar para Excel com histórico completo
+  const exportToExcel = () => {
+    // Se não houver filtros aplicados, pede confirmação
+    if (filters.filterType === 'all' && approved.length > 10) {
+      if (!confirm(`Você está prestes a exportar ${approved.length} ferramentas. Deseja continuar?`)) {
+        return;
+      }
+    }
+    
+    // Se não houver itens para exportar
+    if (filteredMatrices.length === 0) {
+      toast({
+        title: "Nenhum dado para exportar",
+        description: "Não há ferramentas que correspondam aos filtros selecionados.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Fecha o modal de filtro
+    setIsFilterOpen(false);
+    
+    // Chama a função de exportação com as matrizes filtradas
+    generateExcelReport(filteredMatrices);
+  };
+  
+  // Função que gera o relatório em Excel
+  const generateExcelReport = (matricesToExport: Matrix[]) => {
+    try {
+      if (matricesToExport.length === 0) {
+        toast({
+          title: "Nenhuma ferramenta encontrada",
+          description: "Não há ferramentas que correspondam aos critérios de filtro.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Cria um novo workbook
+      const wb = XLSX.utils.book_new();
+
+      // Para cada ferramenta, cria uma aba com seu histórico completo
+      matricesToExport.forEach((matrix, index) => {
+        // Encontra a data de criação (primeiro evento)
+        const creationDate = matrix.events.length > 0 
+          ? new Date(matrix.events[0].date).toLocaleDateString('pt-BR')
+          : "Data não disponível";
+          
+        // Cria os dados da aba principal (resumo)
+        const summaryData = [
+          ["Código da Ferramenta", matrix.code],
+          ["Pasta", matrix.folder || "Não informado"],
+          ["Responsável", matrix.responsible || "Não informado"],
+          ["Data do Primeiro Evento", creationDate],
+          ["", ""], // Linha em branco para separação
+          ["Histórico de Eventos", ""]
+        ];
+
+        // Adiciona os eventos em ordem cronológica
+        const sortedEvents = [...matrix.events].sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+
+        // Cabeçalhos da tabela de eventos
+        summaryData.push([
+          "Data", 
+          "Tipo de Evento", 
+          "Responsável", 
+          "Máquina", 
+          "Status", 
+          "Observações"
+        ]);
+
+        // Adiciona cada evento como uma linha na tabela
+        sortedEvents.forEach(event => {
+          summaryData.push([
+            new Date(event.date).toLocaleString('pt-BR'),
+            event.type,
+            event.responsible || "-",
+            event.machine || "-",
+            event.testStatus || "-",
+            event.observations || event.comment || "-"
+          ]);
+        });
+
+        // Cria a planilha para esta ferramenta
+        const ws = XLSX.utils.aoa_to_sheet(summaryData);
+        
+        // Ajusta a largura das colunas
+        const wscols = [
+          { wch: 20 }, // Data
+          { wch: 25 }, // Tipo de Evento
+          { wch: 25 }, // Responsável
+          { wch: 15 }, // Máquina
+          { wch: 15 }, // Status
+          { wch: 50 }  // Observações
+        ];
+        ws['!cols'] = wscols;
+
+        // Adiciona a planilha ao workbook
+        XLSX.utils.book_append_sheet(wb, ws, `Ferramenta ${index + 1}`.substring(0, 31)); // Excel limita para 31 caracteres
+      });
+
+      // Cria uma planilha de resumo com todas as ferramentas
+      const summarySheet = [
+        ["Código", "Pasta", "Responsável", "Último Evento", "Data do Último Evento", "Status"]
+      ];
+
+      matricesToExport.forEach(matrix => {
+        const lastEvent = [...matrix.events].sort((a, b) => 
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+        )[0];
+
+        summarySheet.push([
+          matrix.code,
+          matrix.folder || "-",
+          matrix.responsible || "-",
+          lastEvent?.type || "-",
+          lastEvent?.date ? new Date(lastEvent.date).toLocaleString('pt-BR') : "-",
+          lastEvent?.testStatus || "-"
+        ]);
+      });
+
+      const wsSummary = XLSX.utils.aoa_to_sheet(summarySheet);
+      wsSummary['!cols'] = [
+        { wch: 20 }, // Código
+        { wch: 20 }, // Pasta
+        { wch: 25 }, // Responsável
+        { wch: 25 }, // Último Evento
+        { wch: 20 }, // Data do Último Evento
+        { wch: 15 }  // Status
+      ];
+      
+      // Adiciona a planilha de resumo como primeira aba
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo");
+
+      // Gera o arquivo
+      const date = new Date().toISOString().split("T")[0];
+      XLSX.writeFile(wb, `relatorio_ferramentas_aprovadas_${date}.xlsx`);
+      
+      toast({
+        title: "Relatório gerado com sucesso",
+        description: `O arquivo com ${matricesToExport.length} ferramentas foi baixado.`,
+      });
+    } catch (error) {
+      console.error("Erro ao exportar para Excel:", error);
+      toast({
+        title: "Erro ao exportar",
+        description: "Ocorreu um erro ao gerar o relatório. Por favor, tente novamente.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Estado dos filtros da visualização
   const [yearFilter, setYearFilter] = React.useState<string>("all");
   const [monthFilter, setMonthFilter] = React.useState<string>("all"); // "01".."12" ou "all"
   const [toolFilter, setToolFilter] = React.useState<string>("");
   const [expandedYears, setExpandedYears] = React.useState<Record<string, boolean>>({});
   const [expandedMonths, setExpandedMonths] = React.useState<Record<string, boolean>>({});
   const [selectedTool, setSelectedTool] = React.useState<Matrix | null>(null);
+  
+  // Códigos únicos de matrizes para o dropdown
+  const matrixCodes = React.useMemo(() => {
+    const codes = new Set<string>();
+    approved.forEach(m => codes.add(m.code));
+    return Array.from(codes).sort();
+  }, [approved]);
+  
+  // Usando o ícone de filtro importado
 
   const toggleYear = (year: string) => {
     setExpandedYears((prev) => ({ ...prev, [year]: !(prev[year] ?? true) }));
@@ -110,6 +341,190 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
 
   return (
     <div className="space-y-6">
+      {/* Cabeçalho e botão de exportação */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Ferramentas Aprovadas</h2>
+        <div className="flex items-center gap-2">
+          <Dialog open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-1">
+                <FilterIcon className="w-4 h-4" />
+                Filtrar
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Filtrar Relatório</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="space-y-2">
+                  <Label>Filtrar por:</Label>
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        id="filterAll"
+                        name="filterType"
+                        checked={filters.filterType === 'all'}
+                        onChange={() => setFilters({...filters, filterType: 'all'})}
+                        className="h-4 w-4"
+                      />
+                      <Label htmlFor="filterAll">Todas</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        id="filterPeriod"
+                        name="filterType"
+                        checked={filters.filterType === 'period'}
+                        onChange={() => setFilters({...filters, filterType: 'period'})}
+                        className="h-4 w-4"
+                      />
+                      <Label htmlFor="filterPeriod">Período</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        id="filterMatrix"
+                        name="filterType"
+                        checked={filters.filterType === 'matrix'}
+                        onChange={() => setFilters({...filters, filterType: 'matrix'})}
+                        className="h-4 w-4"
+                      />
+                      <Label htmlFor="filterMatrix">Matriz</Label>
+                    </div>
+                  </div>
+                </div>
+
+                {filters.filterType === 'period' && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="startDate">Data Inicial</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                "w-full justify-start text-left font-normal",
+                                !filters.startDate && "text-muted-foreground"
+                              )}
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {filters.startDate ? (
+                                format(filters.startDate, "PPP", { locale: ptBR })
+                              ) : (
+                                <span>Selecione uma data</span>
+                              )}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={filters.startDate}
+                              onSelect={(date) => setFilters({...filters, startDate: date || undefined})}
+                              initialFocus
+                              locale={ptBR}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="endDate">Data Final</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                "w-full justify-start text-left font-normal",
+                                !filters.endDate && "text-muted-foreground"
+                              )}
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {filters.endDate ? (
+                                format(filters.endDate, "PPP", { locale: ptBR })
+                              ) : (
+                                <span>Selecione uma data</span>
+                              )}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={filters.endDate}
+                              onSelect={(date) => setFilters({...filters, endDate: date || undefined})}
+                              initialFocus
+                              locale={ptBR}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {filters.filterType === 'matrix' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="matrixCode">Código da Matriz</Label>
+                    <Select
+                      value={filters.matrixCode}
+                      onValueChange={(value) => setFilters({...filters, matrixCode: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione uma matriz" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {matrixCodes.map(code => (
+                          <SelectItem key={code} value={code}>
+                            {code}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="flex justify-between pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      clearFilters();
+                      setIsFilterOpen(false);
+                    }}
+                  >
+                    Limpar Filtros
+                  </Button>
+                  <Button onClick={exportToExcel}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Gerar Relatório
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+          
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => {
+              // Exporta tudo sem filtros
+              setFilters({
+                startDate: undefined,
+                endDate: undefined,
+                matrixCode: '',
+                filterType: 'all'
+              });
+              exportToExcel();
+            }}
+            className="flex items-center gap-1"
+            title="Exportar todas as ferramentas"
+          >
+            <Download className="w-4 h-4" />
+            Exportar Tudo
+          </Button>
+        </div>
+      </div>
+
       {/* Filtros */}
       <div className="p-3 border rounded-lg bg-background space-y-3">
         <div className="flex flex-wrap gap-3 items-center">
@@ -197,29 +612,22 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
                             return (
                               <li key={m.id} className="px-3 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer group" onClick={() => setSelectedTool(m)}>
                                 <div className="flex items-center gap-2">
-                                  <span className="font-medium">{m.code}</span>
-                                  {m.folder ? (
-                                    <span className="text-xs px-2 py-0.5 rounded bg-muted">{m.folder}</span>
-                                  ) : null}
+                                  <span>{m.code}</span>
+                                  <span className="text-muted-foreground text-sm">{formatted}</span>
+                                  {apontado && <span className="text-muted-foreground text-xs">({apontado})</span>}
                                 </div>
-                                <div className="flex items-center gap-3">
-                                  <div className="text-sm text-muted-foreground flex flex-col items-end">
-                                    <span>Aprovada em {formatted}</span>
-                                    {apontado && <span className="text-xs">Apontado em {new Date(info.createdAt!).toLocaleDateString("pt-BR")} {apontado}</span>}
-                                  </div>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSelectedTool(m);
-                                    }}
-                                    title="Ver histórico"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                </div>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedTool(m);
+                                  }}
+                                  title="Ver histórico"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
                               </li>
                             );
                           })}
