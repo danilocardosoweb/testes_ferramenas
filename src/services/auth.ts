@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabaseClient";
 import { User, AuthSession } from "@/types";
+import { addHours } from "@/utils/dateUtils";
 
 // Simples hash para desenvolvimento (em produção, use bcrypt no backend)
 const simpleHash = (password: string): string => {
@@ -25,10 +26,9 @@ export async function login(email: string, password: string): Promise<AuthSessio
     throw new Error('Email ou senha inválidos');
   }
 
-  // Criar sessão
+  // Criar sessão com data de expiração correta
   const token = crypto.randomUUID();
-  const expiresAt = new Date();
-  expiresAt.setHours(expiresAt.getHours() + 8); // 8 horas
+  const expiresAt = addHours(new Date(), 8); // Expira em 8 horas
 
   const { error: sessionError } = await supabase
     .from('user_sessions')
@@ -86,10 +86,15 @@ export function getCurrentSession(): AuthSession | null {
 
   try {
     const session: AuthSession = JSON.parse(sessionStr);
+    // Verificar se a sessão está expirada
     const now = new Date();
     const expiresAt = new Date(session.expiresAt);
+  
+    // Ajusta para o fuso horário local
+    const timezoneOffset = now.getTimezoneOffset() * 60000;
+    const localNow = new Date(now.getTime() - timezoneOffset);
 
-    if (now >= expiresAt) {
+    if (localNow >= expiresAt) {
       localStorage.removeItem('auth_session');
       return null;
     }

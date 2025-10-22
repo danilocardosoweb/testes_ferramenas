@@ -15,6 +15,7 @@ import {
   kanbanUpdateLatestAutoCardForMatrix,
 } from "@/services/db";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
+import { formatToBR } from "@/utils/dateUtils";
 import { MatrixSidebar } from "@/components/MatrixSidebar";
 import { FlowView } from "@/components/FlowView";
 import { MatrixDashboard } from "@/components/MatrixDashboard";
@@ -51,14 +52,8 @@ const Index = () => {
   const [folders, setFolders] = useState<string[]>([]);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null); // null = todas
   const [searchTerm, setSearchTerm] = useState("");
-  const formatDatePtBR = (iso: string) => {
-    const clean = (iso || "").split("T")[0];
-    const parts = clean.split("-");
-    if (parts.length === 3) {
-      const [y, m, d] = parts;
-      return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`;
-    }
-    try { return new Date(iso).toLocaleDateString("pt-BR"); } catch { return iso; }
+  const formatDate = (iso: string) => {
+    return formatToBR(iso);
   };
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
@@ -568,9 +563,8 @@ const Index = () => {
                   matrices={mainMatrices}
                   onSelectMatrix={(m) => setSelectedMatrix(m)}
                   onSetDate={async (matrixId: string, milestone: SheetMilestone, date: string) => {
-                    try {
-                      // Tipos padronizados (novos)
-                      const mapNewType = (m: SheetMilestone): { type: string; comment: string } => {
+                    // Tipos padronizados (novos)
+                    const mapNewType = (m: SheetMilestone): { type: string; comment: string } => {
                         switch (m) {
                           case "test1": return { type: "Testes", comment: "1º teste" };
                           case "test2": return { type: "Testes", comment: "2º teste" };
@@ -598,6 +592,7 @@ const Index = () => {
                           default: return { type: "Outro", comment: "" };
                         }
                       };
+                    try {
                       const mapped = mapNewType(milestone);
                       const newEvent: MatrixEvent = { id: crypto.randomUUID(), date, type: mapped.type, comment: mapped.comment };
                       await sbCreateEvent(matrixId, newEvent);
@@ -605,20 +600,13 @@ const Index = () => {
                       if (selectedMatrix?.id === matrixId) {
                         setSelectedMatrix((prev) => (prev ? { ...prev, events: [...prev.events, newEvent] } : prev));
                       }
-                      // Regra Kanban: se for retorno de Correção Externa, atualizar o cartão automático para "Entrada"
-                      if (["corr_return1","corr_return2","corr_return3","corr_return4"].includes(milestone)) {
-                        const mat = matrices.find((m) => m.id === matrixId);
-                        const code = mat?.code || "";
-                        const title = code ? `${code} - Correção Externa (Entrada)` : "Correção Externa (Entrada)";
-                        const description = code
-                          ? `Matriz ${code} retornou da correção externa em ${formatDatePtBR(date)}`
-                          : `Retornou da correção externa em ${formatDatePtBR(date)}`;
-                        try { await kanbanUpdateLatestAutoCardForMatrix(matrixId, title, description); } catch (_) {}
-                      }
-                      toast({ title: "Data registrada", description: `${mapped.comment || mapped.type} em ${formatDatePtBR(date)}` });
-                    } catch (err: any) {
-                      console.error(err);
-                      toast({ title: "Erro ao registrar data", description: String(err?.message || err), variant: "destructive" });
+                    } catch (err) {
+                      console.error("Erro ao adicionar evento:", err);
+                      toast({
+                        title: "Erro",
+                        description: "Não foi possível adicionar o evento. Tente novamente.",
+                        variant: "destructive"
+                      });
                     }
                   }}
                   onDeleteDate={async (matrixId: string, milestone: SheetMilestone) => {

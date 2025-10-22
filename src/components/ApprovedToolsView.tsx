@@ -135,6 +135,15 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
     generateExcelReport(filteredMatrices);
   };
   
+  // Função para formatar a data corretamente, ajustando o fuso horário
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    // Ajusta para o fuso horário local
+    const timezoneOffset = date.getTimezoneOffset() * 60000;
+    const localDate = new Date(date.getTime() - timezoneOffset);
+    return localDate.toISOString().split('T')[0].split('-').reverse().join('/');
+  };
+
   // Função que gera o relatório em Excel
   const generateExcelReport = (matricesToExport: Matrix[]) => {
     try {
@@ -152,9 +161,10 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
 
       // Para cada ferramenta, cria uma aba com seu histórico completo
       matricesToExport.forEach((matrix, index) => {
+        
         // Encontra a data de criação (primeiro evento)
         const creationDate = matrix.events.length > 0 
-          ? new Date(matrix.events[0].date).toLocaleDateString('pt-BR')
+          ? formatDate(matrix.events[0].date)
           : "Data não disponível";
           
         // Cria os dados da aba principal (resumo)
@@ -184,8 +194,13 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
 
         // Adiciona cada evento como uma linha na tabela
         sortedEvents.forEach(event => {
+          const eventDate = new Date(event.date);
+          // Ajusta para o fuso horário local
+          const timezoneOffset = eventDate.getTimezoneOffset() * 60000;
+          const localDate = new Date(eventDate.getTime() - timezoneOffset);
+          
           summaryData.push([
-            new Date(event.date).toLocaleString('pt-BR'),
+            localDate.toISOString().slice(0, 19).replace('T', ' '), // Formato: YYYY-MM-DD HH:MM:SS
             event.type,
             event.responsible || "-",
             event.machine || "-",
@@ -227,7 +242,7 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
           matrix.folder || "-",
           matrix.responsible || "-",
           lastEvent?.type || "-",
-          lastEvent?.date ? new Date(lastEvent.date).toLocaleString('pt-BR') : "-",
+          lastEvent?.date ? formatDate(lastEvent.date) : "-",
           lastEvent?.testStatus || "-"
         ]);
       });
