@@ -3,7 +3,10 @@ import { Matrix, MatrixEvent } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
+import * as XLSX from "xlsx";
 
 // Helper para formatar data sem problema de fuso horário
 function formatDateBR(dateStr: string): string {
@@ -128,11 +131,69 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
     });
   }, [sorted, filter, folder, testStage]);
 
+  const exportToExcel = () => {
+    // Preparar os dados para exportação
+    const data = filtered.map(matrix => {
+      const eventsByType: Record<string, string> = {};
+      
+      // Agrupar eventos por tipo
+      (matrix.events || []).forEach(event => {
+        eventsByType[event.type] = formatDateBR(event.date);
+      });
+      
+      return {
+        'Código': matrix.code,
+        'Pasta': matrix.folder || '(Sem pasta)',
+        'Data de Recebimento': formatDateBR(matrix.receivedDate || ''),
+        'Dias em Andamento': daysSinceLastEvent(matrix),
+        '1º Teste': eventsByType['1º Teste'] || '',
+        '2º Teste': eventsByType['2º Teste'] || '',
+        '3º Teste': eventsByType['3º Teste'] || '',
+        'Aprovação': eventsByType['Aprovação'] || '',
+        'Status': getStatusFromLastEvent(matrix)
+      };
+    });
+
+    // Criar uma planilha
+    const ws = XLSX.utils.json_to_sheet(data);
+    
+    // Ajustar largura das colunas
+    const wscols = [
+      { wch: 15 }, // Código
+      { wch: 20 }, // Pasta
+      { wch: 20 }, // Data de Recebimento
+      { wch: 15 }, // Dias em Andamento
+      { wch: 15 }, // 1º Teste
+      { wch: 15 }, // 2º Teste
+      { wch: 15 }, // 3º Teste
+      { wch: 15 }, // Aprovação
+      { wch: 20 }  // Status
+    ];
+    ws['!cols'] = wscols;
+
+    // Criar um novo workbook
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Planilha de Eventos');
+
+    // Gerar o arquivo Excel
+    const fileName = `Planilha_Eventos_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
   return (
     <Card className="h-full" onClick={(e) => e.stopPropagation()}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle>Planilha de Datas dos Eventos</CardTitle>
+          <Button 
+            onClick={exportToExcel} 
+            variant="outline" 
+            size="sm"
+            className="h-8 gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Exportar para Excel
+          </Button>
         </div>
         <div className="mt-2 flex items-center gap-2 flex-wrap">
           <div className="max-w-sm w-64 min-w-[220px]">

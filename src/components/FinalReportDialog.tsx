@@ -77,12 +77,12 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] p-0 overflow-hidden" aria-describedby="final-report-desc">
+      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col p-0 overflow-hidden" aria-describedby="final-report-desc">
         <DialogHeader className="px-6 py-4 border-b">
           <DialogTitle className="text-xl font-bold">Relatório Final – {matrix.code}</DialogTitle>
         </DialogHeader>
 
-        <div className="p-6 space-y-6 overflow-auto">
+        <div className="p-6 space-y-6 overflow-y-auto flex-1">
           <p id="final-report-desc" className="sr-only">Relatório final da ferramenta com KPIs, histórico de eventos e anexos.</p>
           {/* Cabeçalho / KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -118,7 +118,7 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
           <Card>
             <CardHeader className="py-3"><CardTitle className="text-base">Histórico de Eventos</CardTitle></CardHeader>
             <CardContent className="p-0">
-              <div className="max-h-64 overflow-auto">
+              <div className="overflow-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

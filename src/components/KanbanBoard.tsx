@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
+import { toPng } from 'html-to-image';
 import { Matrix } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Trash2, Edit3, Save, X, Calendar, AlertTriangle, FlagTriangleRight, CheckSquare, Square, Upload, Download, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Edit3, Save, X, Calendar, AlertTriangle, FlagTriangleRight, CheckSquare, Square, Upload, Download, RefreshCw, ChevronUp, ChevronDown, Image as ImageIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -507,6 +509,109 @@ export default function KanbanBoard({ matrices }: Props) {
     </div>
   );
 
+  // Função para exportar para Excel
+  const exportToExcel = () => {
+    const columns = [
+      { header: "Título", key: "title", width: 30 },
+      { header: "Descrição", key: "description", width: 50 },
+      { header: "Status", key: "status", width: 15 },
+      { header: "Criado em", key: "createdAt", width: 20 },
+      { header: "Matriz", key: "matrixCode", width: 20 },
+      { header: "Bloqueado", key: "blocked", width: 15 },
+      { header: "Checklist", key: "checklist", width: 40 },
+    ];
+
+    // Preparar os dados
+    const data = Object.entries(state.columns).flatMap(([columnId, cardIds]) => {
+      const columnName = {
+        backlog: "Backlog",
+        em_andamento: "Em Andamento",
+        concluido: "Concluído"
+      }[columnId as KanbanColumnId] || columnId;
+
+      return cardIds.map(cardId => {
+        const card = state.cards[cardId];
+        return {
+          title: card.title,
+          description: card.description || '',
+          status: columnName,
+          createdAt: new Date(card.createdAt).toLocaleString('pt-BR'),
+          matrixCode: card.matrixCode || '',
+          blocked: card.blocked ? 'Sim' : 'Não',
+          checklist: card.checklist?.map(item =>
+            `${item.done ? '✓' : '◻'} ${item.text}`
+          ).join('\n') || ''
+        };
+      });
+    });
+
+    // Criar planilha
+    const ws = XLSX.utils.json_to_sheet(data);
+
+    // Ajustar largura das colunas
+    const wscols = columns.map(col => ({ wch: col.width }));
+    ws['!cols'] = wscols;
+
+    // Criar workbook e adicionar a planilha
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Kanban');
+
+    // Gerar o arquivo
+    const fileName = `Kanban_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
+  // Função para gerar imagem do Kanban
+  const exportToImage = async () => {
+    try {
+      const kanbanElement = document.querySelector('.min-w-\[960px\]') as HTMLElement;
+      if (!kanbanElement) {
+        toast({
+          title: "Erro",
+          description: "Elemento do Kanban não encontrado.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Ajustar estilos temporariamente para melhor captura
+      const originalStyles = kanbanElement.getAttribute('style') || '';
+      kanbanElement.style.padding = '20px';
+      kanbanElement.style.background = 'white';
+      kanbanElement.style.borderRadius = '8px';
+      
+      // Gerar a imagem
+      const dataUrl = await toPng(kanbanElement, {
+        backgroundColor: '#ffffff',
+        quality: 1,
+        pixelRatio: 2 // Melhor qualidade para a imagem
+      });
+
+      // Restaurar estilos originais
+      kanbanElement.setAttribute('style', originalStyles);
+
+      // Criar link para download
+      const link = document.createElement('a');
+      link.download = `kanban_${new Date().toISOString().split('T')[0]}.png`;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast({
+        title: "Imagem gerada",
+        description: "O arquivo foi baixado com sucesso."
+      });
+    } catch (error) {
+      console.error('Erro ao gerar imagem:', error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível gerar a imagem do Kanban.",
+        variant: "destructive"
+      });
+    }
+  };
+
   return (
     <div className="h-full flex flex-col gap-3">
       {/* Controles */}
@@ -560,9 +665,9 @@ export default function KanbanBoard({ matrices }: Props) {
             </div>
 
             {/* Linha 2: WIP e ações */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">WIP Em Andamento</span>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">WIP Em Andamento</span>
                 <Input type="number" value={state.wip.em_andamento}
                   onChange={(e) => {
                     const val = Math.max(1, Number(e.target.value) || 1);
@@ -571,22 +676,39 @@ export default function KanbanBoard({ matrices }: Props) {
                   }}
                   className="w-24" />
               </div>
-              <div className="flex items-center gap-2 justify-end">
-                <Button size="sm" variant="outline" onClick={exportState}><Download className="w-4 h-4 mr-1" />Exportar</Button>
-                <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
+              
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={exportState} className="flex items-center gap-1">
+                  <Download className="w-4 h-4" />
+                  <span>Exportar</span>
+                </Button>
+                <label className="inline-flex items-center gap-1 cursor-pointer text-sm px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-9">
                   <Upload className="w-4 h-4" />
+                  <span>Importar</span>
                   <input type="file" accept=".xls" className="hidden" onChange={importState} />
-                  Importar
                 </label>
-                <Button size="sm" onClick={reloadFromDb}><RefreshCw className="w-4 h-4 mr-1" />Recarregar</Button>
+                <Button size="sm" onClick={reloadFromDb} className="flex items-center gap-1">
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Recarregar</span>
+                </Button>
+                <Button size="sm" variant="outline" onClick={exportToImage} className="flex items-center gap-1">
+                  <ImageIcon className="w-4 h-4" />
+                  <span>Exportar Imagem</span>
+                </Button>
+                
+                {!creating ? (
+                  <Button onClick={() => setCreating(true)} size="sm" className="ml-2 flex items-center gap-1">
+                    <Plus className="w-4 h-4" />
+                    <span>Novo Card</span>
+                  </Button>
+                ) : null}
               </div>
             </div>
 
-            {/* Criar novo card */}
+            {/* Descrição e formulário de criação */}
             {!creating ? (
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">Crie cards livremente. Os cards de <strong>Correção Externa (Saída)</strong> são gerados automaticamente quando a matriz sai para correção.</div>
-                <Button onClick={() => setCreating(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Card</Button>
+              <div className="text-sm text-muted-foreground">
+                Crie cards livremente. Os cards de <strong>Correção Externa (Saída)</strong> são gerados automaticamente quando a matriz sai para correção.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -610,7 +732,7 @@ export default function KanbanBoard({ matrices }: Props) {
 
       {/* Board */}
       <ScrollArea className={`flex-1 ${state.compact ? "[&_.card-content]:p-2" : ""}`}>
-        <div className="flex gap-3 min-w-[960px]">
+        <div id="kanban-board" className="flex gap-3 min-w-[960px] p-4 bg-white rounded-lg">
           <Column id="backlog" title="Backlog" hint="Ideias e entradas" />
           <Column id="em_andamento" title="Em Andamento" hint="Em execução" />
           <Column id="concluido" title="Concluído" hint="Finalizado" />

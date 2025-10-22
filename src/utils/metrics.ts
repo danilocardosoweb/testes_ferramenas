@@ -52,9 +52,37 @@ export const computeDurations = (matrix: Matrix) => {
 };
 
 export const getCounts = (matrix: Matrix) => {
-  const tests = matrix.events.filter(e => e.type === "Teste Inicial" || e.type === "Teste Final").length;
-  const rejects = matrix.events.filter(e => e.type === "Reprovado").length;
-  const fixes = matrix.events.filter(e => e.type === "Ajuste" || e.type === "Correção Externa").length;
-  const approvals = matrix.events.filter(e => e.type === "Aprovado").length;
+  const normalize = (value?: string) => (value ?? "").toLowerCase();
+  const removeAccents = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+
+  const events = matrix.events || [];
+
+  const tests = events.filter((e) => {
+    const type = normalize(e.type);
+    return type.includes("teste");
+  }).length;
+
+  const rejects = events.filter((e) => {
+    const type = normalize(e.type);
+    const normalizedNoAccent = removeAccents(type);
+    return type.includes("reprov") || normalizedNoAccent.includes("reprov") || e.testStatus === "Reprovado";
+  }).length;
+
+  const fixes = events.filter((e) => {
+    const type = normalize(e.type);
+    const normalizedNoAccent = removeAccents(type);
+    return (
+      type.includes("ajuste") ||
+      type.includes("correção externa") ||
+      normalizedNoAccent.includes("correcao externa")
+    );
+  }).length;
+
+  const approvals = events.filter((e) => {
+    const type = normalize(e.type);
+    const normalizedNoAccent = removeAccents(type);
+    return type.includes("aprov") || normalizedNoAccent.includes("aprov") || e.testStatus === "Aprovado";
+  }).length;
+
   return { tests, rejects, fixes, approvals };
 };
