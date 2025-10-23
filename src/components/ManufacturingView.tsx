@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord } from "@/services/manufacturing";
-import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload } from "lucide-react";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface FormData {
@@ -72,6 +72,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   const [filterMonth, setFilterMonth] = useState("");
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"need" | "pending" | "approved">("need");
   
   // Seleção múltipla
@@ -834,34 +835,35 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       <Card className="flex-1 border border-slate-200 shadow-sm">
         <CardHeader className="py-2 px-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-sm font-semibold text-slate-800 whitespace-nowrap">Matrizes em Confecção</CardTitle>
             <div className="flex items-center gap-2">
-              <div className="relative">
-                <Input
-                  type="text"
-                  placeholder="Buscar matriz..."
-                  value={searchMatrix}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setSearchMatrix(value);
-                    checkMatrixStatus(value);
-                  }}
-                  className="h-8 text-xs w-48"
-                />
-              </div>
-              {matrixStatus.message && (
-                <div className={`inline-flex items-center px-3 py-1 rounded-md text-xs font-medium ${
-                  matrixStatus.status === 'need' ? 'bg-amber-100 text-amber-800' :
-                  matrixStatus.status === 'pending' ? 'bg-blue-100 text-blue-800' :
-                  matrixStatus.status === 'approved' ? 'bg-green-100 text-green-800' :
-                  'bg-gray-100 text-gray-800'
-                }`}>
-                  {matrixStatus.message}
+              <CardTitle className="text-sm font-semibold text-slate-800 whitespace-nowrap">Localizar Matriz</CardTitle>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    placeholder="Buscar matriz por código..."
+                    className="pl-8 w-[200px]"
+                    value={searchTerm}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSearchTerm(value);
+                      checkMatrixStatus(value);
+                    }}
+                  />
                 </div>
-              )}
+                {searchTerm && matrixStatus.message && (
+                  <div className={`inline-flex items-center px-3 py-1 rounded-md text-xs font-medium ${
+                    matrixStatus.status === 'need' ? 'bg-amber-100 text-amber-800' :
+                    matrixStatus.status === 'pending' ? 'bg-blue-100 text-blue-800' :
+                    matrixStatus.status === 'approved' ? 'bg-green-100 text-green-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {matrixStatus.message}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
             <div className="flex gap-2 items-center">
               <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={handleExportToExcel} disabled={records.length === 0}>
                 <Download className="h-3 w-3 mr-1" />
@@ -1004,7 +1006,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                       const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
                       const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
                       const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
-                      return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority;
+                      const matchSearch = !searchTerm || 
+                        r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                        (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
+                      return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority && matchSearch;
                     }).length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={11} className="text-center text-xs text-muted-foreground py-6">
@@ -1020,7 +1025,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                         const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
                         const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
                         const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
-                        return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority;
+                        const matchSearch = !searchTerm || 
+                          r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
+                        return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority && matchSearch;
                       }).map((record) => (
                         <TableRow key={record.id} className="text-xs hover:bg-red-50/50">
                           <TableCell className="px-2 py-1">
@@ -1208,7 +1216,10 @@ onClick={() => {
                       const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
                       const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
                       const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
-                      return r.status === 'pending' && matchYear && matchMonth && matchSupplier && matchPriority;
+                      const matchSearch = !searchTerm || 
+                        r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                        (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
+                      return r.status === 'pending' && matchYear && matchMonth && matchSupplier && matchPriority && matchSearch;
                     }).length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={12} className="text-center text-xs text-muted-foreground py-6">
@@ -1224,7 +1235,10 @@ onClick={() => {
                         const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
                         const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
                         const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
-                        return r.status === 'pending' && matchYear && matchMonth && matchSupplier && matchPriority;
+                        const matchSearch = !searchTerm || 
+                          r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
+                        return r.status === 'pending' && matchYear && matchMonth && matchSupplier && matchPriority && matchSearch;
                       }).map((record) => (
                         <TableRow key={record.id} className="text-xs hover:bg-amber-50/50">
                           <TableCell className="px-2 py-1">
@@ -1354,7 +1368,10 @@ onClick={() => {
                       const matchYear = !filterYear || filterYear === " " || y === filterYear;
                       const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
                       const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
-                      return r.status === 'approved' && matchYear && matchMonth && matchSupplier;
+                      const matchSearch = !searchTerm || 
+                        r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                        (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
+                      return r.status === 'approved' && matchYear && matchMonth && matchSupplier && matchSearch;
                     }).length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={10} className="text-center text-xs text-muted-foreground py-6">
@@ -1369,7 +1386,10 @@ onClick={() => {
                         const matchYear = !filterYear || filterYear === " " || y === filterYear;
                         const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
                         const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
-                        return r.status === 'approved' && matchYear && matchMonth && matchSupplier;
+                        const matchSearch = !searchTerm || 
+                          r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
+                        return r.status === 'approved' && matchYear && matchMonth && matchSupplier && matchSearch;
                       }).map((record) => (
                         <TableRow key={record.id} className="text-xs hover:bg-green-50/50">
                           <TableCell className="px-2 py-1 font-mono">{record.matrix_code}</TableCell>
