@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord } from "@/services/manufacturing";
-import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search } from "lucide-react";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search, Pencil } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface FormData {
@@ -87,6 +87,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   }>({ status: '', message: '' });
   const [isUploading, setIsUploading] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<ManufacturingRecord | null>(null);
+  const [renamingAttachmentId, setRenamingAttachmentId] = useState<string | null>(null);
 
   // refs
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -171,10 +172,48 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     }
   };
 
+  const handleRenameAttachment = async (attachmentId: string, currentName: string) => {
+    if (!currentRecord) return;
+    const newName = window.prompt("Novo nome para o anexo", currentName);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      toast.error("Nome inválido");
+      return;
+    }
+
+    try {
+      setRenamingAttachmentId(attachmentId);
+      const updatedAttachments = (currentRecord.anexos || []).map((anexo: any) =>
+        anexo.id === attachmentId ? { ...anexo, nome_arquivo: trimmed } : anexo
+      );
+
+      const { error } = await supabase
+        .from('manufacturing_records')
+        .update({ anexos: updatedAttachments })
+        .eq('id', currentRecord.id);
+
+      if (error) throw error;
+
+      const updatedRecord = { ...currentRecord, anexos: updatedAttachments };
+      setCurrentRecord(updatedRecord);
+      setRecords(prevRecords =>
+        prevRecords.map(record => (record.id === updatedRecord.id ? updatedRecord : record))
+      );
+
+      toast.success('Anexo renomeado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao renomear anexo:', error);
+      toast.error('Erro ao renomear anexo. Tente novamente.');
+    } finally {
+      setRenamingAttachmentId(null);
+    }
+  };
+
   // Excluir um anexo
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!currentRecord) return;
-    
+
     try {
       setIsUploading(true);
       const attachmentToDelete = currentRecord.anexos?.find(a => a.id === attachmentId);
@@ -1597,14 +1636,25 @@ onClick={() => {
                             variant="ghost" 
                             size="icon" 
                             className="h-8 w-8"
+                            disabled={renamingAttachmentId === anexo.id || isUploading}
                             onClick={() => window.open(anexo.url, '_blank')}
                           >
                             <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={renamingAttachmentId === anexo.id || isUploading}
+                            onClick={() => handleRenameAttachment(anexo.id, anexo.nome_arquivo)}
+                          >
+                            <Pencil className="h-4 w-4" />
                           </Button>
                           <Button 
                             variant="ghost" 
                             size="icon" 
                             className="h-8 w-8 text-red-500 hover:text-red-600"
+                            disabled={renamingAttachmentId === anexo.id || isUploading}
                             onClick={() => handleDeleteAttachment(anexo.id)}
                           >
                             <Trash2 className="h-4 w-4" />

@@ -77,6 +77,28 @@ export async function listAttachments(matrixId: string) {
   }
 }
 
+export async function renameAttachment(eventFileId: string, newName: string) {
+  const trimmed = newName.trim();
+  if (!trimmed) throw new Error("Nome inválido");
+
+  const { data, error } = await supabase
+    .from("event_files")
+    .update({ file_name: trimmed })
+    .eq("id", eventFileId)
+    .select("event_id")
+    .single();
+  if (error) throw error;
+
+  const eventId = data?.event_id;
+  if (eventId) {
+    const { error: eventError } = await supabase
+      .from("events")
+      .update({ comment: trimmed })
+      .eq("id", eventId);
+    if (eventError) throw eventError;
+  }
+}
+
 export async function deleteAttachment(eventFileId: string, fileUrl: string) {
   try {
     const marker = `/storage/v1/object/public/${BUCKET}/`;

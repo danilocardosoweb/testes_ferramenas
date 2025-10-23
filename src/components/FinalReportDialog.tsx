@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Matrix, MatrixEvent } from "@/types";
 import { daysSinceLastEvent, getCounts, computeDurations } from "@/utils/metrics";
-import { uploadAttachment, listAttachments, deleteAttachment } from "@/services/files";
-import { FileText, Image as ImageIcon, Upload, Trash2, Eye } from "lucide-react";
+import { uploadAttachment, listAttachments, deleteAttachment, renameAttachment } from "@/services/files";
+import { FileText, Image as ImageIcon, Upload, Trash2, Eye, Pencil } from "lucide-react";
 
 interface FinalReportDialogProps {
   open: boolean;
@@ -22,6 +22,7 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
   const [uploading, setUploading] = useState(false);
   const [attachments, setAttachments] = useState<any[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
 
   const counts = useMemo(() => (matrix ? getCounts(matrix) : { tests: 0, rejects: 0, fixes: 0, approvals: 0 }), [matrix]);
   const durations = useMemo(() => (matrix ? computeDurations(matrix) : []), [matrix]);
@@ -44,6 +45,24 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
     };
     if (open) load();
   }, [open, matrix]);
+
+  const handleRenameAttachment = async (fileId: string, currentName: string) => {
+    if (!matrix) return;
+    const newName = window.prompt("Novo nome para o anexo", currentName);
+    if (newName === null) return;
+    setRenamingId(fileId);
+    try {
+      await renameAttachment(fileId, newName);
+      toast({ title: "Anexo renomeado" });
+      const list = await listAttachments(matrix.id);
+      setAttachments(list);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      toast({ title: "Falha ao renomear", description: String(err?.message || err), variant: "destructive" });
+    } finally {
+      setRenamingId(null);
+    }
+  };
 
   const handleDeleteAttachment = async (fileId: string, fileUrl: string) => {
     if (!matrix) return;
@@ -188,7 +207,7 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
                     return files.map((f: any) => {
                       const mime = f.mime_type || f.content_type || "";
                       const isImage = mime.startsWith("image/");
-                      const disabled = deletingId === f.id;
+                      const disabled = deletingId === f.id || renamingId === f.id;
                       return (
                         <div key={f.id} className="border rounded p-2 flex flex-col gap-3">
                           <div className="flex items-center gap-2">
@@ -201,8 +220,18 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
                               size="icon"
                               onClick={() => window.open(f.url, "_blank", "noopener")}
                               title="Visualizar"
+                              disabled={disabled}
                             >
                               <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleRenameAttachment(f.id, f.file_name)}
+                              title="Renomear"
+                              disabled={disabled}
+                            >
+                              <Pencil className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
