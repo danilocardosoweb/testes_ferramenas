@@ -58,7 +58,7 @@ const Index = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
-  const [mainView, setMainView] = useState<"timeline" | "sheet" | "dashboard" | "approved" | "activity" | "kanban" | "testing" | "manufacturing" | "settings">("timeline");
+  const [mainView, setMainView] = useState<"analysis" | "timeline" | "sheet" | "dashboard" | "approved" | "activity" | "kanban" | "testing" | "manufacturing" | "settings">("timeline");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const STALE_DAYS = 10;
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
@@ -77,6 +77,7 @@ const Index = () => {
   const [timelineSearch, setTimelineSearch] = useState("");
   const timelineSearchInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
+  const isAdmin = authSession?.user?.role === 'admin';
 
   useEffect(() => {
     // Verificar sessão ao carregar
@@ -110,6 +111,34 @@ const Index = () => {
     } catch (err: any) {
       console.error(err);
       toast({ title: "Erro ao atualizar", description: String(err?.message || err), variant: "destructive" });
+    }
+  };
+
+  const handleDeleteEvent = async (matrixId: string, eventId: string) => {
+    if (!isAdmin) return;
+    try {
+      await sbDeleteEvent(eventId);
+      setMatrices((prev) =>
+        prev.map((m) =>
+          m.id === matrixId
+            ? { ...m, events: m.events.filter((e) => e.id !== eventId) }
+            : m
+        )
+      );
+      if (selectedMatrix?.id === matrixId) {
+        setSelectedMatrix((prev) =>
+          prev ? { ...prev, events: prev.events.filter((e) => e.id !== eventId) } : null
+        );
+      }
+      toast({ title: "Evento excluído", description: "O evento foi removido com sucesso." });
+    } catch (err: any) {
+      console.error('Erro ao excluir evento:', err);
+      toast({
+        title: "Erro ao excluir evento",
+        description: String(err?.message || err),
+        variant: "destructive",
+      });
+      throw err;
     }
   };
 
@@ -277,8 +306,7 @@ const Index = () => {
   };
 
   const handleMatrixClick = (matrixId: string) => {
-    // Apenas admin pode editar
-    if (authSession?.user?.role !== 'admin') return;
+    if (!isAdmin) return;
     const matrix = matrices.find(m => m.id === matrixId);
     if (matrix) {
       setMatrixEditDialog({ open: true, matrix });
@@ -422,6 +450,17 @@ const Index = () => {
         <div className="flex-1 flex flex-col">
           <div className="p-3 border-b flex items-center gap-1.5 md:gap-2 overflow-x-auto">
             <button
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "analysis" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => {
+                if (!authSession) {
+                  setShowLoginDialog(true);
+                  toast({ title: "Login necessário", description: "Faça login para acessar esta área", variant: "destructive" });
+                } else {
+                  setMainView("analysis");
+                }
+              }}
+            >Análise</button>
+            <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "manufacturing" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => {
                 if (!authSession) {
@@ -547,7 +586,19 @@ const Index = () => {
             </div>
           </div>
           <div className={`flex-1 ${mainView === "sheet" ? "overflow-x-auto" : "overflow-hidden"}`}>
-            {mainView === "timeline" ? (
+            {mainView === "analysis" ? (
+              authSession ? (
+                <div className="h-full p-6 overflow-auto" onClick={() => setSelectedMatrix(null)}>
+                  <div className="h-full flex items-center justify-center rounded-lg border border-dashed border-muted-foreground/40 text-muted-foreground">
+                    Área de análise em construção. Em breve adicionaremos ferramentas para avaliar novas confecções.
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-muted-foreground">Faça login para acessar a área de análise.</p>
+                </div>
+              )
+            ) : mainView === "timeline" ? (
               <FlowView
                 matrices={mainMatrices}
                 onEventClick={handleEventClick}
@@ -882,6 +933,9 @@ const Index = () => {
         matrix={eventDetailDialog.matrix}
         event={eventDetailDialog.event}
         onUpdateEvent={handleUpdateEvent}
+        onDeleteEvent={isAdmin ? handleDeleteEvent : undefined}
+        canDelete={isAdmin}
+        canEditDate={isAdmin}
       />
 
       {/* Matrix Edit Dialog (apenas admin) */}

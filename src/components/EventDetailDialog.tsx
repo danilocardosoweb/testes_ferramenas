@@ -15,6 +15,9 @@ interface EventDetailDialogProps {
   matrix: Matrix | null;
   event: MatrixEvent | null;
   onUpdateEvent: (matrixId: string, eventId: string, updates: Partial<MatrixEvent>) => void;
+  onDeleteEvent?: (matrixId: string, eventId: string) => Promise<void> | void;
+  canDelete?: boolean;
+  canEditDate?: boolean;
 }
 
 export const EventDetailDialog = ({
@@ -23,14 +26,19 @@ export const EventDetailDialog = ({
   matrix,
   event,
   onUpdateEvent,
+  onDeleteEvent,
+  canDelete = false,
+  canEditDate = false,
 }: EventDetailDialogProps) => {
   const [observations, setObservations] = useState(event?.observations || "");
   const [images, setImages] = useState<string[]>(Array.isArray(event?.images) ? [...(event!.images!)] : []);
   const [responsible, setResponsible] = useState(event?.responsible || "");
   const [files, setFiles] = useState<{ name: string; type: string; dataUrl: string }[]>(Array.isArray(event?.files) ? [...(event!.files!)] : []);
   const [testStatus, setTestStatus] = useState<string>(event?.testStatus || "");
+  const [eventDate, setEventDate] = useState(event?.date || "");
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Sempre que abrir o diálogo ou mudar o evento, sincroniza os estados locais.
   useEffect(() => {
@@ -40,6 +48,7 @@ export const EventDetailDialog = ({
     setImages(Array.isArray(event.images) ? [...event.images] : []);
     setFiles(Array.isArray(event.files) ? [...event.files] : []);
     setTestStatus(event.testStatus || "");
+    setEventDate(event.date || "");
   }, [open, event?.id]);
 
   // Ao fechar, evita que o próximo evento herde valores do anterior
@@ -50,6 +59,8 @@ export const EventDetailDialog = ({
     setImages([]);
     setFiles([]);
     setTestStatus("");
+    setEventDate("");
+    setDeleting(false);
   }, [open]);
 
   const savePartial = async (patch: Partial<MatrixEvent>) => {
@@ -96,12 +107,17 @@ export const EventDetailDialog = ({
   const handleSave = () => {
     if (!matrix || !event) return;
 
-    onUpdateEvent(matrix.id, event.id, {
+    const updates: Partial<MatrixEvent> = {
       observations,
       images,
       responsible: responsible.trim() || undefined,
       files,
-    });
+    };
+    if (canEditDate && eventDate) {
+      updates.date = eventDate;
+    }
+
+    onUpdateEvent(matrix.id, event.id, updates);
 
     toast({
       title: "Atualizado",
@@ -109,6 +125,25 @@ export const EventDetailDialog = ({
     });
 
     onOpenChange(false);
+  };
+
+  const handleDelete = async () => {
+    if (!matrix || !event || !onDeleteEvent) return;
+    const confirmed = window.confirm("Tem certeza que deseja excluir este evento? Esta ação não pode ser desfeita.");
+    if (!confirmed) return;
+    try {
+      setDeleting(true);
+      await onDeleteEvent(matrix.id, event.id);
+      setDeleting(false);
+      onOpenChange(false);
+    } catch (err: any) {
+      setDeleting(false);
+      toast({
+        title: "Erro ao excluir",
+        description: String(err?.message || err),
+        variant: "destructive",
+      });
+    }
   };
 
   if (!event || !matrix) return null;
@@ -171,6 +206,24 @@ export const EventDetailDialog = ({
                   <SelectItem value="Reprovado">Reprovado</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {canEditDate && (
+            <div>
+              <Label htmlFor="event-date">Data do Evento</Label>
+              <Input
+                id="event-date"
+                type="date"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+                onBlur={() => {
+                  if (!matrix || !event) return;
+                  if (!eventDate) return;
+                  savePartial({ date: eventDate });
+                }}
+                className="mt-2"
+              />
             </div>
           )}
 
@@ -276,10 +329,20 @@ export const EventDetailDialog = ({
 
           <div className="flex items-center gap-2 pt-4">
             {saving && <span className="text-xs text-muted-foreground">Salvando...</span>}
-            <Button onClick={handleSave} className="flex-1" disabled={saving}>
+            {canDelete && (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={saving || deleting}
+              >
+                {deleting ? "Excluindo..." : "Excluir"}
+              </Button>
+            )}
+            <Button onClick={handleSave} className="flex-1" disabled={saving || deleting}>
               Salvar
             </Button>
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1" disabled={deleting}>
               Cancelar
             </Button>
           </div>
