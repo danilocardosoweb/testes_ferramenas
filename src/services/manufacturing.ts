@@ -18,6 +18,15 @@ export interface ManufacturingRecord {
   volume_produced?: number | null;
   technical_notes?: string;
   justification: string;
+  observacoes?: string | null;
+  anexos?: Array<{
+    id: string;
+    url: string;
+    nome_arquivo: string;
+    tipo_mime: string;
+    tamanho: number;
+    caminho: string;
+  }>;
   created_at: string;
   created_by?: string;
   updated_at: string;
@@ -26,6 +35,8 @@ export interface ManufacturingRecord {
   moved_to_pending_at?: string | null;
   moved_to_approved_at?: string | null;
   moved_to_received_at?: string | null;
+  test_count?: number;
+  approved_at?: string | null;
 }
 
 // Cache leve em memória (válido por 30 segundos)
@@ -396,11 +407,123 @@ export async function updateManufacturingRecord(
 }
 
 export async function updatePriority(recordId: string, priority: 'low' | 'medium' | 'high' | 'critical'): Promise<void> {
-  // Atualizar prioridade de uma necessidade
   const { error } = await supabase
     .from('manufacturing_records')
-    .update({ priority })
+    .update({ priority, updated_at: new Date().toISOString() })
     .eq('id', recordId);
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error updating priority:', error);
+    throw new Error('Erro ao atualizar prioridade');
+  }
+}
+
+export interface ApprovedMatrixFilters {
+  searchTerm?: string;
+  startDate?: string;
+  endDate?: string;
+  supplier?: string;
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+}
+
+export async function listApprovedMatrices(filters?: ApprovedMatrixFilters): Promise<ManufacturingRecord[]> {
+  try {
+    // Primeiro, buscamos as matrizes aprovadas
+    let query = supabase
+      .from('manufacturing_records')
+      .select('*')
+      .eq('status', 'approved')
+      .order('moved_to_approved_at', { ascending: false });
+
+    // Aplicar filtros à consulta principal
+    if (filters) {
+      if (filters.searchTerm) {
+        query = query.or(
+          `matrix_code.ilike.%${filters.searchTerm}%,supplier.ilike.%${filters.searchTerm}%,custom_supplier.ilike.%${filters.searchTerm}%`
+        );
+      }
+      
+      if (filters.startDate) {
+        query = query.gte('moved_to_approved_at', filters.startDate);
+      }
+      
+      if (filters.endDate) {
+        // Ajusta para o final do dia
+        const endOfDay = new Date(filters.endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        query = query.lte('moved_to_approved_at', endOfDay.toISOString());
+      }
+      
+      if (filters.supplier) {
+        query = query.eq('supplier', filters.supplier);
+      }
+      
+      if (filters.priority) {
+        query = query.eq('priority', filters.priority);
+      }
+    }
+
+    const { data: matrices, error: queryError } = await query;
+    if (queryError) throw queryError;
+    if (!matrices || matrices.length === 0) return [];
+
+    // Buscar contagem de testes para cada matriz
+    const matrixIds = matrices.map(m => m.matrix_id).filter(Boolean) as string[];
+    
+    let testCounts: Record<string, number> = {};
+    
+    if (matrixIds.length > 0) {
+      const { data: testResults, error: testError } = await supabase
+        .from('matrix_tests')
+        .select('matrix_id')
+        .in('matrix_id', matrixIds);
+      
+      if (!testError && testResults) {
+        testCounts = testResults.reduce((acc, { matrix_id }) => {
+          if (matrix_id) {
+            acc[matrix_id] = (acc[matrix_id] || 0) + 1;
+          }
+          return acc;
+        }, {} as Record<string, number>);
+      }
+    }
+
+    // Mapear os resultados para incluir a contagem de testes e a data de aprovação
+    const result = matrices.map(matrix => ({
+      ...matrix,
+      test_count: matrix.matrix_id ? testCounts[matrix.matrix_id] || 0 : 0,
+      approved_at: matrix.moved_to_approved_at
+    }));
+
+    return result;
+  } catch (error) {
+    console.error('Error fetching approved matrices:', error);
+    throw new Error('Erro ao buscar matrizes aprovadas');
+  }
+}
+
+export async function getSuppliersList(): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from('manufacturing_records')
+      .select('supplier')
+      .not('supplier', 'is', null)
+      .order('supplier', { ascending: true });
+
+    if (error) throw error;
+
+    // Remove duplicatas e valores nulos
+    const uniqueSuppliers = Array.from(
+      new Set(
+        (data || [])
+          .map((item) => item.supplier)
+          .filter((supplier): supplier is string => Boolean(supplier))
+      )
+    );
+
+    return uniqueSuppliers;
+  } catch (error) {
+    console.error('Error fetching suppliers list:', error);
+    return [];
+  }
 }

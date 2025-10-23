@@ -311,11 +311,10 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
   // Testes: considerar todos os eventos do tipo "Testes" ou tipos legados com "Teste"
   const tests = matrix.events
     .filter((e) => {
-      // Novo fluxo: tipo "Testes" com comentário indicando o número do teste
-      if (e.type === "Testes" && e.comment) {
-        return /^\d+º teste$/i.test(e.comment.trim());
+      if (e.type === "Testes") {
+        if (!e.comment) return true;
+        return /^\d+º teste\b/i.test(e.comment.trim());
       }
-      // legado: tipos antigos com a palavra "Teste"
       return /Teste/i.test(e.type);
     })
     .sort((a, b) => a.date.localeCompare(b.date));

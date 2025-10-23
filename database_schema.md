@@ -88,8 +88,10 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `matrix_images (jsonb, default '[]'::jsonb)` — Fotos da matriz
   - `problem_images (jsonb, default '[]'::jsonb)` — Fotos de problemas
   - `volume_produced (integer, nullable)` — Volume produzido
-  - `technical_notes (text, nullable)`
-  - `justification (text, not null)`
+  - `technical_notes (text, nullable)` — Notas técnicas sobre a confecção
+  - `justification (text, not null)` — Justificativa para a confecção
+  - `observacoes (text, nullable)` — Observações adicionais sobre a confecção
+  - `anexos (jsonb, default '[]'::jsonb)` — Array de anexos (cada item com id, url, nome_arquivo, tipo_mime, tamanho)
   - `status (text, default 'need', check in ['need','pending','approved','received'])` — Status do workflow (need=Necessidade, pending=Solicitação, approved=Em Fabricação, received=Recebida)
   - `processed_at (timestamptz, nullable)` — Data de processamento/recebimento
   - `created_at (timestamptz, default now())`

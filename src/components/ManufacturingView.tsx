@@ -3,15 +3,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { supabase } from "@/lib/supabaseClient";
+import { v4 as uuidv4 } from "uuid";
+import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
 import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord } from "@/services/manufacturing";
-import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail } from "lucide-react";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface FormData {
@@ -41,7 +43,6 @@ const PACKAGE_OPTIONS: Record<"tubular" | "solido", string[]> = {
 };
 
 export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingViewProps) {
-  const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [records, setRecords] = useState<ManufacturingRecord[]>([]);
@@ -78,14 +79,143 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   const [selectedNeedRecords, setSelectedNeedRecords] = useState<string[]>([]);
   const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
   const [estimatedDate, setEstimatedDate] = useState("");
-  const [searchMatrix, setSearchMatrix] = useState("");
+  const [searchMatrix, setSearchMatrix] = useState('');
   const [matrixStatus, setMatrixStatus] = useState<{
     status: 'need' | 'pending' | 'approved' | 'not_found' | '';
     message: string;
   }>({ status: '', message: '' });
+  const [isUploading, setIsUploading] = useState(false);
+  const [currentRecord, setCurrentRecord] = useState<ManufacturingRecord | null>(null);
 
   // refs
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Função para fazer upload de um arquivo para o Supabase Storage
+  const uploadFile = async (file: File, recordId: string) => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${uuidv4()}.${fileExt}`;
+    const filePath = `manufacturing/${recordId}/${fileName}`;
+    
+    const { error: uploadError, data } = await supabase.storage
+      .from('attachments')
+      .upload(filePath, file);
+    
+    if (uploadError) {
+      throw uploadError;
+    }
+    
+    // Obter URL pública
+    const { data: { publicUrl } } = supabase.storage
+      .from('attachments')
+      .getPublicUrl(filePath);
+    
+    return {
+      id: uuidv4(),
+      url: publicUrl,
+      nome_arquivo: file.name,
+      tipo_mime: file.type,
+      tamanho: file.size,
+      caminho: filePath
+    };
+  };
+
+  // Manipular upload de arquivos
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files || event.target.files.length === 0 || !currentRecord) {
+      return;
+    }
+    
+    try {
+      setIsUploading(true);
+      const files = Array.from(event.target.files);
+      const newAttachments = [];
+      
+      // Fazer upload de cada arquivo
+      for (const file of files) {
+        const attachment = await uploadFile(file, currentRecord.id);
+        newAttachments.push(attachment);
+      }
+      
+      // Atualizar o registro com os novos anexos
+      const updatedAttachments = [...(currentRecord.anexos || []), ...newAttachments];
+      
+      const { error } = await supabase
+        .from('manufacturing_records')
+        .update({ anexos: updatedAttachments })
+        .eq('id', currentRecord.id);
+      
+      if (error) throw error;
+      
+      // Atualizar o registro atual e a lista de registros
+      const updatedRecord = { ...currentRecord, anexos: updatedAttachments };
+      setCurrentRecord(updatedRecord);
+      
+      setRecords(prevRecords => 
+        prevRecords.map(record => 
+          record.id === updatedRecord.id ? updatedRecord : record
+        )
+      );
+      
+      toast.success('Anexos adicionados com sucesso!');
+      
+    } catch (error) {
+      console.error('Erro ao fazer upload do arquivo:', error);
+      toast.error('Erro ao adicionar anexos. Tente novamente.');
+    } finally {
+      setIsUploading(false);
+      // Limpar o input de arquivo
+      if (event.target) {
+        event.target.value = '';
+      }
+    }
+  };
+
+  // Excluir um anexo
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (!currentRecord) return;
+    
+    try {
+      setIsUploading(true);
+      const attachmentToDelete = currentRecord.anexos?.find(a => a.id === attachmentId);
+      
+      if (!attachmentToDelete) return;
+      
+      // Remover do storage
+      const { error: deleteError } = await supabase.storage
+        .from('attachments')
+        .remove([attachmentToDelete.caminho]);
+      
+      if (deleteError) throw deleteError;
+      
+      // Atualizar o registro removendo o anexo
+      const updatedAttachments = currentRecord.anexos?.filter(a => a.id !== attachmentId) || [];
+      
+      const { error } = await supabase
+        .from('manufacturing_records')
+        .update({ anexos: updatedAttachments })
+        .eq('id', currentRecord.id);
+      
+      if (error) throw error;
+      
+      // Atualizar o registro atual e a lista de registros
+      const updatedRecord = { ...currentRecord, anexos: updatedAttachments };
+      setCurrentRecord(updatedRecord);
+      
+      setRecords(prevRecords => 
+        prevRecords.map(record => 
+          record.id === updatedRecord.id ? updatedRecord : record
+        )
+      );
+      
+      toast.success('Anexo removido com sucesso!');
+      
+    } catch (error) {
+      console.error('Erro ao remover anexo:', error);
+      toast.error('Erro ao remover anexo. Tente novamente.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   // Buscar registros
   const loadRecords = useCallback(async () => {
@@ -226,10 +356,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
       XLSX.writeFile(workbook, `matrizes_confecao_${new Date().toISOString().split("T")[0]}.xlsx`);
 
-      toast({ title: "Exportado com sucesso", description: `${filtered.length} registro(s) exportado(s)` });
+      toast.success(`Exportado com sucesso: ${filtered.length} registro(s) exportado(s)`);
     } catch (err: any) {
       console.error("Erro ao exportar:", err);
-      toast({ title: "Erro ao exportar", description: String(err?.message || err), variant: "destructive" });
+      toast.error(`Erro ao exportar: ${String(err?.message || err)}`);
     } finally {
       setLoading(false);
     }
@@ -244,17 +374,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       const { permanentlyDeleteManufacturingRecord } = await import("@/services/manufacturing");
       await permanentlyDeleteManufacturingRecord(recordId);
       await loadRecords();
-      toast({ 
-        title: "Registro deletado", 
-        description: `O registro da matriz ${matrixCode} foi removido permanentemente` 
-      });
+      toast.success(`Registro deletado: O registro da matriz ${matrixCode} foi removido permanentemente`);
     } catch (err: any) {
       console.error("Erro ao deletar registro:", err);
-      toast({ 
-        title: "Erro ao deletar", 
-        description: String(err?.message || err), 
-        variant: "destructive" 
-      });
+      toast.error(`Erro ao deletar: ${String(err?.message || err)}`);
     }
   };
 
@@ -262,17 +385,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     try {
       await moveToSolicitation(recordId);
       await loadRecords();
-      toast({ 
-        title: "Movido para Solicitação!", 
-        description: `A matriz ${matrixCode} entrou no processo interno` 
-      });
+      toast.success(`Movido para Solicitação! A matriz ${matrixCode} entrou no processo interno`);
     } catch (err: any) {
       console.error("Erro ao mover:", err);
-      toast({ 
-        title: "Erro ao mover", 
-        description: String(err?.message || err), 
-        variant: "destructive" 
-      });
+      toast.error(`Erro ao mover: ${String(err?.message || err)}`);
     }
   };
 
@@ -295,29 +411,18 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       }
       
       await loadRecords();
-      toast({ 
-        title: "Aprovado para fabricação!", 
-        description: `${selectedRecords.length} matriz(es) aprovada(s) para fabricação` 
-      });
+      toast.success(`${selectedRecords.length} matriz(es) aprovada(s) para fabricação`);
       setApprovalDialogOpen(false);
       setSelectedRecords([]);
     } catch (err: any) {
       console.error("Erro ao aprovar:", err);
-      toast({ 
-        title: "Erro ao aprovar", 
-        description: String(err?.message || err), 
-        variant: "destructive" 
-      });
+      toast.error(`Erro ao aprovar: ${String(err?.message || err)}`);
     }
   };
 
   const handleSendApprovalEmail = () => {
     if (selectedNeedRecords.length === 0) {
-      toast({ 
-        title: "Nenhuma matriz selecionada", 
-        description: "Selecione pelo menos uma matriz para enviar o e-mail", 
-        variant: "destructive" 
-      });
+      toast.error("Selecione pelo menos uma matriz para enviar o e-mail");
       return;
     }
 
@@ -367,10 +472,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     // Abrir cliente de e-mail
     window.open(mailtoLink);
     
-    toast({ 
-      title: "E-mail gerado!", 
-      description: `E-mail criado para ${selectedMatrices.length} matriz(es) selecionada(s)` 
-    });
+    toast.success(`E-mail gerado para ${selectedMatrices.length} matriz(es) selecionada(s)`);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -379,7 +481,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
     Array.from(files).forEach((file) => {
       if (file.size > 5 * 1024 * 1024) {
-        toast({ title: "Arquivo muito grande", description: `${file.name} excede 5MB`, variant: "destructive" });
+        toast.error(`Arquivo muito grande: ${file.name} excede 5MB`);
         return;
       }
 
@@ -407,12 +509,12 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
     if (!formData.matrixCode || !formData.manufacturingType || !formData.profileType ||
         !formData.packageSize || !formData.holeCount || !formData.supplier || !formData.justification) {
-      toast({ title: "Formulário incompleto", description: "Preencha todos os campos obrigatórios", variant: "destructive" });
+      toast.error("Formulário incompleto: Preencha todos os campos obrigatórios");
       return;
     }
 
     if (formData.supplier === "Outro" && !formData.customSupplier) {
-      toast({ title: "Fornecedor não especificado", description: "Informe o nome do fornecedor", variant: "destructive" });
+      toast.error("Fornecedor não especificado: Informe o nome do fornecedor");
       return;
     }
 
@@ -451,11 +553,11 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       });
       
       await loadRecords();
-      toast({ title: "Confecção registrada!", description: "O pedido de confecção foi registrado. A matriz será criada quando recebida." });
+      toast.success("Confecção registrada! O pedido de confecção foi registrado. A matriz será criada quando recebida.");
       if (onSuccess) onSuccess();
     } catch (err: any) {
       console.error("Erro ao registrar confecção:", err);
-      toast({ title: "Erro ao registrar", description: String(err?.message || err), variant: "destructive" });
+      toast.error(`Erro ao registrar: ${String(err?.message || err)}`);
     } finally {
       setLoading(false);
     }
@@ -991,7 +1093,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                 size="icon"
                                 variant="ghost"
                                 className="h-6 w-6"
-                                onClick={() => setViewRecord(record)}
+onClick={() => {
+                                  setViewRecord(record);
+                                  setCurrentRecord(record);
+                                }}
                                 title="Visualizar detalhes"
                               >
                                 <Eye className="h-3 w-3" />
@@ -1186,7 +1291,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                 size="icon"
                                 variant="ghost"
                                 className="h-6 w-6"
-                                onClick={() => setViewRecord(record)}
+onClick={() => {
+                                  setViewRecord(record);
+                                  setCurrentRecord(record);
+                                }}
                                 title="Visualizar detalhes"
                               >
                                 <Eye className="h-3 w-3" />
@@ -1299,7 +1407,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                 size="icon"
                                 variant="ghost"
                                 className="h-6 w-6"
-                                onClick={() => setViewRecord(record)}
+onClick={() => {
+                                  setViewRecord(record);
+                                  setCurrentRecord(record);
+                                }}
                                 title="Visualizar detalhes"
                               >
                                 <Eye className="h-3 w-3" />
@@ -1429,13 +1540,13 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
               {viewRecord.matrix_images && viewRecord.matrix_images.length > 0 && (
                 <div>
-                  <Label className="font-semibold">Imagens ({viewRecord.matrix_images.length}):</Label>
+                  <Label className="font-semibold">Imagens da Matriz ({viewRecord.matrix_images.length}):</Label>
                   <div className="grid grid-cols-4 gap-2 mt-2">
                     {viewRecord.matrix_images.map((img, i) => (
                       <img
-                        key={i}
+                        key={`matrix-${i}`}
                         src={img}
-                        alt={`Imagem ${i + 1}`}
+                        alt={`Imagem da matriz ${i + 1}`}
                         className="w-full h-20 object-cover rounded border cursor-pointer hover:opacity-80"
                         onClick={() => setPreviewImage(img)}
                       />
@@ -1443,6 +1554,72 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                   </div>
                 </div>
               )}
+
+              {/* Seção de Anexos */}
+              <div className="border-t pt-4 mt-4">
+                <Label className="font-semibold text-base">Anexos</Label>
+                <p className="text-sm text-muted-foreground mb-3">Adicione documentos ou imagens adicionais</p>
+                
+                {/* Lista de anexos existentes */}
+                {viewRecord.anexos && viewRecord.anexos.length > 0 ? (
+                  <div className="space-y-2 mb-4">
+                    {viewRecord.anexos.map((anexo: any, i: number) => (
+                      <div key={`anexo-${i}`} className="flex items-center justify-between p-2 border rounded">
+                        <div className="flex items-center space-x-2">
+                          <FileIcon className="h-5 w-5 text-gray-500" />
+                          <span className="text-sm truncate max-w-xs">{anexo.nome_arquivo}</span>
+                          <span className="text-xs text-muted-foreground">
+                            ({(anexo.tamanho / 1024).toFixed(1)} KB)
+                          </span>
+                        </div>
+                        <div className="flex space-x-2">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => window.open(anexo.url, '_blank')}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-red-500 hover:text-red-600"
+                            onClick={() => handleDeleteAttachment(anexo.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 border-2 border-dashed rounded-lg mb-4">
+                    <p className="text-sm text-muted-foreground">Nenhum anexo adicionado</p>
+                  </div>
+                )}
+                
+                {/* Botão para adicionar anexos */}
+                <div className="flex justify-end">
+                  <input
+                    type="file"
+                    id="file-upload"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                    multiple
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    type="button"
+                    onClick={() => document.getElementById('file-upload')?.click()}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Adicionar Anexos
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </DialogContent>
@@ -1610,10 +1787,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                       setEditingRecord(null);
                       setEditDraft({});
                       await loadRecords();
-                      toast({ title: 'Registro atualizado', description: 'Os dados foram corrigidos com sucesso.' });
+                      toast.success('Registro atualizado: Os dados foram corrigidos com sucesso.');
                     } catch (err: any) {
                       console.error(err);
-                      toast({ title: 'Erro ao atualizar', description: String(err?.message || err), variant: 'destructive' });
+                      toast.error(`Erro ao atualizar: ${String(err?.message || err)}`);
                     }
                   }}>Salvar</Button>
                 </div>
