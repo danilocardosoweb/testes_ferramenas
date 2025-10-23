@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Matrix, MatrixEvent } from "@/types";
 import { daysSinceLastEvent, getCounts, computeDurations } from "@/utils/metrics";
-import { uploadAttachment, listAttachments, deleteAttachment, renameAttachment } from "@/services/files";
+import { uploadAttachment, listAttachments, deleteAttachment, renameAttachment, FinalReportAttachments } from "@/services/files";
 import { FileText, Image as ImageIcon, Upload, Trash2, Eye, Pencil } from "lucide-react";
 
 interface FinalReportDialogProps {
@@ -20,7 +20,7 @@ interface FinalReportDialogProps {
 export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOpenChange, matrix, onRefresh }) => {
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
-  const [attachments, setAttachments] = useState<any[]>([]);
+  const [attachments, setAttachments] = useState<FinalReportAttachments>({ docsProjetos: [], rip: [] });
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
 
@@ -188,7 +188,7 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
           {/* Anexos */}
           <Card>
             <CardHeader className="py-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Anexos (PDF/Imagens)</CardTitle>
+              <CardTitle className="text-base">RIP (matrix-attachments)</CardTitle>
               <div className="flex items-center gap-2">
                 <Input type="file" multiple accept="application/pdf,image/*" onChange={handleUpload} disabled={uploading} />
                 <Button disabled={uploading} variant="secondary">
@@ -197,56 +197,98 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
               </div>
             </CardHeader>
             <CardContent>
-              {attachments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhum anexo ainda.</p>
+              {attachments.rip.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum anexo RIP.</p>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {attachments.flatMap((a: any) => {
-                    const files = a.event_files || [];
-                    if (!files.length) return [];
-                    return files.map((f: any) => {
-                      const mime = f.mime_type || f.content_type || "";
-                      const isImage = mime.startsWith("image/");
-                      const disabled = deletingId === f.id || renamingId === f.id;
-                      return (
-                        <div key={f.id} className="border rounded p-2 flex flex-col gap-3">
-                          <div className="flex items-center gap-2">
-                            {isImage ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
-                            <span className="truncate text-sm" title={f.file_name}>{f.file_name}</span>
-                          </div>
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => window.open(f.url, "_blank", "noopener")}
-                              title="Visualizar"
-                              disabled={disabled}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleRenameAttachment(f.id, f.file_name)}
-                              title="Renomear"
-                              disabled={disabled}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-destructive hover:text-destructive"
-                              disabled={disabled}
-                              onClick={() => handleDeleteAttachment(f.id, f.url)}
-                              title="Excluir"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                  {attachments.rip.map((f) => {
+                    const mime = f.mime_type || "";
+                    const isImage = mime.startsWith("image/");
+                    const disabled = deletingId === f.id || renamingId === f.id;
+                    return (
+                      <div key={f.id} className="border rounded p-2 flex flex-col gap-3">
+                        <div className="flex items-center gap-2">
+                          {isImage ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                          <span className="truncate text-sm" title={f.file_name}>{f.file_name}</span>
                         </div>
-                      );
-                    });
+                        {isImage && (
+                          <button onClick={() => window.open(f.url, "_blank", "noopener")} className="border rounded overflow-hidden h-24 focus:outline-none focus:ring">
+                            <img src={f.url} alt={f.file_name} className="w-full h-full object-cover" />
+                          </button>
+                        )}
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => window.open(f.url, "_blank", "noopener")}
+                            title="Visualizar"
+                            disabled={disabled}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRenameAttachment(f.id, f.file_name)}
+                            title="Renomear"
+                            disabled={disabled}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteAttachment(f.id, f.url)}
+                            title="Excluir"
+                            disabled={disabled}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-base">Docs Projetos (attachments)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {attachments.docsProjetos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum documento legado.</p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {attachments.docsProjetos.map((doc) => {
+                    const mime = doc.mime_type || "";
+                    const isImage = mime.startsWith("image/");
+                    return (
+                      <div key={doc.id} className="border rounded p-2 flex flex-col gap-3">
+                        <div className="flex items-center gap-2">
+                          {isImage ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                          <span className="truncate text-sm" title={doc.file_name}>{doc.file_name}</span>
+                        </div>
+                        {isImage && (
+                          <button onClick={() => window.open(doc.url, "_blank", "noopener")} className="border rounded overflow-hidden h-24 focus:outline-none focus:ring">
+                            <img src={doc.url} alt={doc.file_name} className="w-full h-full object-cover" />
+                          </button>
+                        )}
+                        <div className="flex justify-end">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => window.open(doc.url, "_blank", "noopener")}
+                            title="Visualizar"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
                   })}
                 </div>
               )}

@@ -1,7 +1,8 @@
 import { supabase } from "@/lib/supabaseClient";
 import { v4 as uuidv4 } from "uuid";
 
-const BUCKET = "matrix-attachments";
+const RIP_BUCKET = "matrix-attachments";
+const DOCS_BUCKET = "attachments";
 
 export type UploadResult = {
   eventId: string;
@@ -16,11 +17,11 @@ export async function uploadAttachment(matrixId: string, file: File): Promise<Up
   const safeFileName = normalizedName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = `matrices/${matrixId}/${Date.now()}_${safeFileName}`;
   const { error: upErr } = await supabase.storage
-    .from(BUCKET)
+    .from(RIP_BUCKET)
     .upload(path, file, { contentType: file.type, upsert: false });
   if (upErr) throw upErr;
 
-  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const { data: pub } = supabase.storage.from(RIP_BUCKET).getPublicUrl(path);
   const url = pub?.publicUrl || "";
 
   // 2) Criar evento de anexo
@@ -54,27 +55,80 @@ export async function uploadAttachment(matrixId: string, file: File): Promise<Up
   return { eventId, url, fileName: file.name, contentType: file.type };
 }
 
-export async function listAttachments(matrixId: string) {
-  // Tenta buscar via join em event_files; se falhar, retorna eventos do tipo anexo
+export type FinalReportAttachments = {
+  docsProjetos: Array<{
+    id: string;
+    url: string;
+    file_name: string;
+    mime_type: string;
+    file_size: number;
+  }>;
+  rip: Array<{
+    event_id: string;
+    id: string;
+    url: string;
+    file_name: string;
+    mime_type: string;
+    file_size: number;
+  }>;
+};
+
+async function listRipAttachments(matrixId: string) {
   try {
     const { data, error } = await supabase
-      .from("events")
-      .select("id, date, type, comment, event_files(id, url, file_name, mime_type, file_size)")
-      .eq("matrix_id", matrixId)
-      .ilike("type", "%Relatório Final%")
-      .order("date", { ascending: false });
+      .from("event_files")
+      .select("id, url, file_name, mime_type, file_size, events!inner(id)")
+      .eq("events.matrix_id", matrixId)
+      .ilike("events.type", "%Relatório Final%")
+      .order("events.date", { ascending: false });
     if (error) throw error;
-    return data || [];
-  } catch (e) {
-    const { data, error } = await supabase
-      .from("events")
-      .select("id, date, type, comment")
-      .eq("matrix_id", matrixId)
-      .ilike("type", "%Relatório Final%")
-      .order("date", { ascending: false });
-    if (error) throw error;
-    return data || [];
+    return (data || []).map((item: any) => ({
+      event_id: item.events.id,
+      id: item.id,
+      url: item.url,
+      file_name: item.file_name,
+      mime_type: item.mime_type,
+      file_size: item.file_size,
+    }));
+  } catch (err) {
+    console.error("Erro ao listar anexos RIP:", err);
+    return [];
   }
+}
+
+async function listDocsProjetos(matrixId: string) {
+  try {
+    const prefix = `matrices/${matrixId}`;
+    const { data, error } = await supabase.storage
+      .from(DOCS_BUCKET)
+      .list(prefix, { limit: 100, offset: 0 });
+    if (error) throw error;
+    if (!data) return [];
+    return data
+      .filter((item) => item.name && !item.name.endsWith("/"))
+      .map((item) => {
+        const filePath = `${prefix}/${item.name}`;
+        const { data: publicData } = supabase.storage.from(DOCS_BUCKET).getPublicUrl(filePath);
+        return {
+          id: `${DOCS_BUCKET}/${filePath}`,
+          url: publicData?.publicUrl ?? "",
+          file_name: item.name,
+          mime_type: item.metadata?.mimetype || "",
+          file_size: item.metadata?.size || 0,
+        };
+      });
+  } catch (err) {
+    console.error("Erro ao listar anexos Docs Projetos:", err);
+    return [];
+  }
+}
+
+export async function listAttachments(matrixId: string): Promise<FinalReportAttachments> {
+  const [rip, docsProjetos] = await Promise.all([
+    listRipAttachments(matrixId),
+    listDocsProjetos(matrixId),
+  ]);
+  return { rip, docsProjetos };
 }
 
 export async function renameAttachment(eventFileId: string, newName: string) {
@@ -101,11 +155,11 @@ export async function renameAttachment(eventFileId: string, newName: string) {
 
 export async function deleteAttachment(eventFileId: string, fileUrl: string) {
   try {
-    const marker = `/storage/v1/object/public/${BUCKET}/`;
+    const marker = `/storage/v1/object/public/${RIP_BUCKET}/`;
     const path = fileUrl.includes(marker) ? fileUrl.split(marker)[1] : "";
 
     if (path) {
-      const { error: storageError } = await supabase.storage.from(BUCKET).remove([path]);
+      const { error: storageError } = await supabase.storage.from(RIP_BUCKET).remove([path]);
       if (storageError) throw storageError;
     }
 
