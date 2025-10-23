@@ -12,7 +12,9 @@ export type UploadResult = {
 
 export async function uploadAttachment(matrixId: string, file: File): Promise<UploadResult> {
   // 1) Upload para o Storage
-  const path = `matrices/${matrixId}/${Date.now()}_${file.name}`;
+  const normalizedName = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const safeFileName = normalizedName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `matrices/${matrixId}/${Date.now()}_${safeFileName}`;
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
     .upload(path, file, { contentType: file.type, upsert: false });
@@ -75,8 +77,19 @@ export async function listAttachments(matrixId: string) {
   }
 }
 
-export async function deleteAttachment(eventFileId: string) {
-  // Deleta somente o vínculo; manter arquivo em storage é opcional
-  const { error } = await supabase.from("event_files").delete().eq("id", eventFileId);
-  if (error) throw error;
+export async function deleteAttachment(eventFileId: string, fileUrl: string) {
+  try {
+    const marker = `/storage/v1/object/public/${BUCKET}/`;
+    const path = fileUrl.includes(marker) ? fileUrl.split(marker)[1] : "";
+
+    if (path) {
+      const { error: storageError } = await supabase.storage.from(BUCKET).remove([path]);
+      if (storageError) throw storageError;
+    }
+
+    const { error: dbError } = await supabase.from("event_files").delete().eq("id", eventFileId);
+    if (dbError) throw dbError;
+  } catch (error) {
+    throw error;
+  }
 }

@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Matrix, MatrixEvent } from "@/types";
 import { daysSinceLastEvent, getCounts, computeDurations } from "@/utils/metrics";
-import { uploadAttachment, listAttachments } from "@/services/files";
-import { FileText, Image as ImageIcon, Upload } from "lucide-react";
+import { uploadAttachment, listAttachments, deleteAttachment } from "@/services/files";
+import { FileText, Image as ImageIcon, Upload, Trash2, Eye } from "lucide-react";
 
 interface FinalReportDialogProps {
   open: boolean;
@@ -21,6 +21,7 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
   const [attachments, setAttachments] = useState<any[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const counts = useMemo(() => (matrix ? getCounts(matrix) : { tests: 0, rejects: 0, fixes: 0, approvals: 0 }), [matrix]);
   const durations = useMemo(() => (matrix ? computeDurations(matrix) : []), [matrix]);
@@ -43,6 +44,24 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
     };
     if (open) load();
   }, [open, matrix]);
+
+  const handleDeleteAttachment = async (fileId: string, fileUrl: string) => {
+    if (!matrix) return;
+    const confirmDelete = window.confirm("Excluir este anexo?");
+    if (!confirmDelete) return;
+    setDeletingId(fileId);
+    try {
+      await deleteAttachment(fileId, fileUrl);
+      toast({ title: "Anexo removido" });
+      const list = await listAttachments(matrix.id);
+      setAttachments(list);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      toast({ title: "Falha ao excluir", description: String(err?.message || err), variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputEl = e.currentTarget; // capturar antes de qualquer await
@@ -165,23 +184,38 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {attachments.flatMap((a: any) => {
                     const files = a.event_files || [];
-                    if (files.length === 0) {
-                      return [
-                        <div key={a.id} className="border rounded p-2 text-sm flex items-center gap-2">
-                          <FileText className="h-4 w-4" />
-                          <span>{a.comment || "Anexo"}</span>
-                        </div>
-                      ];
-                    }
+                    if (!files.length) return [];
                     return files.map((f: any) => {
-                      const isImage = (f.content_type || "").startsWith("image/");
+                      const mime = f.mime_type || f.content_type || "";
+                      const isImage = mime.startsWith("image/");
+                      const disabled = deletingId === f.id;
                       return (
-                        <a key={f.id} href={f.url} target="_blank" rel="noreferrer" className="border rounded p-2 hover:bg-muted transition-colors">
+                        <div key={f.id} className="border rounded p-2 flex flex-col gap-3">
                           <div className="flex items-center gap-2">
                             {isImage ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
                             <span className="truncate text-sm" title={f.file_name}>{f.file_name}</span>
                           </div>
-                        </a>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => window.open(f.url, "_blank", "noopener")}
+                              title="Visualizar"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              disabled={disabled}
+                              onClick={() => handleDeleteAttachment(f.id, f.url)}
+                              title="Excluir"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
                       );
                     });
                   })}
