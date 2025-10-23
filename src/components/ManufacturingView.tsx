@@ -362,6 +362,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         "Fornecedor",
         "Registrado",
         "Entrega",
+        "Justificativa",
       ];
 
       const mapRecord = (record: ManufacturingRecord) => ({
@@ -375,6 +376,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         "Fornecedor": record.supplier === "Outro" ? record.custom_supplier : record.supplier,
         "Registrado": new Date(record.created_at).toLocaleDateString("pt-BR"),
         "Entrega": record.estimated_delivery_date ? new Date(record.estimated_delivery_date).toLocaleDateString("pt-BR") : "-",
+        "Justificativa": record.justification || "-",
       });
 
       const statusSections = [
@@ -476,8 +478,13 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       return acc;
     }, {} as Record<string, ManufacturingRecord[]>);
 
+    const headerDate = new Date().toLocaleDateString('pt-BR');
     // Gerar conteúdo do e-mail
-    let emailBody = "Solicitação de Aprovação para Confecção de Matrizes\n\n";
+    let emailBody = "============================================\n";
+    emailBody += "SOLICITAÇÃO DE APROVAÇÃO PARA CONFECÇÃO DE MATRIZES\n";
+    emailBody += `Data: ${headerDate}\n`;
+    emailBody += `Total de matrizes selecionadas: ${selectedMatrices.length}\n`;
+    emailBody += "============================================\n\n";
     emailBody += "Prezados,\n\n";
     emailBody += "Solicitamos a aprovação para confecção das seguintes matrizes:\n\n";
 
