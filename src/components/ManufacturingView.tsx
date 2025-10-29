@@ -9,11 +9,11 @@ import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord } from "@/services/manufacturing";
-import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search, Pencil } from "lucide-react";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search, Pencil, TriangleAlert } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface FormData {
@@ -1123,12 +1123,6 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                record.priority === 'medium' ? 'Média' : 'Baixa'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="px-2 py-1 text-xs">
-                            {record.package_size || "-"}
-                          </TableCell>
-                          <TableCell className="px-2 py-1 text-xs text-center">
-                            {record.hole_count ?? "-"}
-                          </TableCell>
                           <TableCell className="px-2 py-1 text-center font-mono text-xs">
                             {getLeadTimeDisplay(record)}
                           </TableCell>
@@ -1761,115 +1755,189 @@ onClick={() => {
       {/* Diálogo de Edição (apenas admin) */}
       {isAdmin && (
         <Dialog open={!!editingRecord} onOpenChange={(o) => !o && setEditingRecord(null)}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Editar Registro - {editingRecord?.matrix_code}</DialogTitle>
+          <DialogContent className="max-w-2xl w-[95vw] max-h-[92vh] overflow-hidden rounded-2xl p-0 shadow-xl flex flex-col">
+            <DialogHeader className="px-6 pt-6 pb-4 border-b">
+              <DialogTitle className="text-lg font-semibold text-slate-800">
+                Editar Registro{editingRecord?.matrix_code ? ` • ${editingRecord.matrix_code}` : ""}
+              </DialogTitle>
+              <DialogDescription className="text-sm text-slate-500">
+                Ajuste os dados principais da confecção mantendo o padrão de cadastro original.
+              </DialogDescription>
             </DialogHeader>
+
             {editingRecord && (
-              <div className="space-y-3 text-xs">
-                <div className="grid grid-cols-1 lg:grid-cols-5 gap-2">
-                  <div>
-                    <Label className="font-semibold">Código</Label>
-                    <Input value={(editDraft.matrix_code as string) || editingRecord.matrix_code}
-                      onChange={(e) => setEditDraft({ ...editDraft, matrix_code: e.target.value.toUpperCase() })} className="h-7" />
-                  </div>
-                  <div>
-                    <Label className="font-semibold">Tipo</Label>
-                    <Select value={(editDraft.manufacturing_type as any) || editingRecord.manufacturing_type}
-                      onValueChange={(v) => setEditDraft({ ...editDraft, manufacturing_type: v as any })}>
-                      <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="nova">Nova</SelectItem>
-                        <SelectItem value="reposicao">Reposição</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="font-semibold">Perfil</Label>
-                    <Select value={(editDraft.profile_type as any) || editingRecord.profile_type}
-                      onValueChange={(v) => setEditDraft({ ...editDraft, profile_type: v as any })}>
-                      <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="tubular">Tubular</SelectItem>
-                        <SelectItem value="solido">Sólido</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="font-semibold">Pacote</Label>
-                    <Input value={(editDraft.package_size as string) ?? editingRecord.package_size ?? ''}
-                      onChange={(e) => setEditDraft({ ...editDraft, package_size: e.target.value })} className="h-7" />
-                  </div>
-                  <div>
-                    <Label className="font-semibold">QTD Furos</Label>
-                    <Input type="number" min={0} value={(editDraft.hole_count as number) ?? (editingRecord.hole_count ?? 0)}
-                      onChange={(e) => setEditDraft({ ...editDraft, hole_count: Number(e.target.value || 0) })} className="h-7" />
+              <div className="flex-1 flex flex-col">
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 text-sm">
+                  <div className="space-y-3">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">Código</Label>
+                        <Input
+                          className="mt-1 h-10"
+                          value={(editDraft.matrix_code as string) || editingRecord.matrix_code}
+                          onChange={(e) => setEditDraft({ ...editDraft, matrix_code: e.target.value.toUpperCase() })}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">Tipo</Label>
+                        <Select
+                          value={(editDraft.manufacturing_type as any) || editingRecord.manufacturing_type}
+                          onValueChange={(v) => setEditDraft({ ...editDraft, manufacturing_type: v as any })}
+                        >
+                          <SelectTrigger className="mt-1 h-10">
+                            <SelectValue placeholder="Selecione" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="nova">Nova</SelectItem>
+                            <SelectItem value="reposicao">Reposição</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">Perfil</Label>
+                        <Select
+                          value={(editDraft.profile_type as any) || editingRecord.profile_type}
+                          onValueChange={(v) => setEditDraft({ ...editDraft, profile_type: v as any })}
+                        >
+                          <SelectTrigger className="mt-1 h-10">
+                            <SelectValue placeholder="Selecione" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="tubular">Tubular</SelectItem>
+                            <SelectItem value="solido">Sólido</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">Pacote</Label>
+                        <Input
+                          className="mt-1 h-10"
+                          value={(editDraft.package_size as string) ?? editingRecord.package_size ?? ""}
+                          onChange={(e) => setEditDraft({ ...editDraft, package_size: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">QTD Furos</Label>
+                        <Input
+                          className="mt-1 h-10"
+                          type="number"
+                          min={0}
+                          value={(editDraft.hole_count as number) ?? (editingRecord.hole_count ?? 0)}
+                          onChange={(e) => setEditDraft({ ...editDraft, hole_count: Number(e.target.value || 0) })}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">Fornecedor</Label>
+                        <Select
+                          value={(editDraft.supplier as any) || editingRecord.supplier}
+                          onValueChange={(v) => setEditDraft({ ...editDraft, supplier: v as any })}
+                        >
+                          <SelectTrigger className="mt-1 h-10">
+                            <SelectValue placeholder="Selecione" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {suppliers.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">Prioridade</Label>
+                        <Select
+                          value={(editDraft.priority as any) || (editingRecord.priority || "medium")}
+                          onValueChange={(v) => setEditDraft({ ...editDraft, priority: v as any })}
+                        >
+                          <SelectTrigger className="mt-1 h-10">
+                            <SelectValue placeholder="Selecione" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="low">Baixa</SelectItem>
+                            <SelectItem value="medium">Média</SelectItem>
+                            <SelectItem value="high">Alta</SelectItem>
+                            <SelectItem value="critical">Crítica</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">Entrega Prevista</Label>
+                        <Input
+                          className="mt-1 h-10"
+                          type="date"
+                          value={(editDraft.estimated_delivery_date as string) ?? (editingRecord.estimated_delivery_date || "")}
+                          onChange={(e) => setEditDraft({ ...editDraft, estimated_delivery_date: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-600">Volume Produzido</Label>
+                        <Input
+                          className="mt-1 h-10"
+                          type="number"
+                          min={0}
+                          value={(editDraft as any).volume_produced !== undefined
+                            ? String((editDraft as any).volume_produced ?? "")
+                            : String(editingRecord.volume_produced ?? "")}
+                          onChange={(e) => setEditDraft({ ...editDraft, volume_produced: e.target.value ? Number(e.target.value) : undefined })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <Label className="text-xs font-semibold text-slate-600">Observações Técnicas</Label>
+                          {((editDraft.technical_notes as string) ?? editingRecord.technical_notes)?.length ? (
+                            <span className="text-[11px] text-slate-400">{((editDraft.technical_notes as string) ?? editingRecord.technical_notes)?.length} caract.</span>
+                          ) : null}
+                        </div>
+                        <Textarea
+                          className="min-h-[100px] resize-none"
+                          value={(editDraft.technical_notes as string) ?? (editingRecord.technical_notes || "")}
+                          onChange={(e) => setEditDraft({ ...editDraft, technical_notes: e.target.value.toUpperCase() })}
+                          placeholder="Descreva informações técnicas relevantes..."
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <Label className="text-xs font-semibold text-slate-600">Justificativa</Label>
+                          {((editDraft.justification as string) ?? editingRecord.justification)?.length ? (
+                            <span className="text-[11px] text-slate-400">{((editDraft.justification as string) ?? editingRecord.justification)?.length} caract.</span>
+                          ) : null}
+                        </div>
+                        <Textarea
+                          className="min-h-[100px] resize-none"
+                          value={(editDraft.justification as string) ?? (editingRecord.justification || "")}
+                          onChange={(e) => setEditDraft({ ...editDraft, justification: e.target.value.toUpperCase() })}
+                          placeholder="Informe o motivo da confecção..."
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-2">
-                  <div>
-                    <Label className="font-semibold">Fornecedor</Label>
-                    <Select value={(editDraft.supplier as any) || editingRecord.supplier}
-                      onValueChange={(v) => setEditDraft({ ...editDraft, supplier: v as any })}>
-                      <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {suppliers.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="font-semibold">Fornecedor (Outro)</Label>
-                    <Input value={(editDraft.custom_supplier as string) ?? (editingRecord.custom_supplier || '')}
-                      onChange={(e) => setEditDraft({ ...editDraft, custom_supplier: e.target.value.toUpperCase() })} className="h-7" />
-                  </div>
-                  <div>
-                    <Label className="font-semibold">Prioridade</Label>
-                    <Select value={(editDraft.priority as any) || (editingRecord.priority || 'medium')}
-                      onValueChange={(v) => setEditDraft({ ...editDraft, priority: v as any })}>
-                      <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Baixa</SelectItem>
-                        <SelectItem value="medium">Média</SelectItem>
-                        <SelectItem value="high">Alta</SelectItem>
-                        <SelectItem value="critical">Crítica</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="font-semibold">Entrega Prevista</Label>
-                    <Input type="date" value={(editDraft.estimated_delivery_date as string) ?? (editingRecord.estimated_delivery_date || '')}
-                      onChange={(e) => setEditDraft({ ...editDraft, estimated_delivery_date: e.target.value })} className="h-7" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="font-semibold">Observações Técnicas</Label>
-                    <Textarea className="h-16" value={(editDraft.technical_notes as string) ?? (editingRecord.technical_notes || '')}
-                      onChange={(e) => setEditDraft({ ...editDraft, technical_notes: e.target.value.toUpperCase() })} />
-                  </div>
-                  <div>
-                    <Label className="font-semibold">Justificativa</Label>
-                    <Textarea className="h-16" value={(editDraft.justification as string) ?? (editingRecord.justification || '')}
-                      onChange={(e) => setEditDraft({ ...editDraft, justification: e.target.value.toUpperCase() })} />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={() => setEditingRecord(null)}>Cancelar</Button>
-                  <Button className="bg-blue-600 hover:bg-blue-700" onClick={async () => {
-                    try {
-                      await updateManufacturingRecord(editingRecord.id, editDraft as any);
-                      setEditingRecord(null);
-                      setEditDraft({});
-                      await loadRecords();
-                      toast.success('Registro atualizado: Os dados foram corrigidos com sucesso.');
-                    } catch (err: any) {
-                      console.error(err);
-                      toast.error(`Erro ao atualizar: ${String(err?.message || err)}`);
-                    }
-                  }}>Salvar</Button>
+                <div className="border-t border-slate-200 bg-white/95 px-6 py-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <Button variant="outline" className="sm:min-w-[120px]" onClick={() => setEditingRecord(null)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    className="bg-blue-600 hover:bg-blue-700 sm:min-w-[140px]"
+                    onClick={async () => {
+                      try {
+                        await updateManufacturingRecord(editingRecord.id, editDraft as any);
+                        setEditingRecord(null);
+                        setEditDraft({});
+                        await loadRecords();
+                        toast.success('Registro atualizado: Os dados foram corrigidos com sucesso.');
+                      } catch (err: any) {
+                        console.error(err);
+                        toast.error(`Erro ao atualizar: ${String(err?.message || err)}`);
+                      }
+                    }}
+                  >
+                    Salvar alterações
+                  </Button>
                 </div>
               </div>
             )}
