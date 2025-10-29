@@ -35,6 +35,7 @@ import { TestingView } from "@/components/TestingView";
 import { SettingsView } from "@/components/SettingsView";
 import { LoginDialog } from "@/components/LoginDialog";
 import { ManufacturingView } from "@/components/ManufacturingView";
+import { AnalysisView } from "@/components/AnalysisView";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
@@ -589,9 +590,7 @@ const Index = () => {
             {mainView === "analysis" ? (
               authSession ? (
                 <div className="h-full p-6 overflow-auto" onClick={() => setSelectedMatrix(null)}>
-                  <div className="h-full flex items-center justify-center rounded-lg border border-dashed border-muted-foreground/40 text-muted-foreground">
-                    Área de análise em construção. Em breve adicionaremos ferramentas para avaliar novas confecções.
-                  </div>
+                  <AnalysisView authSession={authSession} />
                 </div>
               ) : (
                 <div className="h-full flex items-center justify-center">

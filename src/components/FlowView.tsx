@@ -225,17 +225,21 @@ export const FlowView = ({ matrices, onEventClick, onBlankClick, onMatrixClick, 
   return (
     <div className="h-full w-full bg-background">
       <div className="p-4 border-b border-border bg-card">
-        <h2 className="text-2xl font-bold text-foreground">
-          Timeline de Matrizes
-        </h2>
+        <div className="flex justify-between items-center mb-2">
+          <h2 className="text-2xl font-bold text-foreground">
+            Timeline de Matrizes
+          </h2>
+          <div className="text-right space-x-4">
+            <span className="text-xs text-muted-foreground">
+              Use <kbd className="px-1 py-0.5 bg-muted rounded">Ctrl</kbd> + <kbd className="px-1 py-0.5 bg-muted rounded">L</kbd> para buscar por código
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Use <kbd className="px-1 py-0.5 bg-muted rounded">Ctrl</kbd> + <kbd className="px-1 py-0.5 bg-muted rounded">A</kbd> para Matrizes Aprovadas
+            </span>
+          </div>
+        </div>
         <p className="text-sm text-muted-foreground">
           {matrices.length} matriz(es) • {matrices.reduce((acc, m) => acc + m.events.length, 0)} evento(s) total
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Use <kbd className="px-1 py-0.5 bg-muted rounded">Ctrl</kbd> + <kbd className="px-1 py-0.5 bg-muted rounded">L</kbd> para abrir a busca e filtrar pelo código da matriz.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Use <kbd className="px-1 py-0.5 bg-muted rounded">Ctrl</kbd> + <kbd className="px-1 py-0.5 bg-muted rounded">A</kbd> para abrir a busca e filtrar as Matrizes Aprovadas.
         </p>
       </div>
       <div className="h-[calc(100%-80px)]">

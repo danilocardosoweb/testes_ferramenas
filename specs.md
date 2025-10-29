@@ -1,3 +1,36 @@
+## Iteração 23/10/2025 (Workflow de Confecção)
+
+- **Workflow progressivo Necessidade → Solicitação → Em Fabricação**
+  - `src/components/ManufacturingView.tsx`: três abas com contadores dinâmicos; filtro por prioridade (Baixa/Média/Alta/Crítica), ano, mês, fornecedor e busca.
+  - Seleção múltipla na aba Solicitação com aprovação em lote (`approveMultipleRequests`), diálogo para data estimada padrão (20 dias úteis) usando `addBusinessDays`.
+  - Botões dedicados para mover Necessidade → Solicitação (`moveToSolicitation`) e aprovar fabricação (`approveManufacturingRequest`).
+  - Exportação Excel separa planilhas por status e inclui lead time baseado em `getLeadTimeDisplay`.
+  - Formulário aprimorado: prioridade obrigatória, campos `packageSize`, `holeCount`, `replacedMatrix`, upload múltiplo de anexos com rename/delete e visualização.
+
+- **Campos persistidos em `manufacturing_records`**
+  - `priority` (`low|medium|high|critical`) define badges e filtros.
+  - `estimated_delivery_date` preenchida na aprovação; valores exibidos em PT-BR.
+  - Timestamps `moved_to_pending_at`, `moved_to_approved_at`, `moved_to_received_at` alimentam cálculo de lead time (`calculateLeadTimeDays`, `calculateLeadTimeAverages`).
+  - Colunas `package_size` e `hole_count` armazenam dimensões adicionais.
+  - `observacoes` (texto) e `anexos` (JSONB) suportam detalhamento completo; cada anexo persiste `{ id, url, nome_arquivo, tipo_mime, tamanho, caminho }`.
+
+- **Serviços atualizados (`src/services/manufacturing.ts`)**
+  - Atualizações de status definem timestamps automaticamente.
+  - Função `listManufacturingRecords` filtra `processed_at IS NULL` e mantém cache em memória.
+  - `getLeadTimeDisplay` e `calculateLeadTimeAverages` padronizam exibição de lead time.
+
+- **Supabase / migrações**
+  - Migração `migrations/20241023_add_observations_and_attachments.sql` adiciona `observacoes` e `anexos` à tabela `manufacturing_records`.
+  - Documento `MIGRATION_FIX_STATUS.sql` registra ajustes de `priority`, `estimated_delivery_date` e timestamps de transição.
+
+## Iteração 24/10/2025 (Área de Análise)
+
+- **Uploads de planilhas base**
+  - `src/components/AnalysisView.tsx`: ícone discreto (UploadCloud) no canto superior direito abre diálogo modal para selecionar até quatro arquivos Excel (.xlsx/.xls): Produção, Carteira, Ferramentas e Correções.
+  - Cada slot mostra nome, tamanho e timestamp do último upload, com ações de limpeza individual ou total.
+  - Estado armazenado em memória local do componente (persistência ainda não implementada).
+  - Integração em `src/pages/Index.tsx` substitui placeholder da aba Análise e mantém acesso restrito a usuários autenticados.
+
 ## Iteração 16/10/2025 (Realtime + Reprovado)
 
 - **Status do Teste no evento**

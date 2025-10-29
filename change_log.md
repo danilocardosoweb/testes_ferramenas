@@ -1,5 +1,15 @@
 [23/10/2025 08:15] - migrations/20241023_add_observations_and_attachments.sql - Adicionado suporte a anexos e observações em registros de confecção: (1) Nova coluna 'observacoes' (texto) para notas adicionais; (2) Nova coluna 'anexos' (JSONB) para armazenar arquivos PDF/imagems; (3) Atualização da documentação em database_schema.md; (4) Script de migração com rollback - Cascade
 
+[23/10/2025 17:46] - docs - Documentação do workflow de confecção atualizada (prioridades, datas estimadas, timestamps de transição e anexos) em `database_schema.md`, `specs.md` e `README.md` - Cascade
+
+[24/10/2025 08:22] - src/components/AnalysisView.tsx - Adicionado ícone discreto na aba Análise abrindo diálogo para anexar até quatro planilhas Excel (Produção, Carteira, Ferramentas, Correções) com histórico local de uploads - Cascade
+
+[24/10/2025 08:39] - db - Criada tabela `analysis_excel_uploads` para armazenar a versão mais recente das planilhas de Produção, Carteira, Ferramentas e Correções (migr. 20251024_add_analysis_excel_uploads) - Cascade
+
+[24/10/2025 08:44] - src/components/AnalysisView.tsx / src/services/analysis.ts - Uploads da aba Análise integrados com Supabase Storage + metadados em `analysis_excel_uploads` (sobrescrita controlada, download e limpeza por categoria) - Cascade
+
+[24/10/2025 08:52] - db/ui - Tabela `analysis_excel_uploads` passou a registrar `has_header`/`header_row` (cabeçalhos na primeira linha) e área Análise exibe apenas instruções; uploads seguem via modal - Cascade
+
 [20/10/2025 12:06] - src/components/ManufacturingView.tsx - Sistema de workflow com TRÊS abas (Necessidade, Solicitação, Em Fabricação): Fluxo progressivo - (1) Necessidade (need): matrizes recém-registradas, botão azul para mover para Solicitação; (2) Solicitação (pending): processo interno/OCs, botão verde para aprovar fabricação; (3) Em Fabricação (approved): matriz no fornecedor sendo fabricada, disponível para seleção na Timeline; cores distintivas (vermelho/amber/verde); ícones AlertCircle/Clock/CheckCircle2; função moveToSolicitation() criada; migração com 4 status (need/pending/approved/received); documentação completa atualizada - Cascade
 
 [06/10/2025 07:29] - extrude-flow-main - Sino de Notificações com seleção por categorias (Aprovadas, Limpeza, Correção Externa) e envio por e-mail via mailto; integração em `src/pages/Index.tsx`; novo componente `src/components/NotificationsBell.tsx`; `.env.example` atualizado com `VITE_NOTIFY_GROUP_EMAILS`; documentação em `specs.md` - Cascade

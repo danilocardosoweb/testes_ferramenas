@@ -7,6 +7,7 @@ Aplicação React (Vite + TypeScript + Tailwind + shadcn-ui) integrada ao Supaba
 - Planilha de marcos com edição rápida e regras de negócio alinhadas.
 - Notificações por e-mail agrupadas por categoria com persistência global em banco e Realtime.
 - Dashboard e histórico com filtros.
+- Workflow completo de confecção com três etapas (Necessidade → Solicitação → Em Fabricação), prioridades (Baixa/Média/Alta/Crítica), seleção múltipla e cálculo automático de lead time por estágio.
 
 ## Stack
 - Vite + React + TypeScript
@@ -36,6 +37,7 @@ npm run dev
 ## Supabase — Banco de Dados
 - Migrations estão em `data_schema.sql` (DDL cumulativa com blocos e rollback).
 - Documentação do esquema em `database_schema.md`.
+- Migrações incrementais ficam em `migrations/` para execução pontual (ex.: `20241023_add_observations_and_attachments.sql`).
 
 ### Aplicar migrações
 Use o console SQL do Supabase ou CLI para aplicar o conteúdo relevante de `data_schema.sql`.
@@ -43,6 +45,8 @@ Use o console SQL do Supabase ou CLI para aplicar o conteúdo relevante de `data
 Migrações recentes relevantes:
 - `events.test_status` (Aprovado/Reprovado) — status para eventos do tipo `Testes`.
 - `notifications_sent.category` inclui "Reprovado".
+- Workflow de confecção: campos `status` (`need`/`pending`/`approved`/`received`), prioridades e timestamps (`moved_to_*`) em `manufacturing_records`.
+- `manufacturing_records.observacoes` (texto) e `manufacturing_records.anexos` (JSONB) para detalhes adicionais e arquivos.
 
 ### Realtime
 Habilitar Realtime na tabela `public.notifications_sent`:
@@ -63,6 +67,9 @@ O app assina o canal e atualiza o sino/histórico em tempo real.
 ## Campos Importantes
 - `Matrix.responsible`: tratado como Cliente da matriz (exibido na Timeline).
 - `MatrixEvent.testStatus`: `Aprovado` | `Reprovado` (aparece em Notificações na categoria Reprovado quando `type = "Testes"`).
+- `ManufacturingRecord.priority`: `low` | `medium` | `high` | `critical` — determina a cor dos badges e filtro principal.
+- `ManufacturingRecord.moved_to_pending_at` / `moved_to_approved_at` / `moved_to_received_at`: timestamps usados para calcular lead time por estágio.
+- `ManufacturingRecord.anexos`: lista de objetos `{ id, url, nome_arquivo, tipo_mime, tamanho, caminho }` persistidos no Supabase Storage.
 
 ## Convenções de Datas (PT-BR)
 - Exibição em `DD/MM/AAAA`.

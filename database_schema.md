@@ -76,24 +76,45 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `created_by (uuid, nullable)`
   - `updated_at (timestamptz, default now())`
 
+- **analysis_excel_uploads**
+  - `id (uuid, PK)`
+  - `category (text, unique, check in ['producao','carteira','ferramentas','correcoes'])` — identifica qual planilha foi carregada
+  - `storage_path (text)` — caminho do arquivo no Supabase Storage
+  - `file_name (text)` — nome original do arquivo
+  - `file_size (bigint)` — tamanho em bytes
+  - `mime_type (text, nullable)` — Content-Type detectado
+  - `uploaded_by (uuid, FK -> users.id, on delete set null)` — usuário que enviou
+  - `uploaded_at (timestamptz, default now())` — data do upload
+  - `updated_at (timestamptz, default now())`
+  - `checksum (text, nullable)` — hash opcional para controle de versão
+  - `has_header (boolean, default true)` — indica se a primeira linha contém os nomes das colunas
+  - `header_row (integer, default 1)` — número da linha utilizada como cabeçalho
+
+
 - **manufacturing_records**
   - `id (uuid, PK)`
   - `matrix_id (uuid, FK -> matrices.id, on delete cascade)`
   - `matrix_code (text, not null)`
   - `manufacturing_type (text, not null, check in ['nova','reposicao'])`
   - `profile_type (text, not null, check in ['tubular','solido'])`
+  - `package_size (text, nullable)` — Dimensão do pacote associada à matriz
+  - `hole_count (integer, nullable)` — Quantidade de furos
   - `supplier (text, not null)`
-  - `custom_supplier (text, nullable)`
-  - `delivery_date (date, not null)`
+  - `custom_supplier (text, nullable)` — Nome livre quando `supplier = 'Outro'`
+  - `priority (text, default 'medium', check in ['low','medium','high','critical'])`
+  - `estimated_delivery_date (date, nullable)` — Data estimada preenchida na aprovação
   - `matrix_images (jsonb, default '[]'::jsonb)` — Fotos da matriz
   - `problem_images (jsonb, default '[]'::jsonb)` — Fotos de problemas
+  - `observacoes (text, nullable)` — Observações adicionais sobre a confecção
+  - `anexos (jsonb, default '[]'::jsonb)` — Array de anexos (cada item com id, url, nome_arquivo, tipo_mime, tamanho, caminho)
   - `volume_produced (integer, nullable)` — Volume produzido
   - `technical_notes (text, nullable)` — Notas técnicas sobre a confecção
   - `justification (text, not null)` — Justificativa para a confecção
-  - `observacoes (text, nullable)` — Observações adicionais sobre a confecção
-  - `anexos (jsonb, default '[]'::jsonb)` — Array de anexos (cada item com id, url, nome_arquivo, tipo_mime, tamanho)
-  - `status (text, default 'need', check in ['need','pending','approved','received'])` — Status do workflow (need=Necessidade, pending=Solicitação, approved=Em Fabricação, received=Recebida)
-  - `processed_at (timestamptz, nullable)` — Data de processamento/recebimento
+  - `status (text, default 'need', check in ['need','pending','approved','received'])` — Status do workflow (need = Necessidade, pending = Solicitação, approved = Em Fabricação, received = Recebida)
+  - `moved_to_pending_at (timestamptz, nullable)` — Timestamp da transição Necessidade → Solicitação
+  - `moved_to_approved_at (timestamptz, nullable)` — Timestamp da transição Solicitação → Em Fabricação
+  - `moved_to_received_at (timestamptz, nullable)` — Timestamp da transição Em Fabricação → Recebida
+  - `processed_at (timestamptz, nullable)` — Data de processamento/recebimento final
   - `created_at (timestamptz, default now())`
   - `created_by (uuid, nullable)`
   - `updated_at (timestamptz, default now())`
