@@ -12,8 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord, updateDeliveryDate, getDeliveryDateHistory } from "@/services/manufacturing";
-import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search, Pencil, TriangleAlert, Calendar, History } from "lucide-react";
+import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord, updateDeliveryDate, getDeliveryDateHistory, returnPendingToNeed } from "@/services/manufacturing";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search, Pencil, TriangleAlert, Calendar, History, RotateCcw } from "lucide-react";
+// eslint-disable-next-line import/no-extraneous-dependencies
 import * as XLSX from 'xlsx';
 
 interface FormData {
@@ -86,6 +87,8 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   // Seleção múltipla
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [selectedNeedRecords, setSelectedNeedRecords] = useState<string[]>([]);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [isMovingToSolicitation, setIsMovingToSolicitation] = useState(false);
   const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
   const [estimatedDate, setEstimatedDate] = useState("");
   const [searchMatrix, setSearchMatrix] = useState('');
@@ -126,6 +129,25 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     });
     return Array.from(yearSet.size ? yearSet : new Set([currentYear])).sort((a, b) => b - a);
   }, [records]);
+  const filteredNeedRecords = useMemo(() => {
+    return records.filter((r) => {
+      const y = new Date(r.created_at).getFullYear().toString();
+      const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, "0");
+      const matchYear = !filterYear || filterYear === " " || y === filterYear;
+      const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
+      const matchSupplier =
+        !filterSupplier ||
+        filterSupplier === " " ||
+        r.supplier === filterSupplier ||
+        (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+      const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
+      const matchSearch =
+        !searchTerm ||
+        r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
+      return r.status === "need" && matchYear && matchMonth && matchSupplier && matchPriority && matchSearch;
+    });
+  }, [records, filterYear, filterMonth, filterSupplier, filterPriority, searchTerm]);
   
   // Estados para o diálogo de atualização de data
   const [updateDateDialogOpen, setUpdateDateDialogOpen] = useState(false);
@@ -490,14 +512,28 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     }
   };
 
-  const handleMoveToSolicitation = async (recordId: string, matrixCode: string) => {
+  const handleMoveSelectedToSolicitation = () => {
+    if (selectedNeedRecords.length === 0) {
+      toast.error("Selecione pelo menos uma matriz para enviar para Solicitação");
+      return;
+    }
+    setMoveDialogOpen(true);
+  };
+
+  const handleConfirmMoveToSolicitation = async () => {
+    if (selectedNeedRecords.length === 0) return;
+    setIsMovingToSolicitation(true);
     try {
-      await moveToSolicitation(recordId);
+      await Promise.all(selectedNeedRecords.map(recordId => moveToSolicitation(recordId)));
       await loadRecords();
-      toast.success(`Movido para Solicitação! A matriz ${matrixCode} entrou no processo interno`);
+      toast.success(`${selectedNeedRecords.length} matriz(es) enviada(s) para Solicitação`);
+      setSelectedNeedRecords([]);
+      setMoveDialogOpen(false);
     } catch (err: any) {
-      console.error("Erro ao mover:", err);
+      console.error("Erro ao mover para Solicitação:", err);
       toast.error(`Erro ao mover: ${String(err?.message || err)}`);
+    } finally {
+      setIsMovingToSolicitation(false);
     }
   };
 
@@ -520,8 +556,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       }
       
       await loadRecords();
-      toast.success(`${selectedRecords.length} matriz(es) aprovada(s) para fabricação`);
+      
+      // Fechar o diálogo e exibir mensagem de sucesso
       setApprovalDialogOpen(false);
+      toast.success(`${selectedRecords.length} matriz(es) aprovada(s) para fabricação`);
       setSelectedRecords([]);
     } catch (err: any) {
       console.error("Erro ao aprovar:", err);
@@ -713,6 +751,21 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       toast.error(`Erro ao registrar: ${String(err?.message || err)}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleReturnToNeed = async (recordId: string, matrixCode: string) => {
+    const confirmed = window.confirm(`Deseja realmente devolver a matriz ${matrixCode} para Necessidade?`);
+    if (!confirmed) return;
+
+    try {
+      await returnPendingToNeed(recordId);
+      setSelectedRecords(prev => prev.filter(id => id !== recordId));
+      await loadRecords();
+      toast.success(`Matriz ${matrixCode} devolvida para Necessidade`);
+    } catch (err: any) {
+      console.error("Erro ao devolver para Necessidade:", err);
+      toast.error(`Erro ao devolver: ${String(err?.message || err)}`);
     }
   };
 
@@ -1112,6 +1165,15 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                       <Button
                         size="sm"
                         className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                        onClick={handleMoveSelectedToSolicitation}
+                      >
+                        <Clock className="h-3 w-3 mr-1" />
+                        Enviar para Solicitação
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 text-xs"
                         onClick={handleSendApprovalEmail}
                       >
                         <Mail className="h-3 w-3 mr-1" />
@@ -1127,10 +1189,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                         <TableHead className="h-8 px-2 w-10">
                           <input
                             type="checkbox"
-                            checked={selectedNeedRecords.length > 0 && selectedNeedRecords.length === records.filter(r => r.status === 'need').length}
+                            checked={selectedNeedRecords.length > 0 && selectedNeedRecords.length === filteredNeedRecords.length}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedNeedRecords(records.filter(r => r.status === 'need').map(r => r.id));
+                                setSelectedNeedRecords(filteredNeedRecords.map(r => r.id));
                               } else {
                                 setSelectedNeedRecords([]);
                               }
@@ -1157,10 +1219,15 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                       const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
                       const matchYear = !filterYear || filterYear === " " || y === filterYear;
                       const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
-                      const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+                      const matchSupplier =
+                        !filterSupplier ||
+                        filterSupplier === " " ||
+                        r.supplier === filterSupplier ||
+                        (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
                       const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
-                      const matchSearch = !searchTerm || 
-                        r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                      const matchSearch =
+                        !searchTerm ||
+                        r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
                         (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
                       return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority && matchSearch;
                     }).length === 0 ? (
@@ -1176,10 +1243,15 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                         const m = (new Date(r.created_at).getMonth() + 1).toString().padStart(2, '0');
                         const matchYear = !filterYear || filterYear === " " || y === filterYear;
                         const matchMonth = !filterMonth || filterMonth === " " || m === filterMonth;
-                        const matchSupplier = !filterSupplier || filterSupplier === " " || r.supplier === filterSupplier || (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
+                        const matchSupplier =
+                          !filterSupplier ||
+                          filterSupplier === " " ||
+                          r.supplier === filterSupplier ||
+                          (r.supplier === "Outro" && r.custom_supplier === filterSupplier);
                         const matchPriority = !filterPriority || filterPriority === " " || r.priority === filterPriority;
-                        const matchSearch = !searchTerm || 
-                          r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                        const matchSearch =
+                          !searchTerm ||
+                          r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
                         return r.status === 'need' && matchYear && matchMonth && matchSupplier && matchPriority && matchSearch;
                       }).map((record) => (
@@ -1270,15 +1342,6 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                 <span className="font-bold text-xs">✎</span>
                               </Button>
                             )}
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                onClick={() => handleMoveToSolicitation(record.id, record.matrix_code)}
-                                title="Mover para Solicitação"
-                              >
-                                <Clock className="h-3 w-3" />
-                              </Button>
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -1471,6 +1534,15 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                 <span className="font-bold text-xs">✎</span>
                               </Button>
                             )}
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                onClick={() => handleReturnToNeed(record.id, record.matrix_code)}
+                                title="Devolver para Necessidade"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                              </Button>
                               <Button
                                 size="icon"
                                 variant="ghost"

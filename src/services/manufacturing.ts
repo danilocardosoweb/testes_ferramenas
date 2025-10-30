@@ -393,6 +393,18 @@ export async function approveMultipleRequests(recordIds: string[], estimatedDeli
   if (error) throw error;
 }
 
+export async function returnPendingToNeed(recordId: string): Promise<void> {
+  const { error } = await supabase
+    .from('manufacturing_records')
+    .update({
+      status: 'need',
+      moved_to_pending_at: null
+    })
+    .eq('id', recordId);
+
+  if (error) throw error;
+}
+
 /**
  * Atualiza a data de entrega de uma matriz em fabricação com registro de histórico
  * @param recordId ID do registro de manufatura
