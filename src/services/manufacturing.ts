@@ -37,6 +37,16 @@ export interface ManufacturingRecord {
   moved_to_received_at?: string | null;
   test_count?: number;
   approved_at?: string | null;
+  original_delivery_date?: string | null;
+  follow_up_dates?: Array<{
+    date: string;
+    previous_date: string | null;
+    new_date: string;
+    changed_by: string;
+    reason?: string;
+  }>;
+  follow_up_count?: number;
+  replaced_matrix?: string;
 }
 
 // Cache leve em memória (válido por 30 segundos)
@@ -356,7 +366,10 @@ export async function approveManufacturingRequest(recordId: string, estimatedDel
     .update({ 
       status: 'approved',
       estimated_delivery_date: estimatedDeliveryDate,
-      moved_to_approved_at: new Date().toISOString()
+      original_delivery_date: estimatedDeliveryDate, // Salva a data original
+      moved_to_approved_at: new Date().toISOString(),
+      follow_up_count: 0, // Inicializa o contador
+      follow_up_dates: [] // Inicializa o array de histórico
     })
     .eq('id', recordId);
 
@@ -370,11 +383,89 @@ export async function approveMultipleRequests(recordIds: string[], estimatedDeli
     .update({ 
       status: 'approved',
       estimated_delivery_date: estimatedDeliveryDate,
-      moved_to_approved_at: new Date().toISOString()
+      original_delivery_date: estimatedDeliveryDate, // Salva a data original
+      moved_to_approved_at: new Date().toISOString(),
+      follow_up_count: 0, // Inicializa o contador
+      follow_up_dates: [] // Inicializa o array de histórico
     })
     .in('id', recordIds);
 
   if (error) throw error;
+}
+
+/**
+ * Atualiza a data de entrega de uma matriz em fabricação com registro de histórico
+ * @param recordId ID do registro de manufatura
+ * @param newDeliveryDate Nova data de entrega
+ * @param userId ID do usuário que está fazendo a alteração
+ * @param reason Motivo da alteração (opcional)
+ */
+export async function updateDeliveryDate(
+  recordId: string, 
+  newDeliveryDate: string, 
+  userId: string,
+  reason?: string
+): Promise<void> {
+  // Primeiro, busca o registro atual para obter a data atual
+  const { data: currentRecord, error: fetchError } = await supabase
+    .from('manufacturing_records')
+    .select('estimated_delivery_date, original_delivery_date, follow_up_dates, follow_up_count')
+    .eq('id', recordId)
+    .single();
+
+  if (fetchError) throw new Error(`Erro ao buscar registro: ${fetchError.message}`);
+  if (!currentRecord) throw new Error('Registro não encontrado');
+
+  // Se for a primeira alteração, garante que a data original seja salva
+  const originalDeliveryDate = currentRecord.original_delivery_date || currentRecord.estimated_delivery_date;
+  
+  // Prepara o objeto de histórico
+  const followUpEntry = {
+    date: new Date().toISOString(),
+    previous_date: currentRecord.estimated_delivery_date,
+    new_date: newDeliveryDate,
+    changed_by: userId,
+    reason: reason || null
+  };
+
+  // Atualiza o registro com a nova data e histórico
+  const { error } = await supabase
+    .from('manufacturing_records')
+    .update({ 
+      estimated_delivery_date: newDeliveryDate,
+      original_delivery_date: originalDeliveryDate, // Garante que a data original seja mantida
+      follow_up_dates: [...(currentRecord.follow_up_dates || []), followUpEntry],
+      follow_up_count: (currentRecord.follow_up_count || 0) + 1,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', recordId);
+
+  if (error) throw error;
+  
+  // Invalida o cache para garantir que os dados sejam atualizados
+  _manufCache = [];
+  _manufCacheAt = 0;
+}
+
+/**
+ * Obtém o histórico de alterações de data de entrega de um registro
+ * @param recordId ID do registro de manufatura
+ */
+export async function getDeliveryDateHistory(recordId: string): Promise<Array<{
+  date: string;
+  previous_date: string | null;
+  new_date: string;
+  changed_by: string;
+  reason?: string;
+}>> {
+  const { data, error } = await supabase
+    .from('manufacturing_records')
+    .select('follow_up_dates')
+    .eq('id', recordId)
+    .single();
+
+  if (error) throw error;
+  return data?.follow_up_dates || [];
 }
 
 // Atualiza campos do registro de confecção (uso administrativo para correções)

@@ -12,8 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord } from "@/services/manufacturing";
-import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search, Pencil, TriangleAlert } from "lucide-react";
+import { createManufacturingRecord, listManufacturingRecords, ManufacturingRecord, approveManufacturingRequest, moveToSolicitation, approveMultipleRequests, updatePriority, addBusinessDays, getLeadTimeDisplay, updateManufacturingRecord, updateDeliveryDate, getDeliveryDateHistory } from "@/services/manufacturing";
+import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2, Clock, AlertCircle, Mail, FileIcon, Upload, Search, Pencil, TriangleAlert, Calendar, History } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface FormData {
@@ -35,6 +35,14 @@ interface FormData {
 interface ManufacturingViewProps {
   onSuccess?: () => void;
   isAdmin?: boolean;
+}
+
+interface FollowUpEntry {
+  date: string;
+  previous_date: string | null;
+  new_date: string;
+  changed_by: string;
+  reason?: string | null;
 }
 
 const PACKAGE_OPTIONS: Record<"tubular" | "solido", string[]> = {
@@ -89,8 +97,148 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   const [currentRecord, setCurrentRecord] = useState<ManufacturingRecord | null>(null);
   const [renamingAttachmentId, setRenamingAttachmentId] = useState<string | null>(null);
 
+  const suppliers = useMemo(() => ["FEP", "EXXO", "FELJ", "Outro"], []);
+  const months = useMemo(() => ([
+    { value: "01", label: "Jan" },
+    { value: "02", label: "Fev" },
+    { value: "03", label: "Mar" },
+    { value: "04", label: "Abr" },
+    { value: "05", label: "Mai" },
+    { value: "06", label: "Jun" },
+    { value: "07", label: "Jul" },
+    { value: "08", label: "Ago" },
+    { value: "09", label: "Set" },
+    { value: "10", label: "Out" },
+    { value: "11", label: "Nov" },
+    { value: "12", label: "Dez" }
+  ]), []);
+  const availablePackages = useMemo(() => {
+    if (formData.profileType === "tubular" || formData.profileType === "solido") {
+      return PACKAGE_OPTIONS[formData.profileType];
+    }
+    return [];
+  }, [formData.profileType]);
+  const years = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const yearSet = new Set<number>();
+    records.forEach(record => {
+      yearSet.add(new Date(record.created_at).getFullYear());
+    });
+    return Array.from(yearSet.size ? yearSet : new Set([currentYear])).sort((a, b) => b - a);
+  }, [records]);
+  
+  // Estados para o diálogo de atualização de data
+  const [updateDateDialogOpen, setUpdateDateDialogOpen] = useState(false);
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [newDeliveryDate, setNewDeliveryDate] = useState<string>('');
+  const [updateReason, setUpdateReason] = useState<string>('');
+  const [isUpdatingDate, setIsUpdatingDate] = useState(false);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState<FollowUpEntry[]>([]);
+  const [historyRecord, setHistoryRecord] = useState<ManufacturingRecord | null>(null);
+
   // refs
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Função para abrir o diálogo de atualização de data
+  const handleOpenUpdateDateDialog = (record: ManufacturingRecord) => {
+    setSelectedRecordId(record.id);
+    setNewDeliveryDate(record.estimated_delivery_date || '');
+    setUpdateReason('');
+    setUpdateDateDialogOpen(true);
+  };
+
+  // Função para fechar o diálogo de atualização de data
+  const handleCloseUpdateDateDialog = () => {
+    setUpdateDateDialogOpen(false);
+    setSelectedRecordId(null);
+    setNewDeliveryDate('');
+    setUpdateReason('');
+  };
+
+  const handleOpenHistoryDialog = useCallback(async (record: ManufacturingRecord) => {
+    setHistoryRecord(record);
+    setHistoryEntries([]);
+    setHistoryDialogOpen(true);
+    setHistoryLoading(true);
+    try {
+      const data = await getDeliveryDateHistory(record.id);
+      const sorted = [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setHistoryEntries(sorted);
+    } catch (error) {
+      console.error('Erro ao carregar histórico de follow-ups:', error);
+      toast.error('Não foi possível carregar o histórico. Tente novamente.');
+      setHistoryDialogOpen(false);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const loadRecords = useCallback(async () => {
+    try {
+      const data = await listManufacturingRecords();
+      setRecords(data);
+    } catch (error) {
+      console.error("Erro ao carregar registros de confecção:", error);
+      toast.error("Erro ao carregar registros. Tente novamente.");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRecords();
+  }, [loadRecords]);
+
+  // Função para atualizar a data de entrega
+  const handleUpdateDeliveryDate = async () => {
+    if (!selectedRecordId || !newDeliveryDate) return;
+    
+    setIsUpdatingDate(true);
+    try {
+      // Obter o ID do usuário atual (você pode precisar ajustar isso com sua lógica de autenticação)
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id || 'sistema';
+      
+      // Atualizar a data de entrega
+      await updateDeliveryDate(selectedRecordId, newDeliveryDate, userId, updateReason);
+
+      await loadRecords();
+      
+      // Fechar o diálogo e exibir mensagem de sucesso
+      setUpdateDateDialogOpen(false);
+      toast.success('Data de entrega atualizada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao atualizar data de entrega:', error);
+      toast.error('Erro ao atualizar data de entrega. Tente novamente.');
+    } finally {
+      setIsUpdatingDate(false);
+    }
+  };
+
+  const formatDate = useCallback((dateString: string | null | undefined) => {
+    if (!dateString) return '-';
+    const [datePart] = dateString.split('T');
+    const [year, month, day] = datePart.split('-');
+    if (!year || !month || !day) return '-';
+    return `${day}/${month}/${year}`;
+  }, []);
+
+  const getDeliveryDateClass = useCallback((deliveryDate: string | null | undefined) => {
+    if (!deliveryDate) return '';
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const referenceDate = new Date(deliveryDate);
+    referenceDate.setHours(0, 0, 0, 0);
+
+    const diffTime = referenceDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return 'text-red-600 font-bold';
+    if (diffDays <= 3) return 'text-amber-600 font-medium';
+    return '';
+  }, []);
 
   // Função para fazer upload de um arquivo para o Supabase Storage
   const uploadFile = async (file: File, recordId: string) => {
@@ -123,13 +271,14 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
   // Manipular upload de arquivos
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!event.target.files || event.target.files.length === 0 || !currentRecord) {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0 || !currentRecord) {
       return;
     }
     
     try {
       setIsUploading(true);
-      const files = Array.from(event.target.files);
+      const files = Array.from(input.files);
       const newAttachments = [];
       
       // Fazer upload de cada arquivo
@@ -166,9 +315,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     } finally {
       setIsUploading(false);
       // Limpar o input de arquivo
-      if (event.target) {
-        event.target.value = '';
-      }
+      input.value = '';
     }
   };
 
@@ -256,86 +403,6 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       setIsUploading(false);
     }
   };
-
-  // Buscar registros
-  const loadRecords = useCallback(async () => {
-    try {
-      const data = await listManufacturingRecords();
-      setRecords(data);
-    } catch (err: any) {
-      console.error("Erro ao carregar registros:", err);
-    }
-  }, []);
-
-  // Carregar registros ao montar o componente
-  useEffect(() => {
-    loadRecords();
-  }, [loadRecords]);
-
-  const suppliers = ["FEP", "EXXO", "FELJ", "Outro"];
-  const currentYear = new Date().getFullYear();
-  const years = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4];
-  const months = [
-    { value: "01", label: "Jan" }, { value: "02", label: "Fev" }, { value: "03", label: "Mar" },
-    { value: "04", label: "Abr" }, { value: "05", label: "Mai" }, { value: "06", label: "Jun" },
-    { value: "07", label: "Jul" }, { value: "08", label: "Ago" }, { value: "09", label: "Set" },
-    { value: "10", label: "Out" }, { value: "11", label: "Nov" }, { value: "12", label: "Dez" },
-  ];
-
-  const availablePackages = useMemo(() => {
-    if (formData.profileType === "tubular" || formData.profileType === "solido") {
-      return PACKAGE_OPTIONS[formData.profileType];
-    }
-    return [];
-  }, [formData.profileType]);
-
-  useEffect(() => {
-    loadRecords();
-  }, []);
-
-  // Verificar status da matriz
-  const checkMatrixStatus = useCallback((matrixCode: string) => {
-    if (!matrixCode) {
-      setMatrixStatus({ status: '', message: '' });
-      return;
-    }
-
-    const normalizedSearch = matrixCode.trim().toUpperCase();
-    
-    // Verificar em cada status
-    const inNeed = records.some(r => 
-      r.status === 'need' && r.matrix_code.toUpperCase().includes(normalizedSearch)
-    );
-    const inPending = records.some(r => 
-      r.status === 'pending' && r.matrix_code.toUpperCase().includes(normalizedSearch)
-    );
-    const inApproved = records.some(r => 
-      r.status === 'approved' && r.matrix_code.toUpperCase().includes(normalizedSearch)
-    );
-
-    if (inNeed) {
-      setMatrixStatus({ 
-        status: 'need', 
-        message: 'Esta matriz está em NECESSIDADE' 
-      });
-    } else if (inPending) {
-      setMatrixStatus({ 
-        status: 'pending', 
-        message: 'Esta matriz está em SOLICITAÇÃO' 
-      });
-    } else if (inApproved) {
-      setMatrixStatus({ 
-        status: 'approved', 
-        message: 'Esta matriz está EM FABRICAÇÃO' 
-      });
-    } else {
-      setMatrixStatus({ 
-        status: 'not_found', 
-        message: 'Matriz não encontrada em nenhum processo' 
-      });
-    }
-  }, [records]);
-
 
   const handleExportToExcel = async () => {
     setLoading(true);
@@ -551,6 +618,45 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     }));
   };
 
+  const checkMatrixStatus = useCallback(async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) {
+      setMatrixStatus({ status: '', message: '' });
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('manufacturing_records')
+        .select('status, matrix_code')
+        .ilike('matrix_code', `${trimmed}%`) // busca prefixo para permitir códigos parciais
+        .limit(1);
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        setMatrixStatus({ status: 'not_found', message: 'Matriz não encontrada na base' });
+        return;
+      }
+
+      const record = data[0];
+      const statusMessages: Record<string, string> = {
+        need: 'Essa matriz já está registrada em "Necessidade".',
+        pending: 'Essa matriz já está em "Solicitação".',
+        approved: 'Essa matriz está "Em Fabricação".',
+        received: 'Essa matriz já foi recebida.',
+      };
+
+      setMatrixStatus({
+        status: (record.status as any) || '',
+        message: statusMessages[record.status as keyof typeof statusMessages] || '',
+      });
+    } catch (error) {
+      console.error('Erro ao verificar status da matriz:', error);
+      setMatrixStatus({ status: '', message: '' });
+    }
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -611,6 +717,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   };
 
   return (
+    <>
     <div className="h-screen flex flex-col">
       <div className="flex-1 overflow-y-auto p-3 bg-gradient-to-br from-slate-50 to-slate-100">
         {/* Header Compacto */}
@@ -1039,8 +1146,8 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                         <TableHead className="h-8 px-2">Prioridade</TableHead>
                         <TableHead className="h-8 px-2">Lead Time</TableHead>
                         <TableHead className="h-8 px-2">Fornecedor</TableHead>
-                        <TableHead className="h-8 px-2">Registrado</TableHead>
-                        <TableHead className="h-8 px-2">Entrega</TableHead>
+                        <TableHead className="h-8 px-2 text-center">Registrado</TableHead>
+                        <TableHead className="h-8 px-2 text-center">Entrega Prevista</TableHead>
                         <TableHead className="h-8 px-2">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1129,19 +1236,19 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                           <TableCell className="px-2 py-1">
                             {record.supplier === "Outro" ? record.custom_supplier : record.supplier}
                           </TableCell>
-                          <TableCell className="px-2 py-1">
-                            {new Date(record.created_at).toLocaleDateString('pt-BR')}
+                          <TableCell className="px-2 py-1 text-center">
+                            {formatDate(record.created_at)}
                           </TableCell>
-                          <TableCell className="px-2 py-1">
-                            {record.estimated_delivery_date ? new Date(record.estimated_delivery_date).toLocaleDateString('pt-BR') : '-'}
+                          <TableCell className={`px-2 py-1 text-center whitespace-nowrap ${getDeliveryDateClass(record.estimated_delivery_date)}`}>
+                            {record.estimated_delivery_date ? formatDate(record.estimated_delivery_date) : '-'}
                           </TableCell>
-                          <TableCell className="px-2 py-1">
+                          <TableCell className="px-2 py-1 text-center">
                             <div className="flex gap-1">
                               <Button
                                 size="icon"
                                 variant="ghost"
                                 className="h-6 w-6"
-onClick={() => {
+                                onClick={() => {
                                   setViewRecord(record);
                                   setCurrentRecord(record);
                                 }}
@@ -1243,8 +1350,8 @@ onClick={() => {
                         <TableHead className="h-8 px-2">QTD Furos</TableHead>
                         <TableHead className="h-8 px-2">Lead Time</TableHead>
                         <TableHead className="h-8 px-2">Fornecedor</TableHead>
-                        <TableHead className="h-8 px-2">Solicitado</TableHead>
-                        <TableHead className="h-8 px-2">Entrega</TableHead>
+                        <TableHead className="h-8 px-2 text-center">Solicitado</TableHead>
+                        <TableHead className="h-8 px-2 text-center">Entrega Prevista</TableHead>
                         <TableHead className="h-8 px-2">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1333,11 +1440,11 @@ onClick={() => {
                           <TableCell className="px-2 py-1">
                             {record.supplier === "Outro" ? record.custom_supplier : record.supplier}
                           </TableCell>
-                          <TableCell className="px-2 py-1">
-                            {new Date(record.created_at).toLocaleDateString('pt-BR')}
+                          <TableCell className="px-2 py-1 text-center">
+                            {formatDate(record.created_at)}
                           </TableCell>
-                          <TableCell className="px-2 py-1">
-                            {record.estimated_delivery_date ? new Date(record.estimated_delivery_date).toLocaleDateString('pt-BR') : '-'}
+                          <TableCell className={`px-2 py-1 text-center whitespace-nowrap ${getDeliveryDateClass(record.estimated_delivery_date)}`}>
+                            {record.estimated_delivery_date ? formatDate(record.estimated_delivery_date) : '-'}
                           </TableCell>
                           <TableCell className="px-2 py-1">
                             <div className="flex gap-1">
@@ -1345,7 +1452,7 @@ onClick={() => {
                                 size="icon"
                                 variant="ghost"
                                 className="h-6 w-6"
-onClick={() => {
+                                onClick={() => {
                                   setViewRecord(record);
                                   setCurrentRecord(record);
                                 }}
@@ -1391,13 +1498,15 @@ onClick={() => {
                     <TableRow className="text-xs bg-green-50">
                       <TableHead className="h-8 px-2">Código</TableHead>
                       <TableHead className="h-8 px-2">Tipo</TableHead>
-                        <TableHead className="h-8 px-2">Perfil</TableHead>
-                        <TableHead className="h-8 px-2">Pacote</TableHead>
-                        <TableHead className="h-8 px-2">QTD Furos</TableHead>
-                        <TableHead className="h-8 px-2">Lead Time</TableHead>
-                        <TableHead className="h-8 px-2">Fornecedor</TableHead>
-                      <TableHead className="h-8 px-2">Aprovado</TableHead>
-                      <TableHead className="h-8 px-2">Entrega</TableHead>
+                      <TableHead className="h-8 px-2">Perfil</TableHead>
+                      <TableHead className="h-8 px-2">Pacote</TableHead>
+                      <TableHead className="h-8 px-2 text-center">QTD Furos</TableHead>
+                      <TableHead className="h-8 px-2 text-center">Lead Time</TableHead>
+                      <TableHead className="h-8 px-2">Fornecedor</TableHead>
+                      <TableHead className="h-8 px-2 text-center">Aprovado</TableHead>
+                      <TableHead className="h-8 px-2 text-center">Original</TableHead>
+                      <TableHead className="h-8 px-2 text-center">Entrega Atual</TableHead>
+                      <TableHead className="h-8 px-2 text-center">Follow-ups</TableHead>
                       <TableHead className="h-8 px-2">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1455,11 +1564,30 @@ onClick={() => {
                           <TableCell className="px-2 py-1">
                             {record.supplier === "Outro" ? record.custom_supplier : record.supplier}
                           </TableCell>
-                          <TableCell className="px-2 py-1">
-                            {new Date(record.created_at).toLocaleDateString('pt-BR')}
+                          <TableCell className="px-2 py-1 text-center">
+                            {formatDate(record.moved_to_approved_at || record.created_at)}
                           </TableCell>
-                          <TableCell className="px-2 py-1">
-                            {record.estimated_delivery_date ? new Date(record.estimated_delivery_date).toLocaleDateString('pt-BR') : '-'}
+                          <TableCell className="px-2 py-1 text-center">
+                            {formatDate(record.original_delivery_date)}
+                          </TableCell>
+                          <TableCell className={`px-2 py-1 text-center whitespace-nowrap ${getDeliveryDateClass(record.estimated_delivery_date)}`}>
+                            {formatDate(record.estimated_delivery_date)}
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-center">
+                            <div className="inline-flex items-center gap-1">
+                              <Badge variant="secondary" className="text-[11px] px-2 py-1">
+                                {record.follow_up_count ?? 0}
+                              </Badge>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-slate-600 hover:text-slate-800 hover:bg-slate-100"
+                                onClick={() => handleOpenHistoryDialog(record)}
+                                title="Ver histórico de follow-ups"
+                              >
+                                <History className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </TableCell>
                           <TableCell className="px-2 py-1">
                             <div className="flex gap-1">
@@ -1467,13 +1595,27 @@ onClick={() => {
                                 size="icon"
                                 variant="ghost"
                                 className="h-6 w-6"
-onClick={() => {
+                                onClick={() => {
                                   setViewRecord(record);
                                   setCurrentRecord(record);
                                 }}
                                 title="Visualizar detalhes"
                               >
                                 <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                onClick={() => {
+                                  setSelectedRecordId(record.id);
+                                  setNewDeliveryDate(record.estimated_delivery_date || '');
+                                  setUpdateReason('');
+                                  setUpdateDateDialogOpen(true);
+                                }}
+                                title="Atualizar data de entrega"
+                              >
+                                <Calendar className="h-3 w-3" />
                               </Button>
                             {isAdmin && (
                               <Button
@@ -1507,6 +1649,54 @@ onClick={() => {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Diálogo de Histórico de Follow-ups */}
+      <Dialog open={historyDialogOpen} onOpenChange={(open) => {
+        setHistoryDialogOpen(open);
+        if (!open) {
+          setHistoryEntries([]);
+          setHistoryRecord(null);
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Histórico de Follow-ups</DialogTitle>
+            <DialogDescription>
+              {historyRecord ? `Código ${historyRecord.matrix_code} • ${historyRecord.manufacturing_type === 'nova' ? 'Matriz Nova' : 'Reposição'}` : 'Selecione um registro para visualizar o histórico.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {historyLoading ? (
+              <p className="text-center text-sm text-muted-foreground">Carregando histórico...</p>
+            ) : historyEntries.length === 0 ? (
+              <div className="text-center text-sm text-muted-foreground py-4">
+                <History className="h-6 w-6 mx-auto mb-2 text-muted-foreground/60" />
+                Nenhuma alteração registrada até o momento.
+              </div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto pr-1">
+                <ul className="space-y-2">
+                  {historyEntries.map((entry, index) => (
+                    <li key={`${entry.date}-${index}`} className="border rounded-md p-3 bg-slate-50">
+                      <div className="flex justify-between text-xs text-slate-600">
+                        <span>{new Date(entry.date).toLocaleString('pt-BR')}</span>
+                        <span>ID usuário: {entry.changed_by}</span>
+                      </div>
+                      <div className="mt-1 text-sm">
+                        <p><strong>Data anterior:</strong> {entry.previous_date ? new Date(entry.previous_date).toLocaleDateString('pt-BR') : '—'}</p>
+                        <p><strong>Nova data:</strong> {entry.new_date ? new Date(entry.new_date).toLocaleDateString('pt-BR') : '—'}</p>
+                        {entry.reason && (
+                          <p className="mt-1"><strong>Motivo:</strong> {entry.reason}</p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Diálogo de Visualização/Edição */}
       <Dialog open={!!viewRecord} onOpenChange={(o) => !o && setViewRecord(null)}>
@@ -1946,5 +2136,63 @@ onClick={() => {
       )}
       </div>
     </div>
+
+    {/* Diálogo para atualizar a data de entrega */}
+    <Dialog open={updateDateDialogOpen} onOpenChange={setUpdateDateDialogOpen}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Atualizar Data de Entrega</DialogTitle>
+          <DialogDescription>
+            Atualize a data de entrega prevista para esta matriz.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="newDeliveryDate" className="text-right">
+              Nova Data
+            </Label>
+            <input
+              id="newDeliveryDate"
+              type="date"
+              value={newDeliveryDate ? newDeliveryDate.split('T')[0] : ''}
+              onChange={(e) => setNewDeliveryDate(e.target.value)}
+              className="col-span-3 border rounded p-2"
+              min={new Date().toISOString().split('T')[0]}
+            />
+          </div>
+          
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="updateReason" className="text-right">
+              Motivo (opcional)
+            </Label>
+            <textarea
+              id="updateReason"
+              value={updateReason}
+              onChange={(e) => setUpdateReason(e.target.value)}
+              placeholder="Informe o motivo da alteração da data"
+              className="col-span-3 border rounded p-2 text-sm h-20"
+            />
+          </div>
+        </div>
+        
+        <div className="flex justify-end gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handleCloseUpdateDateDialog}
+            disabled={isUpdatingDate}
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleUpdateDeliveryDate}
+            disabled={!newDeliveryDate || isUpdatingDate}
+          >
+            {isUpdatingDate ? 'Atualizando...' : 'Atualizar Data'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { login } from "@/services/auth";
 import { AuthSession } from "@/types";
 import { LogIn } from "lucide-react";
+import LogoDaniloBranco from "../../Imagens/LogoDaniloBranco.png";
 
 interface LoginDialogProps {
   open: boolean;
@@ -55,14 +56,17 @@ export function LoginDialog({ open, onOpenChange, onLoginSuccess }: LoginDialogP
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+        <DialogHeader className="items-center text-center">
+          <img
+            src={LogoDaniloBranco}
+            alt="Logo Danilo Cardoso"
+            className="h-24 w-auto mx-auto mb-2"
+          />
+          <DialogTitle className="flex items-center justify-center gap-2">
             <LogIn className="h-5 w-5" />
-            Login no Sistema
+            Controle de Testes de Ferramentas
           </DialogTitle>
-          <DialogDescription>
-            Entre com suas credenciais para acessar todas as funcionalidades
-          </DialogDescription>
+          <p className="text-sm text-muted-foreground">Faça login para acessar o sistema</p>
         </DialogHeader>
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="space-y-2">
