@@ -26,10 +26,67 @@
 ## Iteração 24/10/2025 (Área de Análise)
 
 - **Uploads de planilhas base**
-  - `src/components/AnalysisView.tsx`: ícone discreto (UploadCloud) no canto superior direito abre diálogo modal para selecionar até quatro arquivos Excel (.xlsx/.xls): Produção, Carteira, Ferramentas e Correções.
-  - Cada slot mostra nome, tamanho e timestamp do último upload, com ações de limpeza individual ou total.
-  - Estado armazenado em memória local do componente (persistência ainda não implementada).
-  - Integração em `src/pages/Index.tsx` substitui placeholder da aba Análise e mantém acesso restrito a usuários autenticados.
+  - Upload individual por aba, com ícone ao lado dos filtros e input oculto.
+  - Barra de progresso por lotes; mensagens de status na própria lista.
+  - Integração em `AnalysisProducaoView` (12/11) e `AnalysisFerramentasView` (13/11), com sobrescrita total via RPC antes de inserir.
+
+## Iteração 13/11/2025 (Área de Análise – Ferramentas)
+
+- **Upload de Ferramentas (XLSX/XLS/CSV)**
+  - Componente: `src/components/analysis/AnalysisFerramentasView.tsx`.
+  - Ícone de upload ao lado do filtro "Matriz"; input de arquivo oculto.
+  - Fluxo: ler planilha → truncar tabela → inserir em lotes → recarregar lista.
+  - RPC utilizada: `public.analysis_ferramentas_truncate()` (SECURITY DEFINER) para TRUNCATE + RESTART IDENTITY.
+  - Fallback: caso a RPC não exista, executa DELETE ALL na tabela (pode ser mais lento e sujeito a RLS).
+  - Mapeamento de colunas aceitas (case-insensitive onde aplicável):
+    - Matriz | Ferramenta → `payload["Matriz"]`
+    - Seq → `payload["Seq"]`
+    - Qte.Prod. | Qte Prod | Qte_Prod → `payload["Qte.Prod."]`
+    - Status da Ferram. | Status → `payload["Status da Ferram."]`
+    - Ativa → `payload["Ativa"]`
+    - Dt.Entrega | Data Entrega → `payload["Dt.Entrega"]`
+    - Data Uso → `payload["Data Uso"]`
+  - Datas numéricas (serial Excel) são convertidas para exibição DD/MM/AAAA no front.
+
+- **UI e Estatísticas**
+  - Cabeçalho sticky, hover em linhas, tabela compacta.
+  - Filtros: Ativa (Sim/Não/Todas), Status normalizado, Matriz (texto).
+  - Estatísticas exibidas: Maior, Menor e Mediana de `Qte.Prod.` da lista filtrada.
+
+## Iteração 12/11/2025 (Área de Análise – Produção)
+
+- **Sobrescrita total antes do upload**
+  - RPC `public.analysis_producao_truncate()` (SECURITY DEFINER) criado no banco e chamado pelo frontend antes de inserir novos dados.
+  - Garante que a base de `analysis_producao` seja zerada (TRUNCATE + RESTART IDENTITY) e evite incrementos.
+
+- **Data de produção normalizada**
+  - Coluna `produced_on (date)` populada por trigger `trg_analysis_producao_set_produced_on` a partir de `payload->>'Data Produção'` (formato DD/MM/AAAA ou serial Excel).
+  - Índice `idx_analysis_producao_produced_on (DESC)` para ordenação e filtros de período.
+
+- **Filtros e ordenação**
+  - Servidor: Matriz, Prensa e Seq; Período De/Até e ordenação por `produced_on` (mais recente → mais antigo).
+  - Cliente: Mês e Produtividade (mín/máx).
+
+- **UX do upload**
+  - Barra de progresso por lotes.
+  - Ícone de upload ao lado do campo "Produtividade máx.".
+
+## Iteração 11/11/2025 (Notificações – Persistência Reativada)
+
+- **Banco (Supabase)**
+  - Tabela `public.notifications_sent` alinhada ao frontend:
+    - Colunas: `id`, `event_id (FK events)`, `category` (inclui "Recebidas"), `sent_at`, `emitter_id`, `user_agent`, `platform`, `language`.
+    - Índices: único `(event_id, category)` e índice em `(event_id)`.
+    - RLS liberal para protótipo; Realtime habilitado na publicação `supabase_realtime`.
+- **App**
+  - `src/components/NotificationsBell.tsx` faz `select event_id, category, sent_at` e `upsert(..., { onConflict: 'event_id,category' })`.
+  - Envio de e-mail marca itens na tabela; o Realtime remove itens da lista imediatamente.
+- **Checklist operacional**
+  - Confirmar Realtime habilitado para `public.notifications_sent`.
+  - Constraint de categoria inclui: `Aprovadas`, `Reprovado`, `Limpeza`, `Correção Externa`, `Recebidas`.
+  - Variável `VITE_NOTIFY_GROUP_EMAILS` definida.
+- **Snapshot de Estado**
+  - Registrar snapshots em `docs/snapshots/` com: ID/URL do projeto, região, versão do Postgres, contagens por tabela e publicação Realtime da `notifications_sent`.
 
 ## Iteração 16/10/2025 (Realtime + Reprovado)
 

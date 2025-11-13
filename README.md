@@ -56,9 +56,30 @@ Habilitar Realtime na tabela `public.notifications_sent`:
 
 O app assina o canal e atualiza o sino/histórico em tempo real.
 
+### Backup / Snapshot do Estado (Banco + App)
+
+Para evitar perda de informações de configuração, registre snapshots versionados em `docs/snapshots/` sempre que houver mudanças estruturais.
+
+- Passos sugeridos (via MCP Supabase):
+  1. Tabelas e contagens (ajuste conforme necessário):
+     - `select 'events' as t, count(*)::int as n from public.events union all select 'matrices', count(*)::int from public.matrices union all select 'manufacturing_records', count(*)::int from public.manufacturing_records union all select 'analysis_excel_uploads', count(*)::int from public.analysis_excel_uploads union all select 'notifications_read', count(*)::int from public.notifications_read union all select 'notifications_sent', count(*)::int from public.notifications_sent;`
+  2. Publicação Realtime da tabela de notificações:
+     - `select p.pubname from pg_publication p join pg_publication_rel pr on pr.prpubid=p.oid join pg_class c on c.oid=pr.prrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='notifications_sent';`
+  3. Colunas de `public.notifications_sent` (para confirmar `sent_at` e categorias):
+     - `select column_name, data_type, is_nullable, column_default from information_schema.columns where table_schema='public' and table_name='notifications_sent' order by ordinal_position;`
+
+- Inclua no snapshot: ID do projeto, URL do projeto, região, versão do Postgres, contagens por tabela, publicação Realtime e colunas críticas.
+
+Checklist de Notificações (antes de publicar alterações):
+- Realtime habilitado para `public.notifications_sent`.
+- Constraint de categoria inclui: `Aprovadas`, `Reprovado`, `Limpeza`, `Correção Externa`, `Recebidas`.
+- Índice único `(event_id, category)` presente.
+- Colunas presentes: `sent_at`, `emitter_id`, `user_agent`, `platform`, `language`.
+- Variável `VITE_NOTIFY_GROUP_EMAILS` configurada no `.env`.
+
 ## Notificações — Fluxo
 - Componente: `src/components/NotificationsBell.tsx`.
-- Categorias: `Aprovadas`, `Reprovado`, `Limpeza`, `Correção Externa`.
+- Categorias: `Aprovadas`, `Reprovado`, `Limpeza`, `Correção Externa`, `Recebidas`.
 - Seleção por item/categoria e montagem de e-mail via `mailto:`.
 - Corpo do e-mail: usa `Cliente` (campo `Matrix.responsible`) e remove "Apontado".
 - Persistência global: `public.notifications_sent` (um registro por `event_id + categoria`).

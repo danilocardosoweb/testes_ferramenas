@@ -1,4 +1,176 @@
 -- =============================================================
+-- =============================================
+-- 11/11/2025 - Migração: Normalizar data em analysis_producao
+-- Objetivo: criar coluna gerada 'produced_at' (timestamptz) a partir de payload->>'Data Produção' (DD/MM/AAAA),
+--           e índice para ordenação/filtragem por período.
+-- =============================================
+DO $$
+BEGIN
+  -- Adiciona coluna gerada apenas se não existir
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'analysis_producao' AND column_name = 'produced_at'
+  ) THEN
+    ALTER TABLE public.analysis_producao
+      ADD COLUMN produced_at timestamptz GENERATED ALWAYS AS (
+        (to_date((payload->>'Data Produção'), 'DD/MM/YYYY')::timestamp AT TIME ZONE 'UTC')
+      ) STORED;
+  END IF;
+
+  -- Cria índice para produced_at, caso não exista
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'idx_analysis_producao_produced_at'
+  ) THEN
+    CREATE INDEX idx_analysis_producao_produced_at ON public.analysis_producao (produced_at DESC);
+  END IF;
+END $$;
+
+-- Rollback (produced_at gerado)
+-- Para reverter:
+-- DROP INDEX IF EXISTS public.idx_analysis_producao_produced_at;
+-- ALTER TABLE public.analysis_producao DROP COLUMN IF EXISTS produced_at;
+
+-- =============================================
+-- 12/11/2025 - Migração: Normalizar data via coluna "produced_on" (DATE) + trigger + índice
+-- Objetivo: manter a data de produção a partir de payload->>'Data Produção' (aceita DD/MM/AAAA ou serial Excel)
+-- =============================================
+-- 1) Coluna
+ALTER TABLE public.analysis_producao
+  ADD COLUMN IF NOT EXISTS produced_on date;
+
+-- 2) Função da trigger para manter produced_on
+CREATE OR REPLACE FUNCTION public.analysis_producao_set_produced_on()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_text text;
+  v_num numeric;
+  v_date date;
+BEGIN
+  v_text := COALESCE(NEW.payload->>'Data Produção', NEW.payload->>'Data Producao');
+
+  IF v_text IS NOT NULL AND v_text ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN
+    v_date := to_date(v_text, 'DD/MM/YYYY');
+  ELSE
+    BEGIN
+      v_num := (COALESCE(NEW.payload->>'Data Produção', NEW.payload->>'Data Producao'))::numeric;
+    EXCEPTION WHEN others THEN
+      v_num := NULL;
+    END;
+    IF v_num IS NOT NULL THEN
+      -- Excel serial: dias desde 1899-12-30
+      v_date := DATE '1899-12-30' + (v_num::int);
+    ELSE
+      v_date := NULL;
+    END IF;
+  END IF;
+
+  NEW.produced_on := v_date;
+  RETURN NEW;
+END;$$;
+
+-- 3) Trigger
+DROP TRIGGER IF EXISTS trg_analysis_producao_set_produced_on ON public.analysis_producao;
+CREATE TRIGGER trg_analysis_producao_set_produced_on
+BEFORE INSERT OR UPDATE ON public.analysis_producao
+FOR EACH ROW EXECUTE FUNCTION public.analysis_producao_set_produced_on();
+
+-- 4) Backfill (opcional; pode ser pesado em bases grandes)
+UPDATE public.analysis_producao t
+SET produced_on = COALESCE(
+  CASE
+    WHEN (t.payload->>'Data Produção') ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date(t.payload->>'Data Produção','DD/MM/YYYY')
+    WHEN (t.payload->>'Data Producao')  ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date(t.payload->>'Data Producao','DD/MM/YYYY')
+    WHEN (t.payload->>'Data Produção') ~ '^[0-9]+(\.[0-9]+)?$' THEN DATE '1899-12-30' + ((t.payload->>'Data Produção')::numeric)::int
+    WHEN (t.payload->>'Data Producao')  ~ '^[0-9]+(\.[0-9]+)?$' THEN DATE '1899-12-30' + ((t.payload->>'Data Producao')::numeric)::int
+    ELSE NULL
+  END,
+  produced_on
+)
+WHERE produced_on IS NULL;
+
+-- 5) Índice
+CREATE INDEX IF NOT EXISTS idx_analysis_producao_produced_on
+  ON public.analysis_producao (produced_on DESC);
+
+-- Rollback (produced_on + trigger)
+-- DROP INDEX IF EXISTS public.idx_analysis_producao_produced_on;
+-- DROP TRIGGER IF EXISTS trg_analysis_producao_set_produced_on ON public.analysis_producao;
+-- DROP FUNCTION IF EXISTS public.analysis_producao_set_produced_on();
+-- ALTER TABLE public.analysis_producao DROP COLUMN IF EXISTS produced_on;
+
+-- =============================================
+-- 12/11/2025 - Migração: RPC para truncar analysis_producao
+-- Objetivo: garantir sobrescrita total antes de novo upload (TRUNCATE mais rápido/atômico)
+-- =============================================
+CREATE OR REPLACE FUNCTION public.analysis_producao_truncate()
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  TRUNCATE TABLE public.analysis_producao RESTART IDENTITY;
+  RETURN true;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.analysis_producao_truncate() TO anon, authenticated;
+
+-- Opcional: solicitar recarregamento do schema no PostgREST
+DO $$
+BEGIN
+  PERFORM pg_notify('pgrst', 'reload schema');
+EXCEPTION WHEN others THEN
+  NULL;
+END $$;
+
+-- Rollback (RPC truncate)
+REVOKE EXECUTE ON FUNCTION public.analysis_producao_truncate() FROM anon, authenticated;
+DROP FUNCTION IF EXISTS public.analysis_producao_truncate();
+
+-- =============================================
+-- 13/11/2025 - Migração: RPC para truncar analysis_ferramentas
+-- Objetivo: permitir sobrescrita total da planilha Ferramentas antes de novo upload
+-- =============================================
+CREATE OR REPLACE FUNCTION public.analysis_ferramentas_truncate()
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  TRUNCATE TABLE public.analysis_ferramentas RESTART IDENTITY;
+  RETURN true;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.analysis_ferramentas_truncate() TO anon, authenticated;
+
+DO $$
+BEGIN
+  PERFORM pg_notify('pgrst', 'reload schema');
+EXCEPTION WHEN others THEN
+  NULL;
+END $$;
+
+-- Rollback (RPC truncate Ferramentas)
+REVOKE EXECUTE ON FUNCTION public.analysis_ferramentas_truncate() FROM anon, authenticated;
+DROP FUNCTION IF EXISTS public.analysis_ferramentas_truncate();
+
+-- =============================================
+-- 12/11/2025 - Migração: Campos "package_size" e "hole_count" em manufacturing_records
+-- Objetivo: alinhar formulário da aba Confecção com o schema
+-- =============================================
+ALTER TABLE public.manufacturing_records
+  ADD COLUMN IF NOT EXISTS package_size text,
+  ADD COLUMN IF NOT EXISTS hole_count integer;
+
+-- Rollback (manufacturing_records)
+-- ALTER TABLE public.manufacturing_records DROP COLUMN IF EXISTS package_size;
+-- ALTER TABLE public.manufacturing_records DROP COLUMN IF EXISTS hole_count;
+
 -- Migração: Consolidação de Segurança e Performance (Sem Login)
 -- Objetivo: Habilitar RLS nas tabelas Kanban, criar políticas provisórias,
 --           adicionar índices recomendados, impedir auto-referência em events,
@@ -137,16 +309,86 @@ BEGIN
         SELECT 1 FROM pg_trigger tg
         WHERE  tg.tgrelid = t.rel
         AND    tg.tgname = 'set_updated_at_trg'
-      ) THEN
-        EXECUTE format('CREATE TRIGGER set_updated_at_trg BEFORE UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()', t.rel);
-      END IF;
-    END LOOP;
-  END IF;
-END
+COMMIT;
+
+-- =============================================
+-- 13/11/2025 - Migração: Carteira AGG com contagens
+-- Objetivo: Incluir quantidade de pedidos e quantidade distinta de clientes na RPC
+--           analysis_carteira_flat_agg(period_start, period_end, ferramenta_filter, cliente_filter)
+-- =============================================
+BEGIN;
+
+DROP FUNCTION IF EXISTS public.analysis_carteira_flat_agg(date, date, text, text);
+
+CREATE OR REPLACE FUNCTION public.analysis_carteira_flat_agg(
+  period_start date,
+  period_end   date,
+  ferramenta_filter text,
+  cliente_filter   text
+)
+RETURNS TABLE (
+  ferramenta text,
+  pedido_kg_sum numeric,
+  avg6m numeric,
+  avg12m numeric,
+  pedido_count bigint,
+  cliente_count bigint
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  WITH bounds AS (
+    SELECT 
+      COALESCE(period_start, date '0001-01-01') AS ps,
+      COALESCE(period_end, current_date)         AS pe,
+      date_trunc('month', COALESCE(period_end, current_date))::date AS pem
+  )
+  SELECT
+    upper(t.ferramenta) AS ferramenta,
+    SUM(t.pedido_kg)::numeric AS pedido_kg_sum,
+    (SUM(CASE WHEN t.data_implant BETWEEN (b.pem - interval '5 months')::date AND b.pe THEN t.pedido_kg ELSE 0 END) / 6.0)::numeric AS avg6m,
+    (SUM(CASE WHEN t.data_implant BETWEEN (b.pem - interval '11 months')::date AND b.pe THEN t.pedido_kg ELSE 0 END) / 12.0)::numeric AS avg12m,
+    COUNT(*)::bigint AS pedido_count,
+    COUNT(DISTINCT t.cliente)::bigint AS cliente_count
+  FROM public.analysis_carteira_flat t
+  CROSS JOIN bounds b
+  WHERE
+    (t.data_implant IS NULL OR (t.data_implant BETWEEN b.ps AND b.pe))
+    AND (ferramenta_filter IS NULL OR ferramenta_filter = '' OR t.ferramenta ILIKE '%' || ferramenta_filter || '%')
+    AND (cliente_filter   IS NULL OR cliente_filter   = '' OR t.cliente   ILIKE '%' || cliente_filter   || '%')
+  GROUP BY upper(t.ferramenta), b.pe, b.pem
+  ORDER BY pedido_kg_sum DESC;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.analysis_carteira_flat_agg(date, date, text, text) TO anon, authenticated;
+
+DO $$
+BEGIN
+  PERFORM pg_notify('pgrst', 'reload schema');
+EXCEPTION WHEN others THEN
+  NULL;
+END $$;
 
 COMMIT;
 
+-- ROLLBACK - Carteira AGG com contagens (13/11/2025)
+BEGIN;
+REVOKE EXECUTE ON FUNCTION public.analysis_carteira_flat_agg(date, date, text, text) FROM anon, authenticated;
+DROP FUNCTION IF EXISTS public.analysis_carteira_flat_agg(date, date, text, text);
+COMMIT;
+-- =============================================
+-- ROLLBACK - RPC da Carteira (13/11/2025)
+-- =============================================
+BEGIN;
+
+REVOKE EXECUTE ON FUNCTION public.analysis_carteira_flat_truncate() FROM anon, authenticated;
+DROP FUNCTION IF EXISTS public.analysis_carteira_flat_truncate();
+
+REVOKE EXECUTE ON FUNCTION public.analysis_carteira_flat_agg(date, date, text, text) FROM anon, authenticated;
+DROP FUNCTION IF EXISTS public.analysis_carteira_flat_agg(date, date, text, text);
+
+COMMIT;
 
 -- =============================================================
 -- Migração: Persistência Global de Notificações Enviadas
@@ -373,3 +615,172 @@ DROP COLUMN IF EXISTS hole_count;
 
 COMMIT;
 
+-- =============================================================
+-- Migração: Alinhar notifications_sent ao frontend (final 11/11/2025)
+-- Objetivo: Garantir compatibilidade com o app (SELECT sent_at; UPSERT onConflict event_id,category)
+--           e categorias completas incluindo "Recebidas". Adicionar colunas de auditoria do emissor.
+-- Data: 11/11/2025 15:10
+-- =============================================================
+
+BEGIN;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.tables 
+    WHERE table_schema='public' AND table_name='notifications_sent'
+  ) THEN
+    CREATE TABLE public.notifications_sent (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+      category text NOT NULL,
+      sent_at timestamptz NOT NULL DEFAULT now(),
+      emitter_id uuid NULL,
+      user_agent text NULL,
+      platform text NULL,
+      language text NULL
+    );
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'notifications_sent_category_check'
+      AND conrelid = 'public.notifications_sent'::regclass
+  ) THEN
+    ALTER TABLE public.notifications_sent DROP CONSTRAINT notifications_sent_category_check;
+  END IF;
+  ALTER TABLE public.notifications_sent
+    ADD CONSTRAINT notifications_sent_category_check 
+    CHECK (category IN ('Aprovadas','Reprovado','Limpeza','Correção Externa','Recebidas'));
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='recorded_at'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='sent_at'
+  ) THEN
+    ALTER TABLE public.notifications_sent RENAME COLUMN recorded_at TO sent_at;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='emitter_id'
+  ) THEN
+    ALTER TABLE public.notifications_sent ADD COLUMN emitter_id uuid NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='user_agent'
+  ) THEN
+    ALTER TABLE public.notifications_sent ADD COLUMN user_agent text NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='platform'
+  ) THEN
+    ALTER TABLE public.notifications_sent ADD COLUMN platform text NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='language'
+  ) THEN
+    ALTER TABLE public.notifications_sent ADD COLUMN language text NULL;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_notifications_sent_event_cat
+  ON public.notifications_sent(event_id, category);
+CREATE INDEX IF NOT EXISTS idx_notifications_sent_event
+  ON public.notifications_sent(event_id);
+
+ALTER TABLE IF EXISTS public.notifications_sent ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS notifications_sent_sel ON public.notifications_sent;
+CREATE POLICY notifications_sent_sel ON public.notifications_sent FOR SELECT USING (true);
+DROP POLICY IF EXISTS notifications_sent_ins ON public.notifications_sent;
+CREATE POLICY notifications_sent_ins ON public.notifications_sent FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS notifications_sent_del ON public.notifications_sent;
+CREATE POLICY notifications_sent_del ON public.notifications_sent FOR DELETE USING (true);
+
+DO $$
+BEGIN
+  BEGIN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications_sent';
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
+END $$;
+
+COMMIT;
+
+-- =============================================================
+-- ROLLBACK - Alinhamento notifications_sent 11/11/2025
+-- =============================================================
+
+BEGIN;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='language'
+  ) THEN
+    ALTER TABLE public.notifications_sent DROP COLUMN language;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='platform'
+  ) THEN
+    ALTER TABLE public.notifications_sent DROP COLUMN platform;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='user_agent'
+  ) THEN
+    ALTER TABLE public.notifications_sent DROP COLUMN user_agent;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='emitter_id'
+  ) THEN
+    ALTER TABLE public.notifications_sent DROP COLUMN emitter_id;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'notifications_sent_category_check'
+      AND conrelid = 'public.notifications_sent'::regclass
+  ) THEN
+    ALTER TABLE public.notifications_sent DROP CONSTRAINT notifications_sent_category_check;
+  END IF;
+  ALTER TABLE public.notifications_sent
+    ADD CONSTRAINT notifications_sent_category_check 
+    CHECK (category IN ('Aprovadas','Reprovado','Limpeza','Correção Externa'));
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='sent_at'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notifications_sent' AND column_name='recorded_at'
+  ) THEN
+    ALTER TABLE public.notifications_sent RENAME COLUMN sent_at TO recorded_at;
+  END IF;
+END $$;
+
+COMMIT;

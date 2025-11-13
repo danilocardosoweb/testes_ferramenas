@@ -1,3 +1,7 @@
+[13/11/2025 15:07] - database_schema.md / specs.md / README.md - Documentação atualizada: tabela `analysis_ferramentas`, RPCs de truncate (produção e ferramentas) e instruções de upload; seção de upload por aba e mapeamento de colunas - Cascade
+[13/11/2025 15:06] - data_schema.sql - Criada RPC `public.analysis_ferramentas_truncate()` (SECURITY DEFINER) com GRANT para anon/authenticated e bloco de rollback; notificação `pgrst reload schema` - Cascade
+[13/11/2025 15:05] - src/components/analysis/AnalysisFerramentasView.tsx - Adicionado ícone de upload e fluxo de importação (XLSX/XLS/CSV) com truncamento antes da carga, inserção em lotes, barra de progresso e recarga automática - Cascade
+[13/11/2025 14:45] - src/components/AnalysisView.tsx - Abas compactas com scroll horizontal (overflow-x) e rótulos curtos para evitar sobreposição - Cascade
 [23/10/2025 08:15] - migrations/20241023_add_observations_and_attachments.sql - Adicionado suporte a anexos e observações em registros de confecção: (1) Nova coluna 'observacoes' (texto) para notas adicionais; (2) Nova coluna 'anexos' (JSONB) para armazenar arquivos PDF/imagems; (3) Atualização da documentação em database_schema.md; (4) Script de migração com rollback - Cascade
 
 [23/10/2025 17:46] - docs - Documentação do workflow de confecção atualizada (prioridades, datas estimadas, timestamps de transição e anexos) em `database_schema.md`, `specs.md` e `README.md` - Cascade
@@ -48,3 +52,15 @@
 [16/10/2025 16:32] - src/components - FlowView: exibir "Cliente: <responsible>" no cabeçalho da matriz - Cascade
 [16/10/2025 16:36] - src/components - MatrixSheet: corrigida exibição de data (sem fuso) e ajuste do critério de testes (lista todos os `Testes`); helper de formatação sem timezone - Cascade
 [16/10/2025 16:45] - docs - Atualização de `database_schema.md` (test_status, categorias de notificações) e `specs.md` (Realtime, Reprovado, e-mail com Cliente, correções de data) - Cascade
+
+[11/11/2025 15:10] - db - Notificações: criação/alinhamento de `public.notifications_sent` (colunas: `sent_at`, `emitter_id`, `user_agent`, `platform`, `language`; categorias incluem "Recebidas"; índices `ux_notifications_sent_event_cat` e `idx_notifications_sent_event`; RLS liberal; Realtime habilitado na publicação `supabase_realtime`) via MCP - Cascade
+
+[11/11/2025 15:12] - docs - Documentação atualizada com estado do banco e do app: `database_schema.md` (notifications_sent alinhada), `README.md` (Backup/Snapshot e checklist de notificações), `specs.md` (Iteração 11/11/2025 - Persistência reativada). Criado snapshot em `docs/snapshots/2025-11-11_supabase_snapshot.md` - Cascade
+
+[12/11/2025 11:12] - db - Criado RPC `public.analysis_producao_truncate()` (SECURITY DEFINER) e integrado no frontend da aba Análise/Produção para sobrescrita total antes de novo upload; documentado `produced_on` + trigger + índice em `database_schema.md` e specs atualizadas - Cascade
+
+[12/11/2025 15:00] - src/components/analysis - Carteira: Layout da tabela padronizado com Produção (removido Card wrapper, tabela HTML nativa com Tailwind, cabeçalho sticky, hover em linhas); rodapé com estatísticas (registros exibidos, volume total em kg e toneladas, distribuição ABC); imports desnecessários removidos - Cascade
+
+[12/11/2025 15:10] - src/components/analysis - Carteira: Correção crítica de agregação - normalização case-insensitive para agrupar variações de ferramentas (tr-0100, TR-0100, Tr-0100); preservação do nome original para exibição; contador de registros por ferramenta; logs detalhados de debug (registros carregados, agregação antes/depois) - Cascade
+
+[12/11/2025 15:12] - src/components/analysis - Carteira: Ajustes de filtros padrão (período iniciando em 01/01/2024 ao invés de 12 meses, tipo "Todos" ao invés de "Produção"); limite de registros aumentado de 20k para 100k; parseNumberBR melhorado (remoção de espaços); rodapé exibe totais em kg e toneladas + contador de registros - Cascade

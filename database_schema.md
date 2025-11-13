@@ -27,7 +27,6 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `comment (text)`
   - `location (text)`
   - `responsible (text)`
-  - `test_status (text, check in ['Aprovado','Reprovado'], nullable)` — status para eventos tipo "Testes"
   - `created_at (timestamptz)`
 
 - **event_files**
@@ -39,14 +38,14 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `url (text)` — URL pública do arquivo/imagem no Supabase Storage
   - `created_at (timestamptz)`
 
-- **notifications_sent** (16/10/2025)
+- **notifications_sent** (11/11/2025 atualizado)
   - `id (uuid, PK)`
   - `event_id (uuid, FK -> events.id, on delete cascade)`
-  - `category (text, check in ['Aprovadas','Reprovado','Limpeza','Correção Externa'])`
-  - `recorded_at (timestamptz, default now())`
-  - `recorded_by (uuid, FK -> users.id, on delete set null)`
+  - `category (text, check in ['Aprovadas','Reprovado','Limpeza','Correção Externa','Recebidas'])`
+  - `sent_at (timestamptz, default now())`
+  - `emitter_id (uuid, nullable)`, `user_agent (text, nullable)`, `platform (text, nullable)`, `language (text, nullable)`
   - Índices: `ux_notifications_sent_event_cat (unique event_id, category)`, `idx_notifications_sent_event (event_id)`
-  - RLS habilitado; políticas liberais para protótipo (ajustar em produção)
+  - RLS habilitado; políticas liberais para protótipo (ajustar em produção). Realtime habilitado na publicação `supabase_realtime`.
 
 - **users**
   - `id (uuid, PK)`
@@ -90,6 +89,46 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `has_header (boolean, default true)` — indica se a primeira linha contém os nomes das colunas
   - `header_row (integer, default 1)` — número da linha utilizada como cabeçalho
 
+- **analysis_producao** (12/11/2025 atualizado)
+  - `id (uuid, PK)`
+  - `payload (jsonb)` — linha original da planilha (campos como Prensa, Data Produção, Turno, Ferramenta, etc.)
+  - `produced_on (date, nullable)` — data normalizada de produção
+  - Índice: `idx_analysis_producao_produced_on (produced_on DESC)`
+  - Trigger: `trg_analysis_producao_set_produced_on` chama função `public.analysis_producao_set_produced_on()` para popular `produced_on` a partir de `payload->>'Data Produção'` (aceita DD/MM/AAAA ou serial Excel)
+  - RPC: `public.analysis_producao_truncate()` — função `SECURITY DEFINER` para truncar a tabela antes de novos uploads (sobrescrita total)
+
+- **analysis_ferramentas** (13/11/2025 adicionado)
+  - `id (uuid, PK)`
+  - `ferramenta_code (text, nullable)` — opcional; código base da ferramenta
+  - `ferramenta_seq (text, nullable)` — opcional; sequência
+  - `payload (jsonb, not null, default '{}'::jsonb)` — linha original da planilha (Matriz, Seq, Qte.Prod., Status da Ferram., Ativa, Dt.Entrega, Data Uso)
+  - Índices: conforme necessidade do PostgREST (consulta por JSON via `payload->>`)
+  - RPC: `public.analysis_ferramentas_truncate()` — função `SECURITY DEFINER` para truncar a tabela antes de novos uploads (sobrescrita total)
+  - Observação: Datas numéricas de Excel são exibidas no front-end como `DD/MM/AAAA`.
+
+- **analysis_carteira** (12/11/2025 atualizado)
+  - `id (uuid, PK)`
+  - `payload (jsonb, not null, default '{}'::jsonb)` — linha original da planilha (Ferramenta, Pedido Kg, Cliente, Liga, Têmpera, Data Implant, etc.)
+  - `__file_name (text, nullable)` — nome do arquivo Excel original
+  - `__uploaded_at (timestamptz, default now())` — timestamp do upload
+  - `implanted_on (date, nullable)` — data normalizada de implantação/pedido
+  - `created_at (timestamptz, default timezone('utc', now()))`
+  - `updated_at (timestamptz, default timezone('utc', now()))`
+  - Índice: `idx_analysis_carteira_implanted_on (implanted_on DESC)` — otimiza filtros por período
+  - Trigger: `trg_analysis_carteira_implanted_on` executa `BEFORE INSERT OR UPDATE` chamando `public.analysis_carteira_set_implanted_on()` para popular `implanted_on` a partir de:
+    - `payload->>'Data Implant'`
+    - `payload->>'Data'`
+    - `payload->>'Data Pedido'`
+    - Formatos aceitos: DD/MM/YYYY, YYYY-MM-DD (ISO), serial Excel (numérico)
+  - RPC: `public.analysis_carteira_truncate()` — função `SECURITY DEFINER` para truncar a tabela antes de novos uploads (sobrescrita total)
+  - **Correções 12/11/2025**:
+    - Frontend: Agregação case-insensitive (tr-0100 = TR-0100 = Tr-0100)
+    - Frontend: Filtros padrão ajustados (período desde 01/01/2024, tipo "Todos")
+    - Frontend: Limite de registros aumentado para 100k
+    - Frontend: Parse de números melhorado (remove espaços e pontos de milhar)
+    - Frontend: Layout da tabela padronizado com aba Produção (HTML nativo + Tailwind)
+    - Frontend: Rodapé com estatísticas (volume em kg/ton, distribuição ABC)
+    - Frontend: Logs de debug detalhados no console
 
 - **manufacturing_records**
   - `id (uuid, PK)`

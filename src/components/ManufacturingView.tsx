@@ -1967,6 +1967,25 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         </DialogContent>
       </Dialog>
 
+      <Dialog open={moveDialogOpen} onOpenChange={setMoveDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Enviar para Solicitação</DialogTitle>
+            <DialogDescription>
+              Confirma o envio de {selectedNeedRecords.length} matriz(es) selecionada(s) para a etapa de Solicitação?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setMoveDialogOpen(false)} disabled={isMovingToSolicitation}>
+              Cancelar
+            </Button>
+            <Button onClick={handleConfirmMoveToSolicitation} disabled={isMovingToSolicitation}>
+              {isMovingToSolicitation ? "Enviando..." : "Confirmar"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Diálogo de Aprovação com Data */}
       <Dialog open={approvalDialogOpen} onOpenChange={setApprovalDialogOpen}>
         <DialogContent className="max-w-md">
