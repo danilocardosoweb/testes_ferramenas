@@ -31,6 +31,41 @@
   - Estado armazenado em memória local do componente (persistência ainda não implementada).
   - Integração em `src/pages/Index.tsx` substitui placeholder da aba Análise e mantém acesso restrito a usuários autenticados.
 
+## Iteração 12/11/2025 (Área de Análise – Produção)
+
+- **Sobrescrita total antes do upload**
+  - RPC `public.analysis_producao_truncate()` (SECURITY DEFINER) criado no banco e chamado pelo frontend antes de inserir novos dados.
+  - Garante que a base de `analysis_producao` seja zerada (TRUNCATE + RESTART IDENTITY) e evite incrementos.
+
+- **Data de produção normalizada**
+  - Coluna `produced_on (date)` populada por trigger `trg_analysis_producao_set_produced_on` a partir de `payload->>'Data Produção'` (formato DD/MM/AAAA ou serial Excel).
+  - Índice `idx_analysis_producao_produced_on (DESC)` para ordenação e filtros de período.
+
+- **Filtros e ordenação**
+  - Servidor: Matriz, Prensa e Seq; Período De/Até e ordenação por `produced_on` (mais recente → mais antigo).
+  - Cliente: Mês e Produtividade (mín/máx).
+
+- **UX do upload**
+  - Barra de progresso por lotes.
+  - Ícone de upload ao lado do campo "Produtividade máx.".
+
+## Iteração 11/11/2025 (Notificações – Persistência Reativada)
+
+- **Banco (Supabase)**
+  - Tabela `public.notifications_sent` alinhada ao frontend:
+    - Colunas: `id`, `event_id (FK events)`, `category` (inclui "Recebidas"), `sent_at`, `emitter_id`, `user_agent`, `platform`, `language`.
+    - Índices: único `(event_id, category)` e índice em `(event_id)`.
+    - RLS liberal para protótipo; Realtime habilitado na publicação `supabase_realtime`.
+- **App**
+  - `src/components/NotificationsBell.tsx` faz `select event_id, category, sent_at` e `upsert(..., { onConflict: 'event_id,category' })`.
+  - Envio de e-mail marca itens na tabela; o Realtime remove itens da lista imediatamente.
+- **Checklist operacional**
+  - Confirmar Realtime habilitado para `public.notifications_sent`.
+  - Constraint de categoria inclui: `Aprovadas`, `Reprovado`, `Limpeza`, `Correção Externa`, `Recebidas`.
+  - Variável `VITE_NOTIFY_GROUP_EMAILS` definida.
+- **Snapshot de Estado**
+  - Registrar snapshots em `docs/snapshots/` com: ID/URL do projeto, região, versão do Postgres, contagens por tabela e publicação Realtime da `notifications_sent`.
+
 ## Iteração 16/10/2025 (Realtime + Reprovado)
 
 - **Status do Teste no evento**

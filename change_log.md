@@ -48,3 +48,15 @@
 [16/10/2025 16:32] - src/components - FlowView: exibir "Cliente: <responsible>" no cabeçalho da matriz - Cascade
 [16/10/2025 16:36] - src/components - MatrixSheet: corrigida exibição de data (sem fuso) e ajuste do critério de testes (lista todos os `Testes`); helper de formatação sem timezone - Cascade
 [16/10/2025 16:45] - docs - Atualização de `database_schema.md` (test_status, categorias de notificações) e `specs.md` (Realtime, Reprovado, e-mail com Cliente, correções de data) - Cascade
+
+[11/11/2025 15:10] - db - Notificações: criação/alinhamento de `public.notifications_sent` (colunas: `sent_at`, `emitter_id`, `user_agent`, `platform`, `language`; categorias incluem "Recebidas"; índices `ux_notifications_sent_event_cat` e `idx_notifications_sent_event`; RLS liberal; Realtime habilitado na publicação `supabase_realtime`) via MCP - Cascade
+
+[11/11/2025 15:12] - docs - Documentação atualizada com estado do banco e do app: `database_schema.md` (notifications_sent alinhada), `README.md` (Backup/Snapshot e checklist de notificações), `specs.md` (Iteração 11/11/2025 - Persistência reativada). Criado snapshot em `docs/snapshots/2025-11-11_supabase_snapshot.md` - Cascade
+
+[12/11/2025 11:12] - db - Criado RPC `public.analysis_producao_truncate()` (SECURITY DEFINER) e integrado no frontend da aba Análise/Produção para sobrescrita total antes de novo upload; documentado `produced_on` + trigger + índice em `database_schema.md` e specs atualizadas - Cascade
+
+[12/11/2025 15:00] - src/components/analysis - Carteira: Layout da tabela padronizado com Produção (removido Card wrapper, tabela HTML nativa com Tailwind, cabeçalho sticky, hover em linhas); rodapé com estatísticas (registros exibidos, volume total em kg e toneladas, distribuição ABC); imports desnecessários removidos - Cascade
+
+[12/11/2025 15:10] - src/components/analysis - Carteira: Correção crítica de agregação - normalização case-insensitive para agrupar variações de ferramentas (tr-0100, TR-0100, Tr-0100); preservação do nome original para exibição; contador de registros por ferramenta; logs detalhados de debug (registros carregados, agregação antes/depois) - Cascade
+
+[12/11/2025 15:12] - src/components/analysis - Carteira: Ajustes de filtros padrão (período iniciando em 01/01/2024 ao invés de 12 meses, tipo "Todos" ao invés de "Produção"); limite de registros aumentado de 20k para 100k; parseNumberBR melhorado (remoção de espaços); rodapé exibe totais em kg e toneladas + contador de registros - Cascade
