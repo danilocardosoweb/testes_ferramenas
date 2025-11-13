@@ -135,6 +135,41 @@ export function AnalysisCarteiraView() {
   // Período (com data_implant)
   const [periodStart, setPeriodStart] = useState<string>(() => "2024-01-01");
   const [periodEnd, setPeriodEnd] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  // Período disponível no banco (data mais antiga e mais recente)
+  const [dbMinDate, setDbMinDate] = useState<string | undefined>(undefined);
+  const [dbMaxDate, setDbMaxDate] = useState<string | undefined>(undefined);
+
+  // Carrega a menor e a maior data armazenadas no banco para Carteira (tabela plana)
+  useEffect(() => {
+    let active = true;
+    async function loadDbPeriod() {
+      try {
+        // Menor data
+        const minQ = await supabase
+          .from('analysis_carteira_flat')
+          .select('data_implant')
+          .not('data_implant', 'is', null)
+          .order('data_implant', { ascending: true })
+          .limit(1);
+        // Maior data
+        const maxQ = await supabase
+          .from('analysis_carteira_flat')
+          .select('data_implant')
+          .not('data_implant', 'is', null)
+          .order('data_implant', { ascending: false })
+          .limit(1);
+        if (!active) return;
+        const minIso = minQ.data?.[0]?.data_implant as string | undefined;
+        const maxIso = maxQ.data?.[0]?.data_implant as string | undefined;
+        setDbMinDate(minIso?.slice(0, 10));
+        setDbMaxDate(maxIso?.slice(0, 10));
+      } catch (e) {
+        // Silencia erro para não atrapalhar a UX
+      }
+    }
+    loadDbPeriod();
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -308,6 +343,23 @@ export function AnalysisCarteiraView() {
       if (sel.error) throw sel.error;
       const mapped = (sel.data ?? []).map(mapRow).filter(Boolean) as Item[];
       setRows(mapped);
+      // Atualizar período do banco após a importação
+      try {
+        const minQ = await supabase
+          .from('analysis_carteira_flat')
+          .select('data_implant')
+          .not('data_implant', 'is', null)
+          .order('data_implant', { ascending: true })
+          .limit(1);
+        const maxQ = await supabase
+          .from('analysis_carteira_flat')
+          .select('data_implant')
+          .not('data_implant', 'is', null)
+          .order('data_implant', { ascending: false })
+          .limit(1);
+        setDbMinDate((minQ.data?.[0]?.data_implant as string | undefined)?.slice(0, 10));
+        setDbMaxDate((maxQ.data?.[0]?.data_implant as string | undefined)?.slice(0, 10));
+      } catch {}
     } catch (e: any) {
       setError(e?.message ?? String(e));
     } finally {
@@ -419,6 +471,17 @@ export function AnalysisCarteiraView() {
       <div className="space-y-3">
           <div className="mb-1 overflow-x-auto pb-2">
           <div className="min-w-max inline-flex items-end gap-3 pr-2">
+            {/* Período armazenado no banco (automático) */}
+            <div className="flex items-end gap-2 pr-3 border-r border-border/40">
+              <div className="flex flex-col">
+                <label className="text-xs text-muted-foreground">Dados no banco</label>
+                <div className="h-9 flex items-center text-sm text-muted-foreground">
+                  {dbMinDate ? formatDateBRLocal(dbMinDate) : '-'}
+                  <span className="mx-1">—</span>
+                  {dbMaxDate ? formatDateBRLocal(dbMaxDate) : '-'}
+                </div>
+              </div>
+            </div>
             {/* Período */}
             <div className="flex items-end gap-2 pr-3 border-r border-border/40">
               <div className="flex flex-col">

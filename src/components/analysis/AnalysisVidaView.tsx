@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Wrench } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 type VidaRow = {
@@ -307,12 +309,25 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
     <div className="flex h-full flex-col gap-3">
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div className="flex flex-col">
-          <label className="text-xs text-muted-foreground">Até</label>
-          <input type="date" className="h-9 w-40 rounded-md border bg-background px-3 text-sm" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
+          <label className="text-xs text-muted-foreground">Até (data de corte)</label>
+          <input
+            type="date"
+            className="h-9 w-40 rounded-md border bg-background px-3 text-sm"
+            value={periodEnd}
+            onChange={(e) => setPeriodEnd(e.target.value)}
+            title="Data de corte: considera registros até esta data, inclusive"
+            aria-label="Data de corte: considera registros até esta data, inclusive"
+          />
         </div>
         <div className="flex flex-col">
-          <label className="text-xs text-muted-foreground">Janela (meses)</label>
-          <select className="h-9 w-28 rounded-md border bg-background px-3 text-sm" value={months} onChange={(e) => setMonths(Number(e.target.value))}>
+          <label className="text-xs text-muted-foreground">Período analisado (meses)</label>
+          <select
+            className="h-9 w-28 rounded-md border bg-background px-3 text-sm"
+            value={months}
+            onChange={(e) => setMonths(Number(e.target.value))}
+            title="Quantidade de meses considerados retroativamente a partir da data de corte"
+            aria-label="Período analisado em meses a partir da data de corte"
+          >
             <option value={3}>3</option>
             <option value={6}>6</option>
             <option value={12}>12</option>
@@ -375,9 +390,16 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
                       </button>
                       <span className="align-middle">{r.matriz}</span>
                       {onOpenFerramentas && (
-                        <button type="button" className="ml-2 inline-flex h-5 items-center rounded border px-1.5 text-[10px] shrink-0" onClick={() => onOpenFerramentas(r.matriz)}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="ml-2 h-7 px-2.5 rounded-full gap-1.5 text-[11px]"
+                          onClick={() => onOpenFerramentas(r.matriz)}
+                        >
+                          <Wrench className="h-3.5 w-3.5" />
                           Abrir Ferramentas
-                        </button>
+                        </Button>
                       )}
                     </td>
                     <td className="px-2 py-1.5 text-center">

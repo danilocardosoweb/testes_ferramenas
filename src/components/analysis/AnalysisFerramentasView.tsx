@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import * as XLSX from "xlsx";
-import { Upload } from "lucide-react";
+import { Upload, ArrowUpRight, ArrowDownRight, Activity } from "lucide-react";
 
 type RawRow = {
   id: string;
@@ -69,6 +69,17 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
   const [importProgress, setImportProgress] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [lastUpdatedISO, setLastUpdatedISO] = useState<string | undefined>(undefined);
+
+  function formatDateBRLocal(iso?: string) {
+    if (!iso) return "-";
+    const s = String(iso);
+    const yyyy = s.slice(0, 4);
+    const mm = s.slice(5, 7);
+    const dd = s.slice(8, 10);
+    if (!yyyy || !mm || !dd) return "-";
+    return `${dd}/${mm}/${yyyy}`;
+  }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -93,6 +104,15 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
       }
       setImportMsg("Importação concluída.");
       setReloadKey((k) => k + 1);
+      try {
+        const { data: maxUp } = await supabase
+          .from("analysis_ferramentas")
+          .select("__uploaded_at")
+          .not("__uploaded_at", "is", null)
+          .order("__uploaded_at", { ascending: false })
+          .limit(1);
+        setLastUpdatedISO((maxUp?.[0] as any)?.__uploaded_at?.slice(0, 10));
+      } catch {}
     } catch (err: any) {
       setImportMsg(`Erro na importação: ${err?.message ?? String(err)}`);
     } finally {
@@ -109,6 +129,19 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
   }, [presetMatriz]);
 
   useEffect(() => {
+    // Busca a última atualização armazenada no banco
+    (async () => {
+      try {
+        const { data: maxUp } = await supabase
+          .from("analysis_ferramentas")
+          .select("__uploaded_at")
+          .not("__uploaded_at", "is", null)
+          .order("__uploaded_at", { ascending: false })
+          .limit(1);
+        setLastUpdatedISO((maxUp?.[0] as any)?.__uploaded_at?.slice(0, 10));
+      } catch {}
+    })();
+
     let active = true;
     async function loadFirstPage() {
       setLoading(true);
@@ -208,6 +241,14 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
   return (
     <div className="mt-6">
       <div className="mb-4 flex flex-wrap items-end gap-3">
+        <div className="flex items-end gap-2 pr-3 border-r border-border/40">
+          <div className="flex flex-col">
+            <label className="text-xs text-muted-foreground">Última atualização</label>
+            <div className="h-9 flex items-center text-sm text-muted-foreground">
+              {formatDateBRLocal(lastUpdatedISO)}
+            </div>
+          </div>
+        </div>
         <div className="flex flex-col">
           <label className="text-xs text-muted-foreground">Ativa</label>
           <select
@@ -261,20 +302,24 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
           </button>
         </div>
         {stats && (
-          <div className="mb-1 text-xs text-muted-foreground">
-            <span className="mr-3">
-              <strong>Maior Qte.Prod.:</strong> {formatNumberPtBR(stats.max)}
-            </span>
-            <span className="mr-3">
-              <strong>Menor Qte.Prod.:</strong> {formatNumberPtBR(stats.min)}
-            </span>
-            <span>
-              <strong>Mediana Qte.Prod.:</strong> {formatNumberPtBR(stats.median)}
-            </span>
+          <div className="mb-1 ml-auto flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <div className="inline-flex items-center rounded-full border border-emerald-600/30 bg-emerald-500/10 px-2.5 py-1">
+              <ArrowUpRight className="h-3.5 w-3.5 text-emerald-700 mr-1" />
+              <span className="font-semibold mr-1.5 text-emerald-800">Maior Qte.Prod.:</span>
+              <span className="tabular-nums text-emerald-800">{formatNumberPtBR(stats.max)}</span>
+            </div>
+            <div className="inline-flex items-center rounded-full border border-slate-400/40 bg-slate-500/10 px-2.5 py-1">
+              <ArrowDownRight className="h-3.5 w-3.5 text-slate-700 mr-1" />
+              <span className="font-semibold mr-1.5 text-slate-800">Menor Qte.Prod.:</span>
+              <span className="tabular-nums text-slate-800">{formatNumberPtBR(stats.min)}</span>
+            </div>
+            <div className="inline-flex items-center rounded-full border border-blue-600/30 bg-blue-500/10 px-2.5 py-1">
+              <Activity className="h-3.5 w-3.5 text-blue-700 mr-1" />
+              <span className="font-semibold mr-1.5 text-blue-800">Mediana Qte.Prod.:</span>
+              <span className="tabular-nums text-blue-800">{formatNumberPtBR(stats.median)}</span>
+            </div>
           </div>
         )}
-      </div>
-      <div className="overflow-auto">
         {importMsg && (
           <div className="mb-2 text-xs text-muted-foreground flex items-center gap-3">
             <span>{importMsg}</span>

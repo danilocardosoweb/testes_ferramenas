@@ -41,6 +41,16 @@ function dateToISO(d: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function formatDateBRLocal(iso?: string) {
+  if (!iso) return "-";
+  const s = String(iso);
+  const yyyy = s.slice(0, 4);
+  const mm = s.slice(5, 7);
+  const dd = s.slice(8, 10);
+  if (!yyyy || !mm || !dd) return "-";
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 function isoDateKey(iso: string | null | undefined): number {
   if (!iso) return 0;
   const s = String(iso);
@@ -89,6 +99,8 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
   const [reloadKey, setReloadKey] = useState(0);
   const [importProgress, setImportProgress] = useState<number>(0);
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [dbMinDate, setDbMinDate] = useState<string | undefined>(undefined);
+  const [dbMaxDate, setDbMaxDate] = useState<string | undefined>(undefined);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -113,6 +125,22 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
       }
       setImportMsg("Importação concluída.");
       setReloadKey((k) => k + 1);
+      try {
+        const minQ = await supabase
+          .from("analysis_producao")
+          .select("produced_on")
+          .not("produced_on", "is", null)
+          .order("produced_on", { ascending: true })
+          .limit(1);
+        const maxQ = await supabase
+          .from("analysis_producao")
+          .select("produced_on")
+          .not("produced_on", "is", null)
+          .order("produced_on", { ascending: false })
+          .limit(1);
+        setDbMinDate((minQ.data?.[0] as any)?.produced_on?.slice(0, 10));
+        setDbMaxDate((maxQ.data?.[0] as any)?.produced_on?.slice(0, 10));
+      } catch {}
     } catch (err: any) {
       setImportMsg(`Erro na importação: ${err?.message ?? String(err)}`);
     } finally {
@@ -121,6 +149,31 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
       setTimeout(() => setImportProgress(0), 5000);
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    async function loadDbPeriod() {
+      try {
+        const minQ = await supabase
+          .from("analysis_producao")
+          .select("produced_on")
+          .not("produced_on", "is", null)
+          .order("produced_on", { ascending: true })
+          .limit(1);
+        const maxQ = await supabase
+          .from("analysis_producao")
+          .select("produced_on")
+          .not("produced_on", "is", null)
+          .order("produced_on", { ascending: false })
+          .limit(1);
+        if (!active) return;
+        setDbMinDate((minQ.data?.[0] as any)?.produced_on?.slice(0, 10));
+        setDbMaxDate((maxQ.data?.[0] as any)?.produced_on?.slice(0, 10));
+      } catch {}
+    }
+    loadDbPeriod();
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (presetMatriz && presetMatriz !== matrizFilter) {
@@ -267,14 +320,24 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
 
   return (
     <div className="mt-6">
-      <div className="mb-4 flex flex-wrap items-end gap-3 justify-between">
-        <div className="flex flex-wrap items-end gap-3 flex-1 min-w-0">
-          <div className="flex items-end gap-2">
+      <div className="mb-4 flex flex-wrap items-end gap-2 justify-between">
+        <div className="flex flex-wrap items-end gap-2 flex-1 min-w-0">
+          <div className="flex items-end gap-2 pr-3 border-r border-border/40">
+            <div className="flex flex-col">
+              <label className="text-xs text-muted-foreground">Dados no banco</label>
+              <div className="h-9 flex items-center text-sm text-muted-foreground">
+                {dbMinDate ? formatDateBRLocal(dbMinDate) : '-'}
+                <span className="mx-1">—</span>
+                {dbMaxDate ? formatDateBRLocal(dbMaxDate) : '-'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-end gap-1.5">
             <div className="flex flex-col">
               <label className="text-xs text-muted-foreground">Período (De)</label>
               <input
                 type="date"
-                className="h-9 w-40 rounded-md border bg-background px-3 text-sm"
+                className="h-9 w-32 rounded-md border bg-background px-2 text-sm"
                 value={periodStart}
                 onChange={(e) => setPeriodStart(e.target.value)}
               />
@@ -283,7 +346,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
               <label className="text-xs text-muted-foreground">Até</label>
               <input
                 type="date"
-                className="h-9 w-40 rounded-md border bg-background px-3 text-sm"
+                className="h-9 w-32 rounded-md border bg-background px-2 text-sm"
                 value={periodEnd}
                 onChange={(e) => setPeriodEnd(e.target.value)}
               />
@@ -292,7 +355,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
           <div className="flex flex-col">
             <label className="text-xs text-muted-foreground">Mês</label>
             <select
-              className="h-9 w-28 rounded-md border bg-background px-3 text-sm"
+              className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
               value={monthFilter}
               onChange={(e) => setMonthFilter(e.target.value)}
             >
@@ -314,7 +377,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
           <div className="flex flex-col">
             <label className="text-xs text-muted-foreground">Matriz</label>
             <input
-              className="h-9 w-44 rounded-md border bg-background px-3 text-sm"
+              className="h-9 w-36 rounded-md border bg-background px-2 text-sm"
               placeholder="Ex.: TUB-092"
               value={matrizFilter}
               onChange={(e) => setMatrizFilter(e.target.value)}
@@ -323,7 +386,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
           <div className="flex flex-col">
             <label className="text-xs text-muted-foreground">Prensa</label>
             <select
-              className="h-9 w-28 rounded-md border bg-background px-3 text-sm"
+              className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
               value={prensaFilter}
               onChange={(e) => setPrensaFilter(e.target.value)}
             >
@@ -336,7 +399,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
           <div className="flex flex-col">
             <label className="text-xs text-muted-foreground">Seq</label>
             <select
-              className="h-9 w-24 rounded-md border bg-background px-3 text-sm"
+              className="h-9 w-20 rounded-md border bg-background px-2 text-sm"
               value={seqFilter}
               onChange={(e) => setSeqFilter(e.target.value)}
             >
@@ -345,11 +408,11 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
               ))}
             </select>
           </div>
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-1.5">
             <div className="flex flex-col">
               <label className="text-xs text-muted-foreground">Produtividade mín.</label>
               <input
-                className="h-9 w-32 rounded-md border bg-background px-3 text-sm"
+                className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
                 placeholder="Ex.: 500"
                 value={prodMin}
                 onChange={(e) => setProdMin(e.target.value)}
@@ -358,7 +421,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
             <div className="flex flex-col">
               <label className="text-xs text-muted-foreground">máx.</label>
               <input
-                className="h-9 w-32 rounded-md border bg-background px-3 text-sm"
+                className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
                 placeholder="Ex.: 1500"
                 value={prodMax}
                 onChange={(e) => setProdMax(e.target.value)}
