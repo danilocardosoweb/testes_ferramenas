@@ -1,3 +1,7 @@
+[13/11/2025 15:07] - database_schema.md / specs.md / README.md - Documentação atualizada: tabela `analysis_ferramentas`, RPCs de truncate (produção e ferramentas) e instruções de upload; seção de upload por aba e mapeamento de colunas - Cascade
+[13/11/2025 15:06] - data_schema.sql - Criada RPC `public.analysis_ferramentas_truncate()` (SECURITY DEFINER) com GRANT para anon/authenticated e bloco de rollback; notificação `pgrst reload schema` - Cascade
+[13/11/2025 15:05] - src/components/analysis/AnalysisFerramentasView.tsx - Adicionado ícone de upload e fluxo de importação (XLSX/XLS/CSV) com truncamento antes da carga, inserção em lotes, barra de progresso e recarga automática - Cascade
+[13/11/2025 14:45] - src/components/AnalysisView.tsx - Abas compactas com scroll horizontal (overflow-x) e rótulos curtos para evitar sobreposição - Cascade
 [23/10/2025 08:15] - migrations/20241023_add_observations_and_attachments.sql - Adicionado suporte a anexos e observações em registros de confecção: (1) Nova coluna 'observacoes' (texto) para notas adicionais; (2) Nova coluna 'anexos' (JSONB) para armazenar arquivos PDF/imagems; (3) Atualização da documentação em database_schema.md; (4) Script de migração com rollback - Cascade
 
 [23/10/2025 17:46] - docs - Documentação do workflow de confecção atualizada (prioridades, datas estimadas, timestamps de transição e anexos) em `database_schema.md`, `specs.md` e `README.md` - Cascade

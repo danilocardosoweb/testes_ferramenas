@@ -97,6 +97,15 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - Trigger: `trg_analysis_producao_set_produced_on` chama função `public.analysis_producao_set_produced_on()` para popular `produced_on` a partir de `payload->>'Data Produção'` (aceita DD/MM/AAAA ou serial Excel)
   - RPC: `public.analysis_producao_truncate()` — função `SECURITY DEFINER` para truncar a tabela antes de novos uploads (sobrescrita total)
 
+- **analysis_ferramentas** (13/11/2025 adicionado)
+  - `id (uuid, PK)`
+  - `ferramenta_code (text, nullable)` — opcional; código base da ferramenta
+  - `ferramenta_seq (text, nullable)` — opcional; sequência
+  - `payload (jsonb, not null, default '{}'::jsonb)` — linha original da planilha (Matriz, Seq, Qte.Prod., Status da Ferram., Ativa, Dt.Entrega, Data Uso)
+  - Índices: conforme necessidade do PostgREST (consulta por JSON via `payload->>`)
+  - RPC: `public.analysis_ferramentas_truncate()` — função `SECURITY DEFINER` para truncar a tabela antes de novos uploads (sobrescrita total)
+  - Observação: Datas numéricas de Excel são exibidas no front-end como `DD/MM/AAAA`.
+
 - **analysis_carteira** (12/11/2025 atualizado)
   - `id (uuid, PK)`
   - `payload (jsonb, not null, default '{}'::jsonb)` — linha original da planilha (Ferramenta, Pedido Kg, Cliente, Liga, Têmpera, Data Implant, etc.)

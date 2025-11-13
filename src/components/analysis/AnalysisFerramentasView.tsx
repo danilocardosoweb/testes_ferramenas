@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import * as XLSX from "xlsx";
+import { Upload } from "lucide-react";
 
 type RawRow = {
   id: string;
@@ -23,6 +25,35 @@ interface AnalysisFerramentasProps {
   onSelectMatriz?: (matriz: string) => void;
 }
 
+async function parseFerramentasWorkbook(file: File) {
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: "array" });
+  const wsName = wb.SheetNames[0];
+  const ws = wb.Sheets[wsName];
+  const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: null });
+  return rows.map((r) => ({
+    payload: {
+      "Matriz": r["Matriz"] ?? r["Ferramenta"] ?? null,
+      "Seq": r["Seq"] ?? null,
+      "Qte.Prod.": r["Qte.Prod."] ?? r["Qte Prod"] ?? r["Qte_Prod"] ?? null,
+      "Status da Ferram.": r["Status da Ferram."] ?? r["Status"] ?? null,
+      "Ativa": r["Ativa"] ?? null,
+      "Dt.Entrega": r["Dt.Entrega"] ?? r["Data Entrega"] ?? null,
+      "Data Uso": r["Data Uso"] ?? null,
+    },
+  }));
+}
+
+async function deleteAllFerramentas() {
+  const { error: rpcErr } = await supabase.rpc("analysis_ferramentas_truncate");
+  if (!rpcErr) return;
+  const { error: delErr } = await supabase
+    .from("analysis_ferramentas")
+    .delete()
+    .neq("id", "00000000-0000-0000-0000-000000000000");
+  if (delErr) throw delErr;
+}
+
 export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: AnalysisFerramentasProps) {
   const [rows, setRows] = useState<ViewRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +64,43 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
   const [total, setTotal] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("Todas");
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string>("");
+  const [importProgress, setImportProgress] = useState<number>(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      setImporting(true);
+      setImportMsg("Lendo planilha...");
+      const records = await parseFerramentasWorkbook(file);
+      setImportProgress(0);
+      setImportMsg(`Encontradas ${records.length.toLocaleString("pt-BR")} linhas. Limpando tabela...`);
+      await deleteAllFerramentas();
+      setImportMsg("Inserindo registros em lotes...");
+      const batch = 500;
+      const totalBatches = Math.ceil(records.length / batch) || 1;
+      for (let i = 0; i < totalBatches; i++) {
+        const start = i * batch;
+        const chunk = records.slice(start, start + batch);
+        const { error } = await supabase.from("analysis_ferramentas").insert(chunk);
+        if (error) throw error;
+        setImportProgress(Math.round(((i + 1) / totalBatches) * 100));
+      }
+      setImportMsg("Importação concluída.");
+      setReloadKey((k) => k + 1);
+    } catch (err: any) {
+      setImportMsg(`Erro na importação: ${err?.message ?? String(err)}`);
+    } finally {
+      setImporting(false);
+      setTimeout(() => setImportMsg(""), 5000);
+      setTimeout(() => setImportProgress(0), 5000);
+    }
+  };
 
   useEffect(() => {
     if (presetMatriz && presetMatriz !== matrizFilter) {
@@ -70,7 +138,7 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
     return () => {
       active = false;
     };
-  }, [ativaFilter, matrizFilter, batchSize]);
+  }, [ativaFilter, matrizFilter, batchSize, reloadKey]);
 
   async function loadMore() {
     if (loadingMore) return;
@@ -174,6 +242,24 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
             onChange={(e) => setMatrizFilter(e.target.value)}
           />
         </div>
+        <div className="flex items-end">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <button
+            type="button"
+            className="ml-1 h-9 w-9 flex items-center justify-center rounded-md border hover:bg-muted disabled:opacity-50"
+            title={importing ? "Importando..." : "Carregar planilha"}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+          >
+            <Upload className="h-4 w-4" />
+          </button>
+        </div>
         {stats && (
           <div className="mb-1 text-xs text-muted-foreground">
             <span className="mr-3">
@@ -189,6 +275,16 @@ export function AnalysisFerramentasView({ presetMatriz, onSelectMatriz }: Analys
         )}
       </div>
       <div className="overflow-auto">
+        {importMsg && (
+          <div className="mb-2 text-xs text-muted-foreground flex items-center gap-3">
+            <span>{importMsg}</span>
+            {(importing || importProgress > 0) ? (
+              <div className="h-2 w-40 rounded bg-muted">
+                <div className="h-2 rounded bg-primary" style={{ width: `${importProgress}%` }} />
+              </div>
+            ) : null}
+          </div>
+        )}
         {loading && (
           <div className="mt-2 text-sm text-muted-foreground">Carregando…</div>
         )}

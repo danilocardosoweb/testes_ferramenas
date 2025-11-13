@@ -131,6 +131,35 @@ REVOKE EXECUTE ON FUNCTION public.analysis_producao_truncate() FROM anon, authen
 DROP FUNCTION IF EXISTS public.analysis_producao_truncate();
 
 -- =============================================
+-- 13/11/2025 - Migração: RPC para truncar analysis_ferramentas
+-- Objetivo: permitir sobrescrita total da planilha Ferramentas antes de novo upload
+-- =============================================
+CREATE OR REPLACE FUNCTION public.analysis_ferramentas_truncate()
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  TRUNCATE TABLE public.analysis_ferramentas RESTART IDENTITY;
+  RETURN true;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.analysis_ferramentas_truncate() TO anon, authenticated;
+
+DO $$
+BEGIN
+  PERFORM pg_notify('pgrst', 'reload schema');
+EXCEPTION WHEN others THEN
+  NULL;
+END $$;
+
+-- Rollback (RPC truncate Ferramentas)
+REVOKE EXECUTE ON FUNCTION public.analysis_ferramentas_truncate() FROM anon, authenticated;
+DROP FUNCTION IF EXISTS public.analysis_ferramentas_truncate();
+
+-- =============================================
 -- 12/11/2025 - Migração: Campos "package_size" e "hole_count" em manufacturing_records
 -- Objetivo: alinhar formulário da aba Confecção com o schema
 -- =============================================

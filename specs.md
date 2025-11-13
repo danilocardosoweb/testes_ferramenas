@@ -26,10 +26,32 @@
 ## Iteração 24/10/2025 (Área de Análise)
 
 - **Uploads de planilhas base**
-  - `src/components/AnalysisView.tsx`: ícone discreto (UploadCloud) no canto superior direito abre diálogo modal para selecionar até quatro arquivos Excel (.xlsx/.xls): Produção, Carteira, Ferramentas e Correções.
-  - Cada slot mostra nome, tamanho e timestamp do último upload, com ações de limpeza individual ou total.
-  - Estado armazenado em memória local do componente (persistência ainda não implementada).
-  - Integração em `src/pages/Index.tsx` substitui placeholder da aba Análise e mantém acesso restrito a usuários autenticados.
+  - Upload individual por aba, com ícone ao lado dos filtros e input oculto.
+  - Barra de progresso por lotes; mensagens de status na própria lista.
+  - Integração em `AnalysisProducaoView` (12/11) e `AnalysisFerramentasView` (13/11), com sobrescrita total via RPC antes de inserir.
+
+## Iteração 13/11/2025 (Área de Análise – Ferramentas)
+
+- **Upload de Ferramentas (XLSX/XLS/CSV)**
+  - Componente: `src/components/analysis/AnalysisFerramentasView.tsx`.
+  - Ícone de upload ao lado do filtro "Matriz"; input de arquivo oculto.
+  - Fluxo: ler planilha → truncar tabela → inserir em lotes → recarregar lista.
+  - RPC utilizada: `public.analysis_ferramentas_truncate()` (SECURITY DEFINER) para TRUNCATE + RESTART IDENTITY.
+  - Fallback: caso a RPC não exista, executa DELETE ALL na tabela (pode ser mais lento e sujeito a RLS).
+  - Mapeamento de colunas aceitas (case-insensitive onde aplicável):
+    - Matriz | Ferramenta → `payload["Matriz"]`
+    - Seq → `payload["Seq"]`
+    - Qte.Prod. | Qte Prod | Qte_Prod → `payload["Qte.Prod."]`
+    - Status da Ferram. | Status → `payload["Status da Ferram."]`
+    - Ativa → `payload["Ativa"]`
+    - Dt.Entrega | Data Entrega → `payload["Dt.Entrega"]`
+    - Data Uso → `payload["Data Uso"]`
+  - Datas numéricas (serial Excel) são convertidas para exibição DD/MM/AAAA no front.
+
+- **UI e Estatísticas**
+  - Cabeçalho sticky, hover em linhas, tabela compacta.
+  - Filtros: Ativa (Sim/Não/Todas), Status normalizado, Matriz (texto).
+  - Estatísticas exibidas: Maior, Menor e Mediana de `Qte.Prod.` da lista filtrada.
 
 ## Iteração 12/11/2025 (Área de Análise – Produção)
 
