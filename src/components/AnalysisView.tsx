@@ -4,6 +4,7 @@ import { AnalysisCarteiraView } from "@/components/analysis/AnalysisCarteiraView
 import { AnalysisProducaoView } from "@/components/analysis/AnalysisProducaoView";
 import { AnalysisVidaView } from "@/components/analysis/AnalysisVidaView";
 import { AnalysisNecessidadesView } from "@/components/analysis/AnalysisNecessidadesView";
+import { FerramentaAnalysisDialog } from "@/components/analysis/FerramentaAnalysisDialog";
 import { useState } from "react";
 
 interface AnalysisViewProps {}
@@ -11,12 +12,18 @@ interface AnalysisViewProps {}
 export function AnalysisView(_: AnalysisViewProps) {
   const [tab, setTab] = useState("carteira");
   const [matrizFilterBridge, setMatrizFilterBridge] = useState<string>("");
+  const [producaoDataForAnalysis, setProducaoDataForAnalysis] = useState<any[]>([]);
   return (
     <div className="h-full">
       <Tabs value={tab} onValueChange={setTab} className="h-full">
         <TabsList className="flex w-full items-center gap-2 overflow-x-auto pr-2 flex-nowrap">
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="carteira" title="Carteira">Carteira</TabsTrigger>
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="producao" title="Produção">Produção</TabsTrigger>
+          {producaoDataForAnalysis.length > 0 && (
+            <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="analise-ferramenta" title="Análise de Ferramenta">
+              Análise Ferramenta
+            </TabsTrigger>
+          )}
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="ferramentas" title="Ferramentas">Ferramentas</TabsTrigger>
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="vida" title="Espectativa de Vida">Vida</TabsTrigger>
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="necessidades" title="Relatório de Necessidades">Necessidades</TabsTrigger>
@@ -31,6 +38,21 @@ export function AnalysisView(_: AnalysisViewProps) {
             onSelectMatriz={(m) => {
               setMatrizFilterBridge(m);
               setTab("ferramentas");
+            }}
+            onOpenFerramentaAnalysis={(matriz, rows) => {
+              setMatrizFilterBridge(matriz);
+              setProducaoDataForAnalysis(rows);
+              setTab("analise-ferramenta");
+            }}
+          />
+        </TabsContent>
+        <TabsContent value="analise-ferramenta" className="mt-6">
+          <FerramentaAnalysisDialog
+            data={producaoDataForAnalysis}
+            matrizFilter={matrizFilterBridge}
+            onBack={() => {
+              setTab("producao");
+              setProducaoDataForAnalysis([]);
             }}
           />
         </TabsContent>

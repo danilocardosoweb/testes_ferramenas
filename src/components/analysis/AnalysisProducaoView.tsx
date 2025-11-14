@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import * as XLSX from "xlsx";
 import { Upload, BarChart3 } from "lucide-react";
-import { FerramentaAnalysisDialog } from "./FerramentaAnalysisDialog";
 
 // Tabela: analysis_producao
 // Estrutura suposta: id uuid, payload jsonb, possivelmente metadados (__file_name, __uploaded_at)
@@ -32,6 +31,7 @@ type ViewRow = {
 interface AnalysisProducaoProps {
   onSelectMatriz?: (matriz: string) => void;
   presetMatriz?: string;
+  onOpenFerramentaAnalysis?: (matriz: string, rows: ViewRow[]) => void;
 }
 
 function dateToISO(d: Date): string {
@@ -73,7 +73,7 @@ function dateKey(dateStr: string | null | undefined): number {
   return yyyy * 10000 + (mm || 0) * 100 + (dd || 0);
 }
 
-export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisProducaoProps) {
+export function AnalysisProducaoView({ onSelectMatriz, presetMatriz, onOpenFerramentaAnalysis }: AnalysisProducaoProps) {
   const [rows, setRows] = useState<ViewRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +98,6 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [importProgress, setImportProgress] = useState<number>(0);
-  const [analysisOpen, setAnalysisOpen] = useState(false);
   const [dbMinDate, setDbMinDate] = useState<string | undefined>(undefined);
   const [dbMaxDate, setDbMaxDate] = useState<string | undefined>(undefined);
 
@@ -451,7 +450,12 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
           <button
             type="button"
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
-            onClick={() => setAnalysisOpen(true)}
+            onClick={() => {
+              if (!onOpenFerramentaAnalysis) return;
+              const matriz = (matrizFilter || "").trim() || (filtered[0]?.Matriz ? String(filtered[0].Matriz) : "");
+              if (!matriz) return;
+              onOpenFerramentaAnalysis(matriz, filtered);
+            }}
             disabled={filtered.length === 0}
           >
             <BarChart3 className="h-4 w-4" />
@@ -531,12 +535,6 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz }: AnalysisP
         </div>
       </div>
       
-      <FerramentaAnalysisDialog
-        open={analysisOpen}
-        onOpenChange={setAnalysisOpen}
-        data={filtered}
-        matrizFilter={matrizFilter}
-      />
     </div>
   );
 }

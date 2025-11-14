@@ -1,13 +1,9 @@
 import { useMemo, useState, useEffect } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabaseClient";
 import { Settings } from "lucide-react";
 import { KeywordsManagerDialog } from "./KeywordsManagerDialog";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { LineChart, Line, CartesianGrid, XAxis, YAxis } from "recharts";
 
 interface KeywordData {
   id: string;
@@ -32,11 +28,16 @@ type ViewRow = {
   "Observação Lote": string | null;
 };
 
+const normalizeMatriz = (code: string | number | null | undefined) =>
+  (code ?? "")
+    .toString()
+    .trim()
+    .toUpperCase();
+
 interface FerramentaAnalysisDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   data: ViewRow[];
   matrizFilter: string;
+  onBack?: () => void;
 }
 
 interface ProdutivityAnalysis {
@@ -78,14 +79,31 @@ function getProdutividade(value: any): number | null {
   return isFinite(num) ? num : null;
 }
 
+function getPeso(value: any): number | null {
+  if (value == null) return null;
+  if (typeof value === 'number') return isFinite(value) ? value : null;
+  const cleaned = String(value).trim().replace('.', '').replace(',', '.');
+  const num = parseFloat(cleaned);
+  return isFinite(num) ? num : null;
+}
+
+function isLigaEspecial(value: any): boolean {
+  if (!value) return false;
+  const s = String(value).toUpperCase();
+  // Heurística simples: considera especial se contiver "ESPECIAL" ou abreviações
+  return s.includes("ESPECIAL") || s.includes("ESP.") || s.includes("ESP ");
+}
+
 export function FerramentaAnalysisDialog({ 
-  open, 
-  onOpenChange, 
   data, 
-  matrizFilter 
+  matrizFilter,
+  onBack,
 }: FerramentaAnalysisDialogProps) {
   const [keywords, setKeywords] = useState<KeywordData[]>([]);
   const [keywordsManagerOpen, setKeywordsManagerOpen] = useState(false);
+  const [carteiraRows, setCarteiraRows] = useState<Array<{ data_implant: string | null; pedido_kg: any; ferramenta: string | null }>>([]);
+  const [carteiraLoading, setCarteiraLoading] = useState(false);
+
   
   // Carregar palavras-chave do banco
   const loadKeywords = async () => {
@@ -108,27 +126,65 @@ export function FerramentaAnalysisDialog({
   };
   
   useEffect(() => {
-    if (open) {
-      loadKeywords();
-    }
-  }, [open]);
+    // Carrega palavras-chave uma vez ao montar o painel
+    loadKeywords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   // Filtrar dados pela matriz selecionada
   const filteredData = useMemo(() => {
-    if (!matrizFilter.trim()) return data;
-    return data.filter(row => 
-      (row.Matriz || '').toString().toLowerCase().includes(matrizFilter.trim().toLowerCase())
-    );
+    const target = normalizeMatriz(matrizFilter);
+    if (!target) return data;
+    return data.filter(row => normalizeMatriz(row.Matriz) === target);
   }, [data, matrizFilter]);
+
+  useEffect(() => {
+    const target = normalizeMatriz(matrizFilter);
+    if (!target) {
+      setCarteiraRows([]);
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        setCarteiraLoading(true);
+        const now = new Date();
+        const from = new Date(now);
+        from.setFullYear(from.getFullYear() - 1);
+        const periodStart = from.toISOString().slice(0, 10);
+        const periodEnd = now.toISOString().slice(0, 10);
+        const { data, error } = await supabase
+          .from('analysis_carteira_flat')
+          .select('data_implant,pedido_kg,ferramenta')
+          .gte('data_implant', periodStart)
+          .lte('data_implant', periodEnd)
+          .ilike('ferramenta', `%${target}%`);
+        if (error) throw error;
+        if (!active) return;
+        setCarteiraRows(data ?? []);
+      } catch {
+        if (!active) return;
+        setCarteiraRows([]);
+      } finally {
+        if (active) setCarteiraLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [matrizFilter]);
+
+  const validRows = useMemo(() => {
+    return filteredData.filter(row => {
+      const date = parseDate(row["Data Produção"]);
+      const prod = getProdutividade(row.Produtividade);
+      const peso = getPeso(row["Peso Bruto"]);
+      return date && prod !== null && prod > 0 && prod <= 2400 && peso !== null && peso >= 200;
+    });
+  }, [filteredData]);
 
   // Análise de produtividade
   const productivityAnalysis = useMemo((): ProdutivityAnalysis => {
-    const validRows = filteredData.filter(row => {
-      const date = parseDate(row["Data Produção"]);
-      const prod = getProdutividade(row.Produtividade);
-      return date && prod !== null && prod >= 400 && prod <= 2400;
-    });
-
     const now = new Date();
     const ultimo30 = validRows.filter(row => {
       const date = parseDate(row["Data Produção"]);
@@ -154,7 +210,9 @@ export function FerramentaAnalysisDialog({
       return sum / rows.length;
     };
 
-    const allProds = validRows.map(row => getProdutividade(row.Produtividade)).filter(p => p !== null) as number[];
+    const allProds = validRows
+      .map(row => getProdutividade(row.Produtividade))
+      .filter((p): p is number => p !== null && p > 0);
     
     // Encontrar os registros com maior e menor produtividade para pegar os volumes
     let maiorProd = 0;
@@ -169,19 +227,15 @@ export function FerramentaAnalysisDialog({
       // Encontrar o registro com maior produtividade
       const rowMaior = validRows.find(row => getProdutividade(row.Produtividade) === maiorProd);
       if (rowMaior) {
-        const peso = typeof rowMaior["Peso Bruto"] === 'string' ? 
-          parseFloat(rowMaior["Peso Bruto"].replace(',', '.')) : 
-          Number(rowMaior["Peso Bruto"]);
-        volumeMaior = isFinite(peso) ? peso : 0;
+        const peso = getPeso(rowMaior["Peso Bruto"]);
+        volumeMaior = peso ?? 0;
       }
       
       // Encontrar o registro com menor produtividade
       const rowMenor = validRows.find(row => getProdutividade(row.Produtividade) === menorProd);
       if (rowMenor) {
-        const peso = typeof rowMenor["Peso Bruto"] === 'string' ? 
-          parseFloat(rowMenor["Peso Bruto"].replace(',', '.')) : 
-          Number(rowMenor["Peso Bruto"]);
-        volumeMenor = isFinite(peso) ? peso : 0;
+        const peso = getPeso(rowMenor["Peso Bruto"]);
+        volumeMenor = peso ?? 0;
       }
     }
     
@@ -244,6 +298,10 @@ export function FerramentaAnalysisDialog({
     return causasAnalysis.reduce((acc, causa) => acc + causa.porcentagem, 0);
   }, [causasAnalysis]);
 
+  const causasComPercentual = useMemo(() => {
+    return causasAnalysis.filter(causa => causa.porcentagem > 0);
+  }, [causasAnalysis]);
+
   const formatNumber = (num: number) => {
     return num.toLocaleString('pt-BR', { 
       minimumFractionDigits: 2, 
@@ -272,26 +330,255 @@ export function FerramentaAnalysisDialog({
     return { atendido, outros, total, pAtendido, pOutros };
   }, [filteredData]);
 
+  const productivityTrend = useMemo(() => {
+    const now = new Date();
+    const buckets: Array<{ key: string; label: string; fullLabel: string; month: number; year: number }> = [];
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      const shortLabel = new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(date).replace('.', '');
+      const fullLabel = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(date);
+      buckets.push({ key, label: shortLabel.charAt(0).toUpperCase() + shortLabel.slice(1), fullLabel, month: date.getMonth(), year: date.getFullYear() });
+    }
+
+    const statsMap = new Map<string, { sum: number; count: number }>();
+    const bestSeqMap = new Map<string, { seq: string | null; prod: number }>();
+
+    validRows.forEach(row => {
+      const date = parseDate(row["Data Produção"]);
+      if (!date) return;
+      const monthsDiff = (now.getFullYear() - date.getFullYear()) * 12 + (now.getMonth() - date.getMonth());
+      if (monthsDiff < 0 || monthsDiff > 11) return;
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      const prod = getProdutividade(row.Produtividade);
+      if (prod == null) return;
+      const current = statsMap.get(key) || { sum: 0, count: 0 };
+      current.sum += prod;
+      current.count += 1;
+      statsMap.set(key, current);
+
+      const seq = row.Seq != null ? String(row.Seq) : null;
+      const existing = bestSeqMap.get(key);
+      if (!existing || prod > existing.prod) {
+        bestSeqMap.set(key, { seq, prod });
+      }
+    });
+
+    return buckets.map(bucket => {
+      const stats = statsMap.get(`${bucket.year}-${bucket.month}`);
+      const avg = stats && stats.count > 0 ? Number((stats.sum / stats.count).toFixed(2)) : null;
+      const bestSeq = bestSeqMap.get(`${bucket.year}-${bucket.month}`)?.seq ?? null;
+      return {
+        label: bucket.label,
+        fullLabel: bucket.fullLabel,
+        produtividade: avg,
+        objetivoComum: 1300,
+        objetivoEspecial: 1000,
+        seq: bestSeq,
+      } as any;
+    });
+  }, [validRows]);
+
+  const hasTrendData = productivityTrend.some(point => point.produtividade !== null);
+
+  const productivityChartConfig = {
+    produtividade: {
+      label: "Produtividade",
+      color: "#2563eb",
+    },
+    objetivoComum: {
+      label: "Objetivo Liga Comum (1.300 kg/h)",
+      color: "#f97316",
+    },
+    objetivoEspecial: {
+      label: "Objetivo Liga Especial (1.000 kg/h)",
+      color: "#16a34a",
+    },
+  } as const;
+
+  const carteiraTrend = useMemo(() => {
+    const now = new Date();
+    const buckets: Array<{ key: string; label: string; fullLabel: string; month: number; year: number }> = [];
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      const shortLabel = new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(date).replace('.', '');
+      const fullLabel = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(date);
+      buckets.push({ key, label: shortLabel.charAt(0).toUpperCase() + shortLabel.slice(1), fullLabel, month: date.getMonth(), year: date.getFullYear() });
+    }
+
+    const statsMap = new Map<string, number>();
+    carteiraRows.forEach((row: any) => {
+      const iso = row.data_implant as string | null;
+      if (!iso) return;
+      const date = new Date(iso);
+      if (!Number.isFinite(date.getTime())) return;
+      const monthsDiff = (now.getFullYear() - date.getFullYear()) * 12 + (now.getMonth() - date.getMonth());
+      if (monthsDiff < 0 || monthsDiff > 11) return;
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      const kg = getPeso(row.pedido_kg);
+      if (kg == null || kg <= 0) return;
+      const current = statsMap.get(key) || 0;
+      statsMap.set(key, current + kg);
+    });
+
+    return buckets.map(bucket => {
+      const totalKg = statsMap.get(`${bucket.year}-${bucket.month}`) || 0;
+      return {
+        label: bucket.label,
+        fullLabel: bucket.fullLabel,
+        volume: totalKg > 0 ? Number(totalKg.toFixed(2)) : null,
+      } as any;
+    });
+  }, [carteiraRows]);
+
+  const hasCarteiraTrendData = carteiraTrend.some(point => point.volume !== null);
+
+  const carteiraChartConfig = {
+    volume: {
+      label: "Entradas de Pedido (kg)",
+      color: "#22c55e",
+    },
+  } as const;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto">
-        <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle>
-              Análise de Ferramenta {matrizFilter && `- ${matrizFilter}`}
-            </DialogTitle>
+    <div className="max-w-5xl w-full mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          {onBack && (
             <button
-              onClick={() => setKeywordsManagerOpen(true)}
-              className="flex items-center gap-2 px-3 py-1 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm mr-8"
-              title="Gerenciar palavras-chave"
+              type="button"
+              onClick={onBack}
+              className="h-8 px-3 rounded-md border text-xs hover:bg-muted"
             >
-              <Settings className="h-4 w-4" />
-              Gerenciar Palavras-Chave
+              Voltar para Produção
             </button>
-          </div>
-        </DialogHeader>
-        
-        <div className="space-y-6">
+          )}
+          <h2 className="text-lg font-semibold">
+            Análise de Ferramenta {matrizFilter && `- ${matrizFilter}`}
+          </h2>
+        </div>
+        <button
+          onClick={() => setKeywordsManagerOpen(true)}
+          className="flex items-center gap-2 px-3 py-1 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm"
+          title="Gerenciar palavras-chave"
+        >
+          <Settings className="h-4 w-4" />
+          Gerenciar Palavras-Chave
+        </button>
+      </div>
+
+      <div className="space-y-6">
+          {hasTrendData && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold">Evolução da Produtividade (12 meses)</h3>
+                <p className="text-xs text-muted-foreground">
+                  Média mensal considerando apenas produções ≥ 200 kg
+                </p>
+              </div>
+              <ChartContainer config={productivityChartConfig} className="h-64 w-full rounded-lg border bg-card">
+                <LineChart data={productivityTrend} margin={{ left: 12, right: 12, top: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={10} />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    width={60}
+                    tickFormatter={(value) => formatNumber(Number(value))}
+                    domain={[0, "dataMax + 200"]}
+                  />
+                  <ChartTooltip
+                    cursor={{ strokeDasharray: '3 3' }}
+                    content={<ChartTooltipContent labelKey="fullLabel" />}
+                    formatter={(value, _name, item: any, _index, payload: any) => {
+                      const dataKey = item?.dataKey || item?.name;
+                      const seq = payload?.seq;
+                      const showSeq = dataKey === "produtividade" && seq;
+                      return (
+                        <div className="flex flex-col">
+                          <span>{`${formatNumber(value as number)} kg/h`}</span>
+                          {showSeq && (
+                            <span className="text-[10px] text-muted-foreground">
+                              Seq: {String(seq)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="produtividade"
+                    stroke="#2563eb"
+                    strokeWidth={2.5}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 4.5 }}
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="objetivoComum"
+                    stroke="#f97316"
+                    strokeWidth={1.8}
+                    dot={false}
+                    strokeDasharray="4 4"
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="objetivoEspecial"
+                    stroke="#16a34a"
+                    strokeWidth={1.8}
+                    dot={false}
+                    strokeDasharray="4 4"
+                    connectNulls
+                  />
+                </LineChart>
+              </ChartContainer>
+            </div>
+          )}
+
+          {hasCarteiraTrendData && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold">Entradas de Pedido na Carteira (12 meses)</h3>
+                <p className="text-xs text-muted-foreground">
+                  Soma mensal de Pedido Kg na Carteira para a ferramenta selecionada
+                </p>
+              </div>
+              <ChartContainer config={carteiraChartConfig} className="h-64 w-full rounded-lg border bg-card">
+                <LineChart data={carteiraTrend} margin={{ left: 12, right: 12, top: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={10} />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    width={70}
+                    tickFormatter={(value) => formatNumber(Number(value))}
+                    domain={[0, "dataMax + 500"]}
+                  />
+                  <ChartTooltip
+                    cursor={{ strokeDasharray: '3 3' }}
+                    content={<ChartTooltipContent labelKey="fullLabel" />}
+                    formatter={(value) => `${formatNumber(value as number)} kg`}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="volume"
+                    stroke="#22c55e"
+                    strokeWidth={2.3}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 4.5 }}
+                    connectNulls
+                  />
+                </LineChart>
+              </ChartContainer>
+            </div>
+          )}
+
           {/* Análise de Produtividade */}
           <div>
             <h3 className="text-lg font-semibold mb-3">Média de Produtividade</h3>
@@ -378,18 +665,22 @@ export function FerramentaAnalysisDialog({
                     </tr>
                   </thead>
                   <tbody>
-                    {causasAnalysis.map((causa, index) => (
-                      <tr key={causa.palavra} className={`border-b ${
-                        causa.ocorrencias === 0 ? 'opacity-40' : ''
-                      }`}>
+                    {causasComPercentual.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="p-3 text-center text-muted-foreground">
+                          Nenhuma ocorrência com percentual registrado.
+                        </td>
+                      </tr>
+                    )}
+                    {causasComPercentual.map((causa) => (
+                      <tr key={causa.palavra} className="border-b">
                         <td className="p-2 font-medium">{causa.palavra}</td>
                         <td className="p-2 text-right">{causa.ocorrencias}</td>
                         <td className="p-2 text-right">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
                             causa.porcentagem >= 10 ? 'bg-red-100 text-red-800' :
                             causa.porcentagem >= 5 ? 'bg-yellow-100 text-yellow-800' :
-                            causa.porcentagem > 0 ? 'bg-blue-100 text-blue-800' :
-                            'bg-gray-100 text-gray-600'
+                            'bg-blue-100 text-blue-800'
                           }`}>
                             {formatNumber(causa.porcentagem)}%
                           </span>
@@ -416,17 +707,16 @@ export function FerramentaAnalysisDialog({
           {/* Informações adicionais */}
           <div className="text-xs text-muted-foreground bg-muted p-3 rounded">
             <div>• Dados filtrados: {filteredData.length} registros</div>
-            <div>• Produtividade válida: valores entre 400 e 2.400 kg/h</div>
+            <div>• Produtividade analisada: produções ≥ 200 kg com produtividade até 2.400 kg/h</div>
             <div>• Análise baseada em {keywords.length} palavras-chave cadastradas</div>
           </div>
         </div>
-      </DialogContent>
-      
+
       <KeywordsManagerDialog
         open={keywordsManagerOpen}
         onOpenChange={setKeywordsManagerOpen}
         onKeywordsUpdated={loadKeywords}
       />
-    </Dialog>
+    </div>
   );
 }

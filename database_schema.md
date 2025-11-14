@@ -121,6 +121,11 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
     - `payload->>'Data Pedido'`
     - Formatos aceitos: DD/MM/YYYY, YYYY-MM-DD (ISO), serial Excel (numérico)
   - RPC: `public.analysis_carteira_truncate()` — função `SECURITY DEFINER` para truncar a tabela antes de novos uploads (sobrescrita total)
+  - **VIEW auxiliar**: `analysis_carteira_last_implant`
+    - Agrega `max(data_implant)` por `upper(trim(ferramenta))` para fornecer o último pedido por ferramenta normalizada.
+    - Consumida diretamente pelas abas Carteira e Vida para exibir "Último Pedido" sem múltiplas consultas à tabela plana.
+    - Índices de apoio em `analysis_carteira_flat`: `idx_analysis_carteira_flat_ferr_key` (`upper(trim(ferramenta))`) e `idx_analysis_carteira_flat_data_implant` (`data_implant DESC`).
+    - Permissões: `GRANT SELECT` para `anon` e `authenticated`.
   - **Correções 12/11/2025**:
     - Frontend: Agregação case-insensitive (tr-0100 = TR-0100 = Tr-0100)
     - Frontend: Filtros padrão ajustados (período desde 01/01/2024, tipo "Todos")
