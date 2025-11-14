@@ -119,6 +119,10 @@ function formatDateBRLocal(iso?: string) {
   return `${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`;
 }
 
+function normalizeFerramentaCode(code: string | null | undefined): string {
+  return (code ?? "").trim();
+}
+
 export function AnalysisCarteiraView() {
   const [rows, setRows] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,6 +142,7 @@ export function AnalysisCarteiraView() {
   // Período disponível no banco (data mais antiga e mais recente)
   const [dbMinDate, setDbMinDate] = useState<string | undefined>(undefined);
   const [dbMaxDate, setDbMaxDate] = useState<string | undefined>(undefined);
+  const [lastPedidoCarteira, setLastPedidoCarteira] = useState<Record<string, string | null>>({});
 
   // Carrega a menor e a maior data armazenadas no banco para Carteira (tabela plana)
   useEffect(() => {
@@ -461,6 +466,47 @@ export function AnalysisCarteiraView() {
     return { items, total };
   }, [filtered]);
 
+  // Carregar a última Data Implant (último pedido) via VIEW agregada
+  useEffect(() => {
+    const ferramentas = Array.from(
+      new Set(
+        aggregated.items
+          .map((it) => normalizeFerramentaCode(it.ferramenta).toUpperCase())
+          .filter((f) => !!f)
+      )
+    );
+    if (!ferramentas.length) {
+      setLastPedidoCarteira({});
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const map: Record<string, string | null> = {};
+        const batchSize = 200;
+        for (let i = 0; i < ferramentas.length; i += batchSize) {
+          if (!active) break;
+          const batch = ferramentas.slice(i, i + batchSize);
+          const { data, error } = await supabase
+            .from('analysis_carteira_last_implant')
+            .select('ferramenta_key,last_implant')
+            .in('ferramenta_key', batch);
+          if (error) throw error;
+          (data ?? []).forEach((row: any) => {
+            const key = String(row.ferramenta_key || '').toUpperCase();
+            if (!key || map[key]) return;
+            const iso = row.last_implant as string | null;
+            map[key] = iso && iso.length >= 10 ? iso.slice(0, 10) : null;
+          });
+        }
+        if (active) setLastPedidoCarteira(map);
+      } catch {
+        if (active) setLastPedidoCarteira({});
+      }
+    })();
+    return () => { active = false; };
+  }, [aggregated.items]);
+
   const finalItems = useMemo(() =>
     abcFilter === "all" ? aggregated.items : aggregated.items.filter((i) => i.classe === abcFilter),
   [aggregated.items, abcFilter]);
@@ -576,6 +622,7 @@ export function AnalysisCarteiraView() {
           <thead>
             <tr className="border-b">
               <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-left w-[260px]">Ferramenta</th>
+              <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-right w-[130px]">Último Pedido (Data Implant)</th>
               <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-right w-[120px]">Pedido Kg</th>
               <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-right w-[120px]">Média/12 meses</th>
               <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-right w-[110px]">Média/6 meses</th>
@@ -590,6 +637,13 @@ export function AnalysisCarteiraView() {
             {finalItems.map((it) => (
               <tr key={it.ferramenta} className="hover:bg-muted/40 border-b">
                 <td className="px-2 py-1.5 align-top text-left font-medium w-[260px] max-w-[260px] truncate" title={it.ferramenta}>{it.ferramenta}</td>
+                <td className="px-2 py-1.5 align-top text-right tabular-nums">
+                  {(() => {
+                    const key = normalizeFerramentaCode(it.ferramenta).toUpperCase();
+                    const last = lastPedidoCarteira[key];
+                    return last ? formatDateBRLocal(last) : "-";
+                  })()}
+                </td>
                 <td className="px-2 py-1.5 align-top text-right tabular-nums">{formatDecimal(it.pedidoKg)}</td>
                 <td className="px-2 py-1.5 align-top text-right tabular-nums">{formatDecimal(it.avg12m ?? 0)}</td>
                 <td className="px-2 py-1.5 align-top text-right tabular-nums">{formatDecimal(it.avg6m ?? 0)}</td>

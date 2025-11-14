@@ -89,6 +89,10 @@ function addMonthsApprox(baseISO: string, months: number) {
   return toISO(dt);
 }
 
+function normalizeMatrizCode(code: string | null | undefined): string {
+  return (code ?? "").trim();
+}
+
 interface VidaProps {
   onOpenFerramentas?: (matriz: string) => void;
 }
@@ -107,6 +111,7 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
   const [errorDetail, setErrorDetail] = useState<Record<string, string | null>>({});
   const [modeByMatriz, setModeByMatriz] = useState<Record<string, "igual" | "proporcional" | "manual">>({});
   const [manualPerc, setManualPerc] = useState<Record<string, Record<string, number>>>({});
+  const [lastPedidoCarteira, setLastPedidoCarteira] = useState<Record<string, string | null>>({});
   const [sortKey, setSortKey] = useState<SortKey>('data_pedido');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
 
@@ -124,7 +129,43 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
         });
         if (error) throw error;
         if (!active) return;
-        setRows((data as VidaRow[]) ?? []);
+        const vidaRows = (data as VidaRow[]) ?? [];
+        setRows(vidaRows);
+
+        // Buscar última data de pedido a partir da VIEW agregada (analysis_carteira_last_implant)
+        const ferramentas = Array.from(
+          new Set(
+            vidaRows
+              .map((r) => normalizeMatrizCode(r.matriz).toUpperCase())
+              .filter((m) => !!m)
+          )
+        );
+        if (ferramentas.length) {
+          try {
+            const map: Record<string, string | null> = {};
+            const batchSize = 200;
+            for (let i = 0; i < ferramentas.length; i += batchSize) {
+              if (!active) break;
+              const batch = ferramentas.slice(i, i + batchSize);
+              const { data: carteiraData, error: carteiraError } = await supabase
+                .from('analysis_carteira_last_implant')
+                .select('ferramenta_key,last_implant')
+                .in('ferramenta_key', batch);
+              if (carteiraError) throw carteiraError;
+              (carteiraData ?? []).forEach((row: any) => {
+                const key = String(row.ferramenta_key || '').toUpperCase();
+                if (!key || map[key]) return;
+                const iso = row.last_implant as string | null;
+                map[key] = iso && iso.length >= 10 ? iso.slice(0, 10) : null;
+              });
+            }
+            if (active) setLastPedidoCarteira(map);
+          } catch {
+            if (active) setLastPedidoCarteira({});
+          }
+        } else {
+          setLastPedidoCarteira({});
+        }
       } catch (e: any) {
         if (!active) return;
         setError(e?.message ?? String(e));
@@ -353,9 +394,12 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
                 <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-left w-[220px] cursor-pointer select-none" onClick={() => handleSort('matriz')}>
                   Matriz {sortKey==='matriz' ? (sortDir==='asc'?'▲':'▼') : ''}
                 </th>
-                <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-center w-[80px]">Risco</th>
                 <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-right w-[90px] cursor-pointer select-none" onClick={() => handleSort('seq_ativas')}>
                   Seq Ativas {sortKey==='seq_ativas' ? (sortDir==='asc'?'▲':'▼') : ''}
+                </th>
+                <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-center w-[80px]">Risco</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-right w-[130px]">
+                  Último Pedido (Carteira)
                 </th>
                 <th className="sticky top-0 bg-muted px-2 py-2 font-medium text-muted-foreground text-right w-[120px] cursor-pointer select-none" onClick={() => handleSort('produzido_total')}>
                   Produzido (kg) {sortKey==='produzido_total' ? (sortDir==='asc'?'▲':'▼') : ''}
@@ -384,6 +428,7 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
               {finalRows.map((r) => (
                 <>
                   <tr key={r.matriz} className="hover:bg-muted/40 border-b">
+                    {/* Matriz + botão */}
                     <td className="px-2 py-1.5 text-left whitespace-nowrap">
                       <button type="button" className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded border text-[10px] shrink-0" onClick={() => toggleExpand(r.matriz)}>
                         {expanded[r.matriz] ? "▾" : "▸"}
@@ -402,6 +447,9 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
                         </Button>
                       )}
                     </td>
+                    {/* Seq Ativas */}
+                    <td className="px-2 py-1.5 text-right tabular-nums">{r.seq_ativas}</td>
+                    {/* Risco */}
                     <td className="px-2 py-1.5 text-center">
                       {(() => {
                         const lvl = (r.risk_level || '').toLowerCase();
@@ -422,7 +470,16 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
                         return <span title={tooltip} className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] ${cls}`}>{label}</span>;
                       })()}
                     </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{r.seq_ativas}</td>
+                    {/* Último Pedido (Carteira) */}
+                    <td className="px-2 py-1.5 text-right text-xs">
+                      {(() => {
+                        const key = normalizeMatrizCode(r.matriz).toUpperCase();
+                        const last = lastPedidoCarteira[key];
+                        if (last) return formatDateBR(last);
+                        return <span className="text-muted-foreground" title="Data do último pedido é anterior ao período carregado na Carteira ou não foi encontrada.">Anterior ao período da Carteira</span>;
+                      })()}
+                    </td>
+                    {/* Produzido / Capacidade / Demanda / Meses / Datas calculadas */}
                     <td className="px-2 py-1.5 text-right tabular-nums">{formatNumberBR(r.produzido_total)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{formatNumberBR(r.cap_total)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{formatNumberBR(r.cap_restante)}</td>
@@ -438,7 +495,7 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
                   </tr>
                   {expanded[r.matriz] && (
                     <tr>
-                      <td className="px-2 py-2" colSpan={9}>
+                      <td className="px-2 py-2" colSpan={11}>
                         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
                           <span className="text-muted-foreground">Distribuição</span>
                           <select
