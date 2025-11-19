@@ -171,6 +171,21 @@ ALTER TABLE public.manufacturing_records
 -- ALTER TABLE public.manufacturing_records DROP COLUMN IF EXISTS package_size;
 -- ALTER TABLE public.manufacturing_records DROP COLUMN IF EXISTS hole_count;
 
+-- =============================================
+-- 18/11/2025 - Migração: Tipo de item e acessórios em manufacturing_records
+-- Objetivo: registrar confecção de acessórios (BO, BAT, PORTA BAT, CARCAÇA, ESPINA)
+-- =============================================
+ALTER TABLE public.manufacturing_records
+  ADD COLUMN IF NOT EXISTS item_category text,
+  ADD COLUMN IF NOT EXISTS accessory_code text,
+  ADD COLUMN IF NOT EXISTS accessory_type text;
+
+-- Rollback (tipo de item e acessórios)
+-- ALTER TABLE public.manufacturing_records
+--   DROP COLUMN IF EXISTS accessory_type,
+--   DROP COLUMN IF EXISTS accessory_code,
+--   DROP COLUMN IF EXISTS item_category;
+
 -- Migração: Consolidação de Segurança e Performance (Sem Login)
 -- Objetivo: Habilitar RLS nas tabelas Kanban, criar políticas provisórias,
 --           adicionar índices recomendados, impedir auto-referência em events,

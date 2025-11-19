@@ -46,6 +46,8 @@ type SortKey =
   | 'data_eol'
   | 'data_pedido';
 
+type DistribMode = "igual" | "proporcional" | "manual" | "capacidade_risco" | "exaustao";
+
 function toISO(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -109,7 +111,7 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
   const [details, setDetails] = useState<Record<string, SeqRow[]>>({});
   const [loadingDetail, setLoadingDetail] = useState<Record<string, boolean>>({});
   const [errorDetail, setErrorDetail] = useState<Record<string, string | null>>({});
-  const [modeByMatriz, setModeByMatriz] = useState<Record<string, "igual" | "proporcional" | "manual">>({});
+  const [modeByMatriz, setModeByMatriz] = useState<Record<string, DistribMode>>({});
   const [manualPerc, setManualPerc] = useState<Record<string, Record<string, number>>>({});
   const [lastPedidoCarteira, setLastPedidoCarteira] = useState<Record<string, string | null>>({});
   const [sortKey, setSortKey] = useState<SortKey>('data_pedido');
@@ -282,7 +284,9 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
     });
   }, [periodEnd, months, leadTime]);
 
-  function exportCSV(matriz: string, arr: SeqRow[], demandaTotal: number, mode: "igual" | "proporcional" | "manual") {
+  function exportCSV(matriz: string, arr: SeqRow[], demandaTotal: number, mode: DistribMode) {
+    const effectiveMode: "igual" | "proporcional" | "manual" =
+      mode === "proporcional" || mode === "manual" ? mode : "igual";
     const n = arr.length || 1;
     const mp = manualPerc[matriz] || {};
     const sumProd = arr.reduce((s, it) => s + (it.produzido_seq || 0), 0) || 0;
@@ -292,9 +296,9 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
     lines.push(["Matriz","Seq","Ativa","Produzido (kg)","Cap. Total (kg)","Restante (kg)","Demanda m/mês (kg)","Meses cobertura","Data EOL","Data Pedido"].join(";"));
     arr.forEach((d, i) => {
       let weight = 1 / n;
-      if (mode === "proporcional") {
+      if (effectiveMode === "proporcional") {
         weight = sumProd > 0 ? (d.produzido_seq || 0) / sumProd : 1 / n;
-      } else if (mode === "manual") {
+      } else if (effectiveMode === "manual") {
         const key = `${matriz}::${d.seq || i}`;
         const val = mp[key] ?? (100 / n);
         weight = sumPct > 0 ? (val / sumPct) : (1 / n);
@@ -501,11 +505,13 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
                           <select
                             className="h-7 rounded border bg-background px-2"
                             value={modeByMatriz[r.matriz] || "igual"}
-                            onChange={(e) => setModeByMatriz((m) => ({ ...m, [r.matriz]: e.target.value as any }))}
+                            onChange={(e) => setModeByMatriz((m) => ({ ...m, [r.matriz]: e.target.value as DistribMode }))}
                           >
                             <option value="igual">Igual entre sequências</option>
                             <option value="proporcional">Proporcional à Qte.Prod.</option>
                             <option value="manual">Manual (%)</option>
+                            <option value="capacidade_risco">Capacidade + Risco (30t/39t)</option>
+                            <option value="exaustao">Exaustão por Restante</option>
                           </select>
                           <button
                             type="button"
@@ -541,84 +547,131 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
                               </tr>
                             </thead>
                             <tbody>
-                              {(details[r.matriz] ?? []).map((d, i, arr) => {
-                                const n = arr.length || 1;
+                              {(() => {
+                                const arr = details[r.matriz] ?? [];
                                 const mode = modeByMatriz[r.matriz] || "igual";
-                                const key = `${r.matriz}::${d.seq || i}`;
                                 const demandTotal = (r as any).demanda_effective ?? (r.demanda_media_mensal || 0);
-                                let weight = 1 / n;
-                                if (mode === "proporcional") {
-                                  const sumProd = arr.reduce((s, it) => s + (it.produzido_seq || 0), 0) || 0;
-                                  weight = sumProd > 0 ? (d.produzido_seq || 0) / sumProd : 1 / n;
-                                } else if (mode === "manual") {
-                                  const mp = manualPerc[r.matriz] || {};
-                                  const my = mp[key] ?? (100 / n);
-                                  const sum = arr.reduce((s, it, idx) => s + (mp[`${r.matriz}::${it.seq || idx}`] ?? (100 / n)), 0) || 100;
-                                  weight = sum > 0 ? (my / sum) : (1 / n);
-                                }
-                                const demanda = demandTotal * weight;
-                                const meses = demanda > 0 ? (d.cap_restante_seq || 0) / demanda : null;
-                                const eol = demanda > 0 && meses != null ? new Date(periodEnd + 'T00:00:00') : null;
-                                const eolStr = (() => {
-                                  if (!eol || meses == null) return null;
-                                  const dt = new Date(eol);
-                                  dt.setMonth(dt.getMonth() + Math.max(0, Math.floor(meses)));
-                                  const frac = Math.max(0, (meses - Math.floor(meses)));
-                                  if (frac > 0) dt.setDate(dt.getDate() + Math.round(frac * 30));
-                                  return toISO(dt);
-                                })();
-                                const pedidoStr = (() => {
-                                  if (!eolStr) return null;
-                                  const dt = new Date(eolStr + 'T00:00:00');
-                                  dt.setDate(dt.getDate() - (leadTime || 0));
-                                  return toISO(dt);
-                                })();
-                                return (
-                                  <tr key={`${r.matriz}-${i}`} className="border-b hover:bg-muted/30">
-                                    <td className="px-2 py-1 text-left">{d.seq || "-"}</td>
-                                    <td className="px-2 py-1 text-center">{d.ativa || ""}</td>
-                                    <td className="px-2 py-1 text-center">
-                                      {(() => {
-                                        const level: 'ok'|'atencao'|'critico' = (d.cap_restante_seq <= 0 || (d.produzido_seq || 0) >= 30000) ? 'critico' : (meses != null && meses <= 1 ? 'atencao' : 'ok');
-                                        const prob = riskProbSeq(d.produzido_seq || 0, 30000, meses);
-                                        const cls = level==='critico' ? 'bg-red-600/15 text-red-700 border-red-600/40' : level==='atencao' ? 'bg-amber-500/15 text-amber-700 border-amber-500/40' : 'bg-emerald-600/10 text-emerald-700 border-emerald-600/30';
-                                        const label = level==='critico' ? 'Crítico' : level==='atencao' ? 'Atenção' : 'OK';
-                                        const extra = (d.produzido_seq || 0) > 30000 ? ` (+${formatNumberBR((d.produzido_seq||0) - 30000)} kg | ${(prob*100).toFixed(0)}%)` : '';
-                                        const tooltip = (() => {
-                                          if (!(d.cap_restante_seq <= 0) || !(demanda > 0)) return '';
-                                          const monthsExtra = 30000 / demanda; // hipótese +30t nesta sequência
-                                          const eolExtra = addMonthsApprox(periodEnd, monthsExtra);
-                                          return `Faixa EOL: Hoje — ${formatDateBR(eolExtra)} (hipótese +30t)`;
-                                        })();
-                                        return <span title={tooltip} className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] ${cls}`}>{label}{extra}</span>;
-                                      })()}
-                                    </td>
-                                    <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(d.produzido_seq)}</td>
-                                    <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(d.cap_total_seq)}</td>
-                                    <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(d.cap_restante_seq)}</td>
-                                    <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(demanda)}</td>
-                                    {mode === "manual" && (
-                                      <td className="px-2 py-1 text-right">
-                                        <input
-                                          type="number"
-                                          className="h-7 w-20 rounded border bg-background px-2 text-right"
-                                          value={(manualPerc[r.matriz]?.[key] ?? (100 / n)).toFixed(2)}
-                                          onChange={(e) => {
-                                            const v = Number(e.target.value);
-                                            setManualPerc((mp) => ({
-                                              ...mp,
-                                              [r.matriz]: { ...(mp[r.matriz] || {}), [key]: isFinite(v) ? v : 0 },
-                                            }));
-                                          }}
-                                        />
+                                const n = arr.length || 1;
+                                const mp = manualPerc[r.matriz] || {};
+                                const sumProd = arr.reduce((s, it) => s + (it.produzido_seq || 0), 0) || 0;
+                                const sumPct = arr.reduce((s, it, idx) => s + (mp[`${r.matriz}::${it.seq || idx}`] ?? (100 / n)), 0) || 100;
+                                let remainingDemand = demandTotal;
+
+                                return arr.map((d, i) => {
+                                  const key = `${r.matriz}::${d.seq || i}`;
+                                  let demanda = 0;
+                                  let meses: number | null = null;
+                                  let normalCap = 0;
+                                  let riskCap = 0;
+
+                                  if (mode === "capacidade_risco") {
+                                    const produced = d.produzido_seq || 0;
+                                    const theoreticalCap = 30000;
+                                    const extendedCap = 39000;
+                                    if (remainingDemand > 0 && produced < extendedCap) {
+                                      const usedNormalAlready = Math.min(produced, theoreticalCap);
+                                      const availableNormal = Math.max(0, theoreticalCap - usedNormalAlready);
+                                      const usedNormal = Math.min(remainingDemand, availableNormal);
+                                      remainingDemand -= usedNormal;
+
+                                      const usedRiskAlready = Math.max(0, produced - theoreticalCap);
+                                      const availableRisk = Math.max(0, extendedCap - theoreticalCap - usedRiskAlready);
+                                      const usedRisk = remainingDemand > 0 ? Math.min(remainingDemand, availableRisk) : 0;
+                                      remainingDemand -= usedRisk;
+
+                                      normalCap = usedNormal;
+                                      riskCap = usedRisk;
+                                      demanda = usedNormal + usedRisk;
+                                    } else {
+                                      demanda = 0;
+                                    }
+                                  } else if (mode === "exaustao") {
+                                    const capRest = Math.max(0, d.cap_restante_seq || 0);
+                                    if (remainingDemand > 0 && capRest > 0) {
+                                      demanda = Math.min(remainingDemand, capRest);
+                                      remainingDemand -= demanda;
+                                    } else {
+                                      demanda = 0;
+                                    }
+                                  } else {
+                                    let weight = 1 / (n || 1);
+                                    if (mode === "proporcional") {
+                                      weight = sumProd > 0 ? (d.produzido_seq || 0) / sumProd : 1 / (n || 1);
+                                    } else if (mode === "manual") {
+                                      const val = mp[key] ?? (100 / (n || 1));
+                                      weight = sumPct > 0 ? (val / sumPct) : (1 / (n || 1));
+                                    }
+                                    demanda = demandTotal * weight;
+                                  }
+
+                                  meses = demanda > 0 ? (d.cap_restante_seq || 0) / demanda : null;
+                                  const eol = demanda > 0 && meses != null ? new Date(periodEnd + 'T00:00:00') : null;
+                                  const eolStr = (() => {
+                                    if (!eol || meses == null) return null;
+                                    const dt = new Date(eol);
+                                    dt.setMonth(dt.getMonth() + Math.max(0, Math.floor(meses)));
+                                    const frac = Math.max(0, (meses - Math.floor(meses)));
+                                    if (frac > 0) dt.setDate(dt.getDate() + Math.round(frac * 30));
+                                    return toISO(dt);
+                                  })();
+                                  const pedidoStr = (() => {
+                                    if (!eolStr) return null;
+                                    const dt = new Date(eolStr + 'T00:00:00');
+                                    dt.setDate(dt.getDate() - (leadTime || 0));
+                                    return toISO(dt);
+                                  })();
+
+                                  return (
+                                    <tr key={`${r.matriz}-${i}`} className="border-b hover:bg-muted/30">
+                                      <td className="px-2 py-1 text-left">{d.seq || "-"}</td>
+                                      <td className="px-2 py-1 text-center">{d.ativa || ""}</td>
+                                      <td className="px-2 py-1 text-center">
+                                        {(() => {
+                                          const level: 'ok'|'atencao'|'critico' = (d.cap_restante_seq <= 0 || (d.produzido_seq || 0) >= 30000) ? 'critico' : (meses != null && meses <= 1 ? 'atencao' : 'ok');
+                                          const prob = riskProbSeq(d.produzido_seq || 0, 30000, meses);
+                                          const cls = level==='critico' ? 'bg-red-600/15 text-red-700 border-red-600/40' : level==='atencao' ? 'bg-amber-500/15 text-amber-700 border-amber-500/40' : 'bg-emerald-600/10 text-emerald-700 border-emerald-600/30';
+                                          const label = level==='critico' ? 'Crítico' : level==='atencao' ? 'Atenção' : 'OK';
+                                          const extra = (d.produzido_seq || 0) > 30000 ? ` (+${formatNumberBR((d.produzido_seq||0) - 30000)} kg | ${(prob*100).toFixed(0)}%)` : '';
+                                          const tooltipBase = (() => {
+                                            if (!(d.cap_restante_seq <= 0) || !(demanda > 0)) return '';
+                                            const monthsExtra = 30000 / demanda; // hipótese +30t nesta sequência
+                                            const eolExtra = addMonthsApprox(periodEnd, monthsExtra);
+                                            return `Faixa EOL: Hoje — ${formatDateBR(eolExtra)} (hipótese +30t)`;
+                                          })();
+                                          const tooltipExtra = mode === "capacidade_risco" && (normalCap > 0 || riskCap > 0)
+                                            ? `Cap. normal: ${formatNumberBR(normalCap)} kg | Cap. risco: ${formatNumberBR(riskCap)} kg`
+                                            : '';
+                                          const tooltip = [tooltipBase, tooltipExtra].filter(Boolean).join(' | ');
+                                          return <span title={tooltip} className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] ${cls}`}>{label}{extra}</span>;
+                                        })()}
                                       </td>
-                                    )}
-                                    <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(meses ?? 0)}</td>
-                                    <td className="px-2 py-1 text-right tabular-nums">{formatDateBR(eolStr)}</td>
-                                    <td className="px-2 py-1 text-right tabular-nums">{formatDateBR(pedidoStr)}</td>
-                                  </tr>
-                                );
-                              })}
+                                      <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(d.produzido_seq)}</td>
+                                      <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(d.cap_total_seq)}</td>
+                                      <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(d.cap_restante_seq)}</td>
+                                      <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(demanda)}</td>
+                                      {mode === "manual" && (
+                                        <td className="px-2 py-1 text-right">
+                                          <input
+                                            type="number"
+                                            className="h-7 w-20 rounded border bg-background px-2 text-right"
+                                            value={(manualPerc[r.matriz]?.[key] ?? (100 / n)).toFixed(2)}
+                                            onChange={(e) => {
+                                              const v = Number(e.target.value);
+                                              setManualPerc((mp) => ({
+                                                ...mp,
+                                                [r.matriz]: { ...(mp[r.matriz] || {}), [key]: isFinite(v) ? v : 0 },
+                                              }));
+                                            }}
+                                          />
+                                        </td>
+                                      )}
+                                      <td className="px-2 py-1 text-right tabular-nums">{formatNumberBR(meses ?? 0)}</td>
+                                      <td className="px-2 py-1 text-right tabular-nums">{formatDateBR(eolStr)}</td>
+                                      <td className="px-2 py-1 text-right tabular-nums">{formatDateBR(pedidoStr)}</td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
                             </tbody>
                           </table>
                         )}

@@ -53,6 +53,46 @@
   - Filtros: Ativa (Sim/Não/Todas), Status normalizado, Matriz (texto).
   - Estatísticas exibidas: Maior, Menor e Mediana de `Qte.Prod.` da lista filtrada.
 
+## Iteração 14/11/2025 (Área de Análise – Análise de Ferramenta)
+
+- **Aba dedicada de Análise de Ferramenta (substitui o modal)**
+  - Componentes: `AnalysisView`, `AnalysisProducaoView`, `FerramentaAnalysisDialog`.
+  - O botão **"Analisar Ferramenta"** da aba Produção passa a abrir a aba **"Análise Ferramenta"**, levando junto a matriz e as linhas filtradas.
+  - A aba de análise só aparece quando há dados carregados; o botão **"Voltar para Produção"** retorna à aba Produção e limpa os dados, escondendo a aba até uma nova análise.
+
+- **Gráfico de Produtividade (12 meses)**
+  - Linha suavizada com a **média mensal de produtividade (kg/h)** da matriz selecionada.
+  - Regras de filtro para considerar o ponto na análise:
+    - Peso bruto ≥ **200 kg**.
+    - Produtividade > 0 e ≤ **2.400 kg/h**.
+  - Linhas de objetivo fixas, sempre exibidas (sem depender da coluna de liga):
+    - **1.300 kg/h** – objetivo para Liga Comum.
+    - **1.000 kg/h** – objetivo para Liga Especial.
+  - Tooltip do gráfico:
+    - Mostra o valor formatado em kg/h.
+    - Exibe **Seq da Matriz** apenas na série de produtividade (não aparece nas linhas de objetivo).
+
+- **Gráfico de Entradas de Pedido (Carteira, 12 meses)**
+  - Usa a tabela plana `analysis_carteira_flat` para somar `pedido_kg` por mês.
+  - Considera os últimos **12 meses** para a ferramenta selecionada, exibindo a soma mensal em kg.
+  - Eixo Y em kg com formatação PT-BR; tooltip exibe o volume do mês (kg) e o mês/ano completo.
+
+- **Análise de Causas por Palavras-Chave**
+  - Componente de gerenciamento: `KeywordsManagerDialog`.
+  - É possível cadastrar palavras-chave por categoria (Geral, Mecânico, Material, Processo, Dimensional, Qualidade).
+  - A aba de Análise de Ferramenta percorre o campo **"Observação Lote"** das linhas filtradas, conta as ocorrências de cada palavra-chave e calcula o percentual sobre o total de observações.
+  - O botão **"Adicionar Todas"** na área **Adicionar em Lote**:
+    - Converte tudo para maiúsculo.
+    - Remove duplicatas dentro do próprio texto em lote.
+    - Ignora palavras que já existem na tabela `analysis_keywords`, preservando os registros atuais.
+    - Insere apenas as palavras realmente novas na categoria selecionada.
+
+- **Indicadores adicionais da análise de ferramenta**
+  - Cartões com **média de produtividade** no último mês, últimos 6 meses e últimos 12 meses.
+  - Bloco de **Análise de Extremos**: maior e menor produtividade, exibindo também o volume (kg) associado a cada caso.
+  - Indicador por **Cod Parada**: separa "001 - PEDIDO ATENDIDO" dos demais códigos (exclui 400, 401, 402, 306, 313, 315, 121) e mostra percentuais.
+  - Rodapé informa total de registros analisados, regra de filtro aplicada (≥ 200 kg e até 2.400 kg/h) e quantidade de palavras-chave cadastradas.
+
 ## Iteração 12/11/2025 (Área de Análise – Produção)
 
 - **Sobrescrita total antes do upload**

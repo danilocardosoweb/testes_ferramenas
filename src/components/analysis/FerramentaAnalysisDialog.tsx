@@ -103,6 +103,7 @@ export function FerramentaAnalysisDialog({
   const [keywordsManagerOpen, setKeywordsManagerOpen] = useState(false);
   const [carteiraRows, setCarteiraRows] = useState<Array<{ data_implant: string | null; pedido_kg: any; ferramenta: string | null }>>([]);
   const [carteiraLoading, setCarteiraLoading] = useState(false);
+  const [selectedMatriz, setSelectedMatriz] = useState(() => normalizeMatriz(matrizFilter));
 
   
   // Carregar palavras-chave do banco
@@ -133,13 +134,22 @@ export function FerramentaAnalysisDialog({
   
   // Filtrar dados pela matriz selecionada
   const filteredData = useMemo(() => {
-    const target = normalizeMatriz(matrizFilter);
+    const target = normalizeMatriz(selectedMatriz);
     if (!target) return data;
     return data.filter(row => normalizeMatriz(row.Matriz) === target);
-  }, [data, matrizFilter]);
+  }, [data, selectedMatriz]);
+
+  const matrizOptions = useMemo(() => {
+    const set = new Set<string>();
+    data.forEach(row => {
+      const code = normalizeMatriz(row.Matriz);
+      if (code) set.add(code);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [data]);
 
   useEffect(() => {
-    const target = normalizeMatriz(matrizFilter);
+    const target = normalizeMatriz(selectedMatriz);
     if (!target) {
       setCarteiraRows([]);
       return;
@@ -158,10 +168,16 @@ export function FerramentaAnalysisDialog({
           .select('data_implant,pedido_kg,ferramenta')
           .gte('data_implant', periodStart)
           .lte('data_implant', periodEnd)
-          .ilike('ferramenta', `%${target}%`);
+          .ilike('ferramenta', `${target}%`);
         if (error) throw error;
         if (!active) return;
-        setCarteiraRows(data ?? []);
+        const cleaned = (data ?? []).filter((row: any) => {
+          const raw = (row.ferramenta ?? '').toString().trim().toUpperCase();
+          if (!raw || raw.startsWith('SF')) return false;
+          const base = raw.split('/')[0].trim();
+          return base === target;
+        });
+        setCarteiraRows(cleaned);
       } catch {
         if (!active) return;
         setCarteiraRows([]);
@@ -172,7 +188,7 @@ export function FerramentaAnalysisDialog({
     return () => {
       active = false;
     };
-  }, [matrizFilter]);
+  }, [selectedMatriz]);
 
   const validRows = useMemo(() => {
     return filteredData.filter(row => {
@@ -249,6 +265,42 @@ export function FerramentaAnalysisDialog({
       volumeMenorProd: volumeMenor,
     };
   }, [filteredData]);
+
+  const productivityRangeStats = useMemo(() => {
+    const rows365 = validRows.filter(row => {
+      const date = parseDate(row["Data Produção"]);
+      return date && isWithinDays(date, 365);
+    });
+
+    let above1300 = 0;
+    let between1000_1300 = 0;
+    let below1000 = 0;
+
+    rows365.forEach(row => {
+      const prod = getProdutividade(row.Produtividade);
+      if (prod == null) return;
+      if (prod > 1300) {
+        above1300 += 1;
+      } else if (prod >= 1000) {
+        between1000_1300 += 1;
+      } else {
+        below1000 += 1;
+      }
+    });
+
+    const total = above1300 + between1000_1300 + below1000;
+    const pct = (x: number) => (total > 0 ? (x / total) * 100 : 0);
+
+    return {
+      total,
+      above1300,
+      between1000_1300,
+      below1000,
+      pAbove1300: pct(above1300),
+      pBetween1000_1300: pct(between1000_1300),
+      pBelow1000: pct(below1000),
+    };
+  }, [validRows]);
 
   // Análise de causas
   const causasAnalysis = useMemo((): CausaAnalysis[] => {
@@ -422,12 +474,52 @@ export function FerramentaAnalysisDialog({
       statsMap.set(key, current + kg);
     });
 
-    return buckets.map(bucket => {
+    const base = buckets.map((bucket) => {
       const totalKg = statsMap.get(`${bucket.year}-${bucket.month}`) || 0;
       return {
         label: bucket.label,
         fullLabel: bucket.fullLabel,
         volume: totalKg > 0 ? Number(totalKg.toFixed(2)) : null,
+      } as any;
+    });
+
+    const points = base
+      .map((p, idx) => ({ x: idx, y: p.volume as number | null }))
+      .filter((p) => p.y != null) as { x: number; y: number }[];
+
+    let slope = 0;
+    let intercept = 0;
+    if (points.length >= 2) {
+      const n = points.length;
+      let sumX = 0;
+      let sumY = 0;
+      let sumXY = 0;
+      let sumXX = 0;
+      for (const pt of points) {
+        const x = pt.x;
+        const y = pt.y;
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumXX += x * x;
+      }
+      const denom = n * sumXX - sumX * sumX;
+      if (denom !== 0) {
+        slope = (n * sumXY - sumX * sumY) / denom;
+        intercept = (sumY - slope * sumX) / n;
+      } else {
+        slope = 0;
+        intercept = n > 0 ? sumY / n : 0;
+      }
+    }
+
+    const hasTrend = points.length >= 2;
+
+    return base.map((p, idx) => {
+      const t = hasTrend ? intercept + slope * idx : null;
+      return {
+        ...p,
+        trend: t != null ? Number(t.toFixed(2)) : null,
       } as any;
     });
   }, [carteiraRows]);
@@ -438,6 +530,10 @@ export function FerramentaAnalysisDialog({
     volume: {
       label: "Entradas de Pedido (kg)",
       color: "#22c55e",
+    },
+    trend: {
+      label: "Tendência",
+      color: "#0ea5e9",
     },
   } as const;
 
@@ -454,9 +550,28 @@ export function FerramentaAnalysisDialog({
               Voltar para Produção
             </button>
           )}
-          <h2 className="text-lg font-semibold">
-            Análise de Ferramenta {matrizFilter && `- ${matrizFilter}`}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">
+              Análise de Ferramenta {selectedMatriz && `- ${selectedMatriz}`}
+            </h2>
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                className="h-8 w-32 rounded-md border bg-background px-2 text-xs"
+                list="matriz-options"
+                placeholder="Digite a matriz…"
+                value={selectedMatriz || ""}
+                onChange={(e) => setSelectedMatriz(e.target.value)}
+              />
+              {matrizOptions.length > 0 && (
+                <datalist id="matriz-options">
+                  {matrizOptions.map((code) => (
+                    <option key={code} value={code} />
+                  ))}
+                </datalist>
+              )}
+            </div>
+          </div>
         </div>
         <button
           onClick={() => setKeywordsManagerOpen(true)}
@@ -472,7 +587,14 @@ export function FerramentaAnalysisDialog({
           {hasTrendData && (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">Evolução da Produtividade (12 meses)</h3>
+                <h3 className="text-lg font-semibold">
+                  Evolução da Produtividade (12 meses)
+                  {selectedMatriz && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      Matriz: {selectedMatriz}
+                    </span>
+                  )}
+                </h3>
                 <p className="text-xs text-muted-foreground">
                   Média mensal considerando apenas produções ≥ 200 kg
                 </p>
@@ -537,15 +659,57 @@ export function FerramentaAnalysisDialog({
                   />
                 </LineChart>
               </ChartContainer>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="rounded-md border bg-emerald-50 px-3 py-2">
+                  <div className="font-medium text-emerald-700">Acima de 1.300 kg/h</div>
+                  <div className="mt-1 text-sm">
+                    {formatNumber(productivityRangeStats.pAbove1300)}%
+                    {productivityRangeStats.total > 0 && (
+                      <span className="ml-1 text-[11px] text-muted-foreground">
+                        ({productivityRangeStats.above1300} de {productivityRangeStats.total} lotes)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-amber-50 px-3 py-2">
+                  <div className="font-medium text-amber-700">Entre 1.300 e 1.000 kg/h</div>
+                  <div className="mt-1 text-sm">
+                    {formatNumber(productivityRangeStats.pBetween1000_1300)}%
+                    {productivityRangeStats.total > 0 && (
+                      <span className="ml-1 text-[11px] text-muted-foreground">
+                        ({productivityRangeStats.between1000_1300} de {productivityRangeStats.total} lotes)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-red-50 px-3 py-2">
+                  <div className="font-medium text-red-700">Abaixo de 1.000 kg/h</div>
+                  <div className="mt-1 text-sm">
+                    {formatNumber(productivityRangeStats.pBelow1000)}%
+                    {productivityRangeStats.total > 0 && (
+                      <span className="ml-1 text-[11px] text-muted-foreground">
+                        ({productivityRangeStats.below1000} de {productivityRangeStats.total} lotes)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
           {hasCarteiraTrendData && (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">Entradas de Pedido na Carteira (12 meses)</h3>
+                <h3 className="text-lg font-semibold">
+                  Entradas de Pedido na Carteira (12 meses)
+                  {selectedMatriz && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      Matriz: {selectedMatriz}
+                    </span>
+                  )}
+                </h3>
                 <p className="text-xs text-muted-foreground">
-                  Soma mensal de Pedido Kg na Carteira para a ferramenta selecionada
+                  Soma mensal de Pedido Kg na Carteira para a matriz selecionada
                 </p>
               </div>
               <ChartContainer config={carteiraChartConfig} className="h-64 w-full rounded-lg border bg-card">
@@ -572,6 +736,15 @@ export function FerramentaAnalysisDialog({
                     strokeWidth={2.3}
                     dot={{ r: 3 }}
                     activeDot={{ r: 4.5 }}
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="trend"
+                    stroke="#0ea5e9"
+                    strokeWidth={1.8}
+                    dot={false}
+                    strokeDasharray="4 4"
                     connectNulls
                   />
                 </LineChart>

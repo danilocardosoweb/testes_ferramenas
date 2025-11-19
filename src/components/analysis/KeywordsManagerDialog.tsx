@@ -121,11 +121,33 @@ export function KeywordsManagerDialog({
       .map(w => w.trim())
       .filter(w => w.length >= 3);
 
+    // Remover duplicatas dentro do próprio lote
+    const uniqueBatch: string[] = [];
+    const seenInBatch = new Set<string>();
+    for (const w of words) {
+      if (!seenInBatch.has(w)) {
+        seenInBatch.add(w);
+        uniqueBatch.push(w);
+      }
+    }
+
+    // Ignorar palavras que já existem no banco (estado local)
+    const existing = new Set(
+      keywords.map(k => (k.keyword || '').toString().toUpperCase().trim())
+    );
+
+    const newWords = uniqueBatch.filter(w => !existing.has(w));
+
+    if (newWords.length === 0) {
+      setBulkText('');
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('analysis_keywords')
         .insert(
-          words.map(word => ({
+          newWords.map(word => ({
             keyword: word,
             category: selectedCategory
           }))

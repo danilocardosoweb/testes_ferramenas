@@ -9,6 +9,9 @@ export interface ManufacturingRecord {
   profile_type: 'tubular' | 'solido';
   package_size?: string | null;
   hole_count?: number | null;
+  item_category?: 'matriz' | 'acessorio' | null;
+  accessory_code?: string | null;
+  accessory_type?: string | null;
   supplier: string;
   custom_supplier?: string;
   estimated_delivery_date?: string | null;
@@ -171,6 +174,9 @@ export async function createManufacturingRecord(data: Omit<ManufacturingRecord, 
       profile_type: data.profile_type,
       package_size: data.package_size ?? null,
       hole_count: data.hole_count ?? null,
+      item_category: (data as any).item_category ?? 'matriz',
+      accessory_code: (data as any).accessory_code ?? null,
+      accessory_type: (data as any).accessory_type ?? null,
       supplier: data.supplier,
       custom_supplier: data.custom_supplier,
       priority: data.priority || 'medium',

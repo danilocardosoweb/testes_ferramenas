@@ -135,6 +135,14 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
     - Frontend: Rodapé com estatísticas (volume em kg/ton, distribuição ABC)
     - Frontend: Logs de debug detalhados no console
 
+- **analysis_keywords** (documentado em 14/11/2025)
+  - `id (uuid, PK)`
+  - `keyword (text, not null)` — termo em maiúsculo utilizado na análise de causas (extraído de "Observação Lote")
+  - `category (text, not null)` — categoria lógica (ex.: Geral, Mecânico, Material, Processo, Dimensional, Qualidade)
+  - `is_active (boolean, default true)` — permite desativar palavras sem apagá-las
+  - `created_at (timestamptz, default now())`
+  - Observação: consumida pelo `KeywordsManagerDialog` na área de Análise (Produção/Análise de Ferramenta) para calcular ocorrências e percentuais de causas.
+
 - **manufacturing_records**
   - `id (uuid, PK)`
   - `matrix_id (uuid, FK -> matrices.id, on delete cascade)`

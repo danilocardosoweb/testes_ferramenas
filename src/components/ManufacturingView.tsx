@@ -18,7 +18,10 @@ import { Factory, X, Eye, Download, ChevronDown, ChevronUp, Trash2, CheckCircle2
 import * as XLSX from 'xlsx';
 
 interface FormData {
+  itemCategory: "matriz" | "acessorio" | "";
   matrixCode: string;
+  accessoryCode: string;
+  accessoryType: string;
   manufacturingType: "nova" | "reposicao" | "";
   profileType: "tubular" | "solido" | "";
   packageSize: string;
@@ -61,7 +64,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   const [isFormExpanded, setIsFormExpanded] = useState(false);
   
   const [formData, setFormData] = useState<FormData>({
+    itemCategory: "",
     matrixCode: "",
+    accessoryCode: "",
+    accessoryType: "",
     manufacturingType: "",
     profileType: "",
     packageSize: "",
@@ -698,10 +704,29 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.matrixCode || !formData.manufacturingType || !formData.profileType ||
-        !formData.packageSize || !formData.holeCount || !formData.supplier || !formData.justification) {
+    const isAccessory = formData.itemCategory === "acessorio";
+
+    if (
+      !formData.itemCategory ||
+      !formData.matrixCode ||
+      !formData.manufacturingType ||
+      !formData.supplier ||
+      !formData.justification ||
+      (!isAccessory && (!formData.profileType || !formData.packageSize || !formData.holeCount))
+    ) {
       toast.error("Formulário incompleto: Preencha todos os campos obrigatórios");
       return;
+    }
+
+    if (formData.itemCategory === "acessorio") {
+      if (!formData.accessoryCode) {
+        toast.error("Selecione o código do acessório (BO, BAT, PORTA BAT, CARCAÇA ou ESPINA)");
+        return;
+      }
+      if (!formData.accessoryType) {
+        toast.error("O tipo do acessório não foi definido. Escolha um código válido.");
+        return;
+      }
     }
 
     if (formData.supplier === "Outro" && !formData.customSupplier) {
@@ -711,24 +736,34 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
     try {
       setLoading(true);
+      const profileTypeToSave = isAccessory ? "tubular" : (formData.profileType as "tubular" | "solido");
+      const packageSizeToSave = isAccessory ? null : (formData.packageSize || null);
+      const holeCountToSave = isAccessory ? null : (formData.holeCount ? Number(formData.holeCount) : null);
+      const volumeToSave = isAccessory ? null : (formData.volumeProduced ? Number(formData.volumeProduced) : null);
       await createManufacturingRecord({
         matrix_code: formData.matrixCode,
         manufacturing_type: formData.manufacturingType as "nova" | "reposicao",
-        profile_type: formData.profileType as "tubular" | "solido",
-        package_size: formData.packageSize || null,
-        hole_count: formData.holeCount ? Number(formData.holeCount) : null,
+        profile_type: profileTypeToSave,
+        package_size: packageSizeToSave,
+        hole_count: holeCountToSave,
+        item_category: formData.itemCategory as any,
+        accessory_code: formData.itemCategory === "acessorio" ? formData.accessoryCode : null,
+        accessory_type: formData.itemCategory === "acessorio" ? formData.accessoryType : null,
         supplier: formData.supplier,
         custom_supplier: formData.customSupplier,
         priority: formData.priority,
         matrix_images: formData.images,
         problem_images: [],
-        volume_produced: formData.volumeProduced ? Number(formData.volumeProduced) : null,
+        volume_produced: volumeToSave,
         technical_notes: formData.technicalNotes,
         justification: formData.justification,
       });
       
       setFormData({
+        itemCategory: "",
         matrixCode: "",
+        accessoryCode: "",
+        accessoryType: "",
         manufacturingType: "",
         profileType: "",
         packageSize: "",
@@ -806,15 +841,87 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
             {/* Linha 1: identificação básica */}
             <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
               <div>
-                <Label className="text-xs font-semibold">Código <span className="text-red-500">*</span></Label>
-                <Input
-                  placeholder="TMP-001/25"
-                  value={formData.matrixCode}
-                  onChange={(e) => setFormData({ ...formData, matrixCode: e.target.value.toUpperCase() })}
-                  className="h-7 text-xs"
-                  required
-                />
+                <Label className="text-xs font-semibold">Tipo de Item <span className="text-red-500">*</span></Label>
+                <Select
+                  value={formData.itemCategory}
+                  onValueChange={(value) => {
+                    const itemCategory = value as "matriz" | "acessorio";
+                    setFormData((prev) => ({
+                      ...prev,
+                      itemCategory,
+                      accessoryCode: itemCategory === "acessorio" ? prev.accessoryCode : "",
+                      accessoryType: itemCategory === "acessorio" ? prev.accessoryType : "",
+                      profileType: itemCategory === "acessorio" ? "" : prev.profileType,
+                      packageSize: itemCategory === "acessorio" ? "" : prev.packageSize,
+                      holeCount: itemCategory === "acessorio" ? "" : prev.holeCount,
+                      volumeProduced: itemCategory === "acessorio" ? "" : prev.volumeProduced,
+                    }));
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="matriz">Matriz</SelectItem>
+                    <SelectItem value="acessorio">Acessórios</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+              <div>
+                <Label className="text-xs font-semibold">Código <span className="text-red-500">*</span></Label>
+                {formData.itemCategory === "acessorio" ? (
+                  <Select
+                    value={formData.matrixCode}
+                    onValueChange={(value) => {
+                      const upper = value.toUpperCase();
+                      const accessoryType = upper === "ESPINA" ? "Ferramenta Tubular" : "Acessórios para Extrusão";
+                      setFormData((prev) => ({
+                        ...prev,
+                        matrixCode: upper,
+                        accessoryCode: upper,
+                        accessoryType,
+                      }));
+                    }}
+                  >
+                    <SelectTrigger className="h-7 text-xs">
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BO">BO</SelectItem>
+                      <SelectItem value="BAT">BAT</SelectItem>
+                      <SelectItem value="PORTA BAT">PORTA BAT</SelectItem>
+                      <SelectItem value="CARCAÇA">CARCAÇA</SelectItem>
+                      <SelectItem value="ESPINA">ESPINA</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    placeholder="TMP-001/25"
+                    value={formData.matrixCode}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        matrixCode: e.target.value.toUpperCase(),
+                        accessoryCode: "",
+                        accessoryType: "",
+                      })
+                    }
+                    className="h-7 text-xs"
+                    required
+                  />
+                )}
+              </div>
+              {formData.itemCategory === "acessorio" && (
+                <div>
+                  <Label className="text-xs font-semibold">Tipo <span className="text-red-500">*</span></Label>
+                  <Input
+                    value={formData.accessoryType}
+                    readOnly
+                    placeholder="Definido pelo código"
+                    className="h-7 text-xs bg-slate-50"
+                  />
+                </div>
+              )}
               {formData.manufacturingType === "reposicao" && (
                 <div>
                   <Label className="text-xs font-semibold">Matriz Substituída <span className="text-red-500">*</span></Label>
@@ -828,7 +935,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                 </div>
               )}
               <div>
-                <Label className="text-xs font-semibold">Tipo <span className="text-red-500">*</span></Label>
+                <Label className="text-xs font-semibold">Tipo Confecção <span className="text-red-500">*</span></Label>
                 <Select value={formData.manufacturingType} onValueChange={(value) => setFormData({ ...formData, manufacturingType: value as "nova" | "reposicao" })}>
                   <SelectTrigger className="h-7 text-xs">
                     <SelectValue placeholder="Selecione" />
@@ -840,12 +947,17 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                 </Select>
               </div>
               <div>
-                <Label className="text-xs font-semibold">Perfil <span className="text-red-500">*</span></Label>
+                <Label className="text-xs font-semibold">
+                  Perfil
+                  {formData.itemCategory !== "acessorio" && (
+                    <span className="text-red-500"> *</span>
+                  )}
+                </Label>
                 <Select value={formData.profileType} onValueChange={(value) => setFormData({
                   ...formData,
                   profileType: value as "tubular" | "solido",
                   packageSize: "",
-                })}>
+                })} disabled={formData.itemCategory === "acessorio"}>
                   <SelectTrigger className="h-7 text-xs">
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
@@ -856,11 +968,16 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                 </Select>
               </div>
               <div>
-                <Label className="text-xs font-semibold">Pacote <span className="text-red-500">*</span></Label>
+                <Label className="text-xs font-semibold">
+                  Pacote
+                  {formData.itemCategory !== "acessorio" && (
+                    <span className="text-red-500"> *</span>
+                  )}
+                </Label>
                 <Select
                   value={formData.packageSize}
                   onValueChange={(value) => setFormData({ ...formData, packageSize: value })}
-                  disabled={!formData.profileType}
+                  disabled={!formData.profileType || formData.itemCategory === "acessorio"}
                 >
                   <SelectTrigger className="h-7 text-xs">
                     <SelectValue placeholder={formData.profileType ? "Selecione" : "Escolha um perfil"} />
@@ -912,10 +1029,16 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                   value={formData.volumeProduced}
                   onChange={(e) => setFormData({ ...formData, volumeProduced: e.target.value.replace(/[^0-9]/g, "") })}
                   className="h-7 text-xs"
+                  disabled={formData.itemCategory === "acessorio"}
                 />
               </div>
               <div>
-                <Label className="text-xs font-semibold">QTD Furos <span className="text-red-500">*</span></Label>
+                <Label className="text-xs font-semibold">
+                  QTD Furos
+                  {formData.itemCategory !== "acessorio" && (
+                    <span className="text-red-500"> *</span>
+                  )}
+                </Label>
                 <Input
                   type="number"
                   min={0}
@@ -923,7 +1046,8 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                   value={formData.holeCount}
                   onChange={(e) => setFormData({ ...formData, holeCount: e.target.value.replace(/[^0-9]/g, "") })}
                   className="h-7 text-xs"
-                  required
+                  required={formData.itemCategory !== "acessorio"}
+                  disabled={formData.itemCategory === "acessorio"}
                 />
               </div>
               {formData.manufacturingType !== "reposicao" && <div />}
@@ -1008,7 +1132,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                 onClick={() => {
                   if (window.confirm("Limpar todos os campos?")) {
                     setFormData({
+                      itemCategory: "",
                       matrixCode: "",
+                      accessoryCode: "",
+                      accessoryType: "",
                       manufacturingType: "",
                       profileType: "",
                       packageSize: "",
