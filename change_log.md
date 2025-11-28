@@ -1,3 +1,4 @@
+[25/11/2025 13:03] - db - Aplicada migração para adicionar a coluna `test_status` na tabela `events`; documentação atualizada em `database_schema.md`; correção do erro PGRST204 ("Could not find the 'test_status' column of 'events' in the schema cache") - Cascade
 [13/11/2025 15:07] - database_schema.md / specs.md / README.md - Documentação atualizada: tabela `analysis_ferramentas`, RPCs de truncate (produção e ferramentas) e instruções de upload; seção de upload por aba e mapeamento de colunas - Cascade
 [13/11/2025 15:06] - data_schema.sql - Criada RPC `public.analysis_ferramentas_truncate()` (SECURITY DEFINER) com GRANT para anon/authenticated e bloco de rollback; notificação `pgrst reload schema` - Cascade
 [13/11/2025 15:05] - src/components/analysis/AnalysisFerramentasView.tsx - Adicionado ícone de upload e fluxo de importação (XLSX/XLS/CSV) com truncamento antes da carga, inserção em lotes, barra de progresso e recarga automática - Cascade

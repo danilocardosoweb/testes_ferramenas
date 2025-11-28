@@ -2,6 +2,15 @@
 
 Este documento descreve as entidades e relacionamentos utilizados no Supabase (Postgres) para o app de controle de matrizes.
 
+## Migrações Aplicadas
+
+### 25/11/2025 - Adição da coluna test_status na tabela events
+- **Objetivo**: Permitir o registro do status de aprovação/reprovação para eventos do tipo "Testes"
+- **Alterações**:
+  - Adicionada coluna `test_status (text, nullable)` na tabela `events`
+  - Adicionada restrição CHECK para validar valores: 'Aprovado', 'Reprovado' ou NULL
+  - Atualizada documentação para refletir a nova estrutura
+
 ## Entidades
 
 - **folders**
@@ -23,10 +32,12 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `matrix_id (uuid, FK -> matrices.id, on delete cascade)`
   - `parent_event_id (uuid, FK -> events.id, on delete cascade)` — subeventos
   - `date (date)`
-  - `type (text)` — livre para aceitar valores como "Correção Interna", "Projeto Cancelado", "Ajustes no Projeto".
+  - `type (text)` — Tipos: "Recebimento", "Testes", "Limpeza", "Correção", "Aprovado", "Outro"
+  - `test_status (text, nullable)` — Status do teste: "Aprovado" ou "Reprovado" (apenas para eventos do tipo "Testes")
   - `comment (text)`
   - `location (text)`
   - `responsible (text)`
+  - `machine (text, nullable)` — Máquina associada ao evento (opcional)
   - `created_at (timestamptz)`
 
 - **event_files**

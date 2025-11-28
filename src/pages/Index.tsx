@@ -367,7 +367,7 @@ const Index = () => {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
+    <div className="flex flex-col md:flex-row h-screen w-full overflow-hidden bg-background">
       <Dialog open={timelineSearchOpen} onOpenChange={setTimelineSearchOpen}>
         <DialogContent className="sm:max-w-[28rem]">
           <DialogHeader>
@@ -407,9 +407,9 @@ const Index = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Sidebar - apenas para usuários logados */}
+      {/* Sidebar - apenas para usuários logados (coluna fixa em telas médias+, empilhada em mobile) */}
       {!sidebarCollapsed && authSession ? (
-        <div className="w-80 flex-shrink-0">
+        <div className="w-full md:w-80 md:flex-shrink-0 border-b md:border-b-0 md:border-r bg-background">
           <MatrixSidebar
           matrices={sidebarMatrices}
           selectedMatrix={selectedMatrix}

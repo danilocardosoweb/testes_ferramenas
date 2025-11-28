@@ -55,7 +55,7 @@ export function LoginDialog({ open, onOpenChange, onLoginSuccess }: LoginDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="w-full max-w-sm sm:max-w-md mx-auto p-4 sm:p-6">
         <DialogHeader className="items-center text-center">
           <img
             src={LogoDaniloBranco}
@@ -68,7 +68,7 @@ export function LoginDialog({ open, onOpenChange, onLoginSuccess }: LoginDialogP
           </DialogTitle>
           <p className="text-sm text-muted-foreground">Faça login para acessar o sistema</p>
         </DialogHeader>
-        <form onSubmit={handleLogin} className="space-y-4">
+        <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -93,11 +93,17 @@ export function LoginDialog({ open, onOpenChange, onLoginSuccess }: LoginDialogP
               autoComplete="new-password"
             />
           </div>
-          <div className="flex gap-2 pt-2">
-            <Button type="submit" className="flex-1" disabled={loading}>
+          <div className="flex flex-col sm:flex-row gap-2 pt-2">
+            <Button type="submit" className="w-full sm:flex-1" disabled={loading}>
               {loading ? "Entrando..." : "Entrar"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={loading}
+              className="w-full sm:w-auto"
+            >
               Cancelar
             </Button>
           </div>

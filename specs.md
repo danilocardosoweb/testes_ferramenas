@@ -1,3 +1,20 @@
+## Fluxo de Aprovação de Testes (Atualizado em 25/11/2025)
+
+- **Status de Teste em Eventos**
+  - A coluna `test_status` na tabela `events` armazena o status de aprovação/reprovação para eventos do tipo "Testes"
+  - Valores permitidos: 'Aprovado', 'Reprovado' ou NULL
+  - Aplicada restrição CHECK para garantir a integridade dos dados
+
+- **Integração com Notificações**
+  - Eventos do tipo "Testes" com `test_status = 'Reprovado'` geram notificações na categoria "Reprovado"
+  - Eventos aprovados são notificados na categoria "Aprovados"
+  - O sistema de notificações foi atualizado para lidar com o novo status
+
+- **Interface do Usuário**
+  - O campo de status de teste é exibido apenas para eventos do tipo "Testes"
+  - Validação no frontend para garantir que apenas valores permitidos sejam enviados
+  - Feedback visual para o usuário sobre o status atual do teste
+
 ## Iteração 23/10/2025 (Workflow de Confecção)
 
 - **Workflow progressivo Necessidade → Solicitação → Em Fabricação**
