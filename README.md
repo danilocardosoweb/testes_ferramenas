@@ -8,7 +8,8 @@ Aplicação React (Vite + TypeScript + Tailwind + shadcn-ui) integrada ao Supaba
 - Notificações por e-mail agrupadas por categoria com persistência global em banco e Realtime.
 - Dashboard e histórico com filtros.
 - Workflow completo de confecção com três etapas (Necessidade → Solicitação → Em Fabricação), prioridades (Baixa/Média/Alta/Crítica), seleção múltipla e cálculo automático de lead time por estágio.
- - Área de Análise com abas de Carteira, Produção, Ferramentas, Vida e Necessidades, além da aba dedicada de **Análise de Ferramenta** com gráficos de produtividade e de entradas de pedido em 12 meses, linhas de objetivo fixas e análise de causas por palavras‑chave.
+- Área de Análise com abas de Carteira, Produção, Ferramentas, Vida, Necessidades e **Produtividade**, além da aba dedicada de **Análise de Ferramenta** com gráficos de produtividade e de entradas de pedido em 12 meses, linhas de objetivo fixas e análise de causas por palavras‑chave.
+- **Planejamento Mobile First** em andamento para tornar o aplicativo totalmente responsivo em dispositivos móveis.
 
 ## Stack
 - Vite + React + TypeScript
@@ -116,3 +117,5 @@ Checklist de Notificações (antes de publicar alterações):
 ## Histórico e Especificações
 - Alterações diárias: `change_log.md`.
 - Requisitos e decisões: `specs.md`.
+- Planejamento Mobile First: `MOBILE_FIRST_PLAN.md` e documentos relacionados.
+- Análise de Produtividade: implementada em `AnalysisProdutividadeView.tsx` com gráficos interativos.

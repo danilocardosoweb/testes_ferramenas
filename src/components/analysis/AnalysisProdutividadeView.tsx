@@ -1,12 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Upload, TrendingUp, TrendingDown, Minus, BarChart3, AlertTriangle, HelpCircle } from "lucide-react";
+import { Upload, TrendingUp, TrendingDown, Minus, BarChart3, AlertTriangle, HelpCircle, Info, Lightbulb } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
     calculateMatrizStats,
     detectAnomalies,
     formatMonth,
     type MatrizStats,
+    type AnomalyDetail,
 } from "@/utils/productivityAnalysis";
 import * as XLSX from "xlsx";
 
@@ -29,6 +42,15 @@ type ViewRow = {
     "Observação Lote": string | null;
 };
 
+type RpcEvolutionData = {
+    month: string;
+    avg_produtividade: number;
+    avg_eficiencia: number;
+    total_records: number;
+    is_anomaly: boolean;
+    anomaly_drop: number;
+};
+
 interface AnalysisProdutividadeViewProps { }
 
 function dateToISO(d: Date): string {
@@ -48,6 +70,7 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
     const [seqFilter, setSeqFilter] = useState("Todas");
     const [prodMinFilter, setProdMinFilter] = useState("");
     const [prodMaxFilter, setProdMaxFilter] = useState("");
+    const [ligaFilter, setLigaFilter] = useState("");
     const [sortBy, setSortBy] = useState<"matriz" | "produtividade" | "eficiencia" | "trend">("produtividade");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
     const [expandedMatriz, setExpandedMatriz] = useState<string | null>(null);
@@ -56,6 +79,67 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
     const [importProgress, setImportProgress] = useState<number>(0);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
+    const [expandedData, setExpandedData] = useState<Record<string, RpcEvolutionData[]>>({});
+    const [expandedLoading, setExpandedLoading] = useState(false);
+    const [groupBySeq, setGroupBySeq] = useState(false);
+    const [expandedSeq, setExpandedSeq] = useState<string | null>(null);
+    const [observations, setObservations] = useState<Record<string, string>>({});
+
+    // Save observations to localStorage whenever they change
+
+
+    // State for specific observations (per matrix AND month)
+    const [specificObservations, setSpecificObservations] = useState<Record<string, string>>({});
+
+    // Save specific observations to localStorage
+
+
+    const updateSpecificObservation = async (matriz: string, month: string, text: string) => {
+        const key = `${matriz}|${month}`;
+        setSpecificObservations(prev => ({
+            ...prev,
+            [key]: text
+        }));
+
+        // Save to Supabase
+        try {
+            const { error } = await supabase
+                .from('productivity_observations')
+                .upsert({
+                    matriz,
+                    month,
+                    observation: text,
+                    updated_at: new Date().toISOString()
+                });
+
+            if (error) throw error;
+        } catch (err) {
+            console.error('Error saving specific observation:', err);
+        }
+    };
+
+    const updateObservation = async (matriz: string, text: string) => {
+        setObservations(prev => ({
+            ...prev,
+            [matriz]: text
+        }));
+
+        // Save to Supabase
+        try {
+            const { error } = await supabase
+                .from('productivity_observations')
+                .upsert({
+                    matriz,
+                    month: 'GENERAL',
+                    observation: text,
+                    updated_at: new Date().toISOString()
+                });
+
+            if (error) throw error;
+        } catch (err) {
+            console.error('Error saving observation:', err);
+        }
+    };
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -92,6 +176,7 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
     useEffect(() => {
         let active = true;
         async function loadData() {
+            console.log('🔄 Loading data with monthsToAnalyze:', monthsToAnalyze);
             setLoading(true);
             setError(null);
             try {
@@ -102,17 +187,21 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                 const periodStart = dateToISO(fromDate);
                 const periodEnd = dateToISO(today);
 
+                console.log('📅 Date range:', { periodStart, periodEnd, monthsToAnalyze });
+
                 let query = supabase
                     .from("analysis_producao")
                     .select("id,payload")
                     .order("produced_on", { ascending: false })
                     .gte("produced_on", periodStart)
-                    .lte("produced_on", periodEnd);
+                    .lte("produced_on", periodEnd)
+                    .limit(50000); // Limit for performance
 
                 const { data, error } = await query;
                 if (error) throw error;
                 if (!active) return;
                 const mapped = (data as RawRow[] | null | undefined)?.map(mapRow) ?? [];
+                console.log('✅ Loaded rows:', mapped.length);
                 setRows(mapped);
             } catch (e: any) {
                 if (!active) return;
@@ -127,6 +216,71 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
             active = false;
         };
     }, [monthsToAnalyze, reloadKey]);
+
+    // Load detailed data for expanded matrix via RPC
+    useEffect(() => {
+        if (!expandedMatriz) return;
+
+        async function loadExpanded() {
+            setExpandedLoading(true);
+            try {
+                console.log('🔄 Loading expanded data for:', expandedMatriz, 'Seq:', expandedSeq);
+
+                // Determine effective sequence filter
+                // If grouped by seq, use the expanded sequence
+                // Otherwise use the global filter
+                const effectiveSeqFilter = groupBySeq && expandedSeq
+                    ? expandedSeq
+                    : (seqFilter === "Todas" ? null : seqFilter.trim());
+
+                const { data, error } = await supabase.rpc('get_productivity_evolution', {
+                    months_back: monthsToAnalyze,
+                    matriz_filter: expandedMatriz,
+                    prensa_filter: prensaFilter.trim() || null,
+                    seq_filter: effectiveSeqFilter,
+                    liga_filter: ligaFilter.trim() || null
+                });
+
+                if (error) throw error;
+                console.log('✅ Expanded data loaded:', data?.length);
+
+                const key = expandedSeq ? `${expandedMatriz}|${expandedSeq}` : expandedMatriz;
+                setExpandedData(prev => ({ ...prev, [key]: data || [] }));
+
+                // Load observations for this matrix
+                const { data: obsData, error: obsError } = await supabase
+                    .from('productivity_observations')
+                    .select('month, observation')
+                    .eq('matriz', expandedMatriz);
+
+                if (obsError) {
+                    console.error('Error loading observations:', obsError);
+                } else if (obsData) {
+                    const newGeneralObs: Record<string, string> = {};
+                    const newSpecificObs: Record<string, string> = {};
+
+                    obsData.forEach(obs => {
+                        if (obs.month === 'GENERAL') {
+                            newGeneralObs[expandedMatriz] = obs.observation;
+                        } else {
+                            newSpecificObs[`${expandedMatriz}|${obs.month}`] = obs.observation;
+                        }
+                    });
+
+                    setObservations(prev => ({ ...prev, ...newGeneralObs }));
+                    setSpecificObservations(prev => ({ ...prev, ...newSpecificObs }));
+                }
+
+
+
+            } catch (err) {
+                console.error('Error loading expanded data:', err);
+            } finally {
+                setExpandedLoading(false);
+            }
+        }
+        loadExpanded();
+    }, [expandedMatriz, expandedSeq, monthsToAnalyze, prensaFilter, seqFilter, ligaFilter, reloadKey, groupBySeq]);
 
     const stats = useMemo(() => {
         let filtered = rows;
@@ -144,9 +298,14 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
         if (seqFilter !== "Todas") {
             filtered = filtered.filter((r) => (r.Seq ?? "").toString().trim() === seqFilter.trim());
         }
+        if (ligaFilter.trim()) {
+            filtered = filtered.filter((r) =>
+                (r["Liga Utilizada"] ?? "").toString().toLowerCase().includes(ligaFilter.trim().toLowerCase())
+            );
+        }
 
-        return calculateMatrizStats(filtered, monthsToAnalyze);
-    }, [rows, monthsToAnalyze, matrizFilter, prensaFilter, seqFilter]);
+        return calculateMatrizStats(filtered, monthsToAnalyze, groupBySeq);
+    }, [rows, monthsToAnalyze, matrizFilter, prensaFilter, seqFilter, ligaFilter, groupBySeq]);
 
     const sortedStats = useMemo(() => {
         let filtered = [...stats];
@@ -202,6 +361,15 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
         return ["Todas", ...Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"))];
     }, [rows, matrizFilter]);
 
+    const ligaOptions = useMemo(() => {
+        const set = new Set<string>();
+        for (const r of rows) {
+            const v = (r["Liga Utilizada"] ?? "").toString().trim();
+            if (v) set.add(v);
+        }
+        return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    }, [rows]);
+
     const prensaOptions = useMemo(() => {
         const set = new Set<string>();
         for (const r of rows) {
@@ -222,33 +390,37 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
         };
     }, [stats]);
 
-    // Calculate monthly aggregated data for annual chart
-    const monthlyAggregatedData = useMemo(() => {
-        if (stats.length === 0) return [];
+    // Calculate monthly aggregated data for annual chart (using filtered data)
+    // Not needed anymore - using RPC data directly
 
-        // Collect all unique months from all matrizes
-        const monthMap = new Map<string, number[]>();
+    // Generate dynamic title for annual chart based on active filters
+    const annualChartTitle = useMemo(() => {
+        const filters = [];
+        if (matrizFilter.trim()) filters.push(`Matriz: ${matrizFilter}`);
+        if (prensaFilter.trim()) filters.push(`Prensa: ${prensaFilter}`);
+        if (seqFilter !== "Todas") filters.push(`Seq: ${seqFilter}`);
+        if (ligaFilter.trim()) filters.push(`Liga: ${ligaFilter}`);
 
-        stats.forEach(stat => {
-            stat.monthlyData.forEach(monthData => {
-                if (!monthMap.has(monthData.month)) {
-                    monthMap.set(monthData.month, []);
-                }
-                // Add all productivity values from this month
-                monthMap.get(monthData.month)!.push(...monthData.produtividade);
-            });
-        });
+        if (filters.length === 0) {
+            return "Desempenho Anual - Produtividade Média Geral";
+        }
 
-        // Calculate average for each month
-        const result = Array.from(monthMap.entries())
-            .map(([month, values]) => ({
-                month,
-                avgProdutividade: values.reduce((sum, v) => sum + v, 0) / values.length,
-            }))
-            .sort((a, b) => a.month.localeCompare(b.month));
+        return `Desempenho Anual - ${filters.join(", ")}`;
+    }, [matrizFilter, prensaFilter, seqFilter, ligaFilter]);
 
-        return result;
-    }, [stats]);
+    const annualChartDescription = useMemo(() => {
+        const filters = [];
+        if (matrizFilter.trim()) filters.push(`matriz "${matrizFilter}"`);
+        if (prensaFilter.trim()) filters.push(`prensa "${prensaFilter}"`);
+        if (seqFilter !== "Todas") filters.push(`seq "${seqFilter}"`);
+        if (ligaFilter.trim()) filters.push(`liga "${ligaFilter}"`);
+
+        if (filters.length === 0) {
+            return "Evolução da produtividade média de todos os itens nos últimos 12 meses com linha de tendência";
+        }
+
+        return `Evolução da produtividade média para ${filters.join(", ")} nos últimos 12 meses com linha de tendência`;
+    }, [matrizFilter, prensaFilter, seqFilter, ligaFilter]);
 
     const getTrendIcon = (trend: "up" | "down" | "stable") => {
         switch (trend) {
@@ -329,6 +501,19 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                             ))}
                         </select>
                     </div>
+                    <div className="flex flex-col">
+                        <label className="text-xs text-muted-foreground">Liga</label>
+                        <select
+                            className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
+                            value={ligaFilter}
+                            onChange={(e) => setLigaFilter(e.target.value)}
+                        >
+                            <option value="">Todas</option>
+                            {ligaOptions.map((liga) => (
+                                <option key={liga} value={liga}>{liga}</option>
+                            ))}
+                        </select>
+                    </div>
                     <div className="flex items-end gap-1.5">
                         <div className="flex flex-col">
                             <label className="text-xs text-muted-foreground">Produtividade (kg/h)</label>
@@ -390,6 +575,18 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                         >
                             <Upload className="h-4 w-4" />
                         </button>
+                    </div>
+                    <div className="flex flex-col justify-end pb-1">
+                        <div className="flex items-center space-x-2">
+                            <Switch
+                                id="group-by-seq"
+                                checked={groupBySeq}
+                                onCheckedChange={setGroupBySeq}
+                            />
+                            <Label htmlFor="group-by-seq" className="text-xs text-muted-foreground cursor-pointer">
+                                Agrupar por Sequência
+                            </Label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -490,14 +687,23 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                             {sortedStats.map((stat) => {
                                 const anomalies = detectAnomalies(stat.monthlyData);
                                 const hasAnomalies = anomalies.length > 0;
-                                const isExpanded = expandedMatriz === stat.matriz;
+                                const isExpanded = expandedMatriz === stat.matriz && (!groupBySeq || expandedSeq === stat.seq);
+                                const expandedKey = expandedSeq ? `${stat.matriz}|${expandedSeq}` : stat.matriz;
 
                                 return (
                                     <>
                                         <tr
-                                            key={stat.matriz}
+                                            key={`${stat.matriz}-${stat.seq}`}
                                             className="border-b hover:bg-muted/40 cursor-pointer"
-                                            onClick={() => setExpandedMatriz(isExpanded ? null : stat.matriz)}
+                                            onClick={() => {
+                                                if (isExpanded) {
+                                                    setExpandedMatriz(null);
+                                                    setExpandedSeq(null);
+                                                } else {
+                                                    setExpandedMatriz(stat.matriz);
+                                                    setExpandedSeq(stat.seq);
+                                                }
+                                            }}
                                         >
                                             <td className="px-3 py-2 text-left">
                                                 <div className="flex items-center gap-2">
@@ -536,18 +742,20 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                                 })}
                                                 %
                                             </td>
-                                            <td className="px-3 py-2">
-                                                <Sparkline data={stat.sparklineData} />
-                                            </td>
                                         </tr>
                                         {isExpanded && (
-                                            <tr className="border-b bg-muted/20">
-                                                <td colSpan={7} className="px-3 py-4">
+                                            <tr>
+                                                <td colSpan={7} className="p-0 border-b bg-muted/10">
                                                     <ExpandedDetailsWithAnnual
                                                         stat={stat}
                                                         anomalies={anomalies}
                                                         overallAvg={overallStats.avgProd}
-                                                        annualData={monthlyAggregatedData}
+                                                        observation={observations[stat.matriz] || ''}
+                                                        onObservationChange={(text) => updateObservation(stat.matriz, text)}
+                                                        rpcData={expandedData[expandedKey]}
+                                                        isLoading={expandedLoading}
+                                                        specificObservations={specificObservations}
+                                                        onSpecificObservationChange={(month, text) => updateSpecificObservation(stat.matriz, month, text)}
                                                     />
                                                 </td>
                                             </tr>
@@ -711,64 +919,142 @@ function ExpandedDetailsWithAnnual({
     stat,
     anomalies,
     overallAvg,
-    annualData,
+    observation,
+    onObservationChange,
+    rpcData,
+    isLoading,
+    specificObservations,
+    onSpecificObservationChange,
 }: {
     stat: MatrizStats;
-    anomalies: { month: string; drop: number }[];
+    anomalies: AnomalyDetail[];
     overallAvg: number;
-    annualData: { month: string; avgProdutividade: number }[];
+    observation: string;
+    onObservationChange: (text: string) => void;
+    rpcData?: RpcEvolutionData[];
+    isLoading?: boolean;
+    specificObservations: Record<string, string>;
+    onSpecificObservationChange: (month: string, text: string) => void;
 }) {
+    const [selectedPoint, setSelectedPoint] = useState<{ month: string; value: number; isAnomaly: boolean } | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [tempObservation, setTempObservation] = useState("");
+
+    const handlePointClick = (point: { month: string; value: number; isAnomaly: boolean }) => {
+        setSelectedPoint(point);
+        const key = `${stat.matriz}|${point.month}`;
+        setTempObservation(specificObservations[key] || "");
+        setIsModalOpen(true);
+    };
+
+    const handleSaveObservation = () => {
+        if (selectedPoint) {
+            onSpecificObservationChange(selectedPoint.month, tempObservation);
+        }
+        setIsModalOpen(false);
+    };
+
     const comparisonPercent = ((stat.avgProdutividade - overallAvg) / overallAvg) * 100;
 
+    // Prepare chart data: prefer RPC data if available, otherwise fallback to client-side data
+    const chartData = useMemo(() => {
+        if (rpcData && rpcData.length > 0) {
+            return rpcData.map(d => {
+                // Fix date format from RPC (MM/YYYY -> YYYY-MM) to match formatMonth expectation
+                let month = d.month;
+                if (month.includes('/')) {
+                    const [m, y] = month.split('/');
+                    month = `${y}-${m}`;
+                }
+                return {
+                    month: month,
+                    produtividade: d.avg_produtividade,
+                    isAnomaly: d.is_anomaly
+                };
+            });
+        }
+        // Fallback to client-side data (might be incomplete due to row limit)
+        return stat.monthlyData.map(d => ({
+            month: d.month,
+            produtividade: d.produtividade.reduce((a, b) => a + b, 0) / (d.produtividade.length || 1),
+            isAnomaly: false // Client-side anomaly detection is separate
+        }));
+    }, [rpcData, stat.monthlyData]);
+
+    // Merge anomalies for display if using RPC data
+    const displayAnomalies = useMemo(() => {
+        if (rpcData) {
+            return anomalies;
+        }
+        return anomalies;
+    }, [anomalies, rpcData]);
+
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 p-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Statistics */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base">Estatísticas Detalhadas</CardTitle>
+                        <CardDescription>Métricas e evolução da produtividade</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Total de Registros:</span>
-                            <span className="font-medium">{stat.totalRecords}</span>
+                    <CardContent className="space-y-4">
+                        {/* Evolution Chart */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-medium">Evolução da Produtividade</h4>
+                                {isLoading && <span className="text-xs text-muted-foreground animate-pulse">Atualizando...</span>}
+                            </div>
+                            <EvolutionChart
+                                monthlyData={chartData.map(d => ({ month: d.month, value: d.produtividade, isAnomaly: d.isAnomaly }))}
+                                avgProdutividade={stat.avgProdutividade}
+                                onPointClick={handlePointClick}
+                            />
                         </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Produtividade Mínima:</span>
-                            <span className="font-medium">
-                                {stat.minProdutividade.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Produtividade Máxima:</span>
-                            <span className="font-medium">
-                                {stat.maxProdutividade.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Mediana Produtividade:</span>
-                            <span className="font-medium">
-                                {stat.medianProdutividade.toLocaleString("pt-BR", {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                })}
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Desvio Padrão:</span>
-                            <span className="font-medium">
-                                {stat.stdDevProdutividade.toLocaleString("pt-BR", {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                })}
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Comparação com Média Geral:</span>
-                            <span className={`font-medium ${comparisonPercent >= 0 ? "text-green-600" : "text-red-600"}`}>
-                                {comparisonPercent >= 0 ? "+" : ""}
-                                {comparisonPercent.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-                            </span>
+
+                        {/* Statistics */}
+                        <div className="space-y-2 text-sm pt-2 border-t">
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Total de Registros:</span>
+                                <span className="font-medium">{stat.totalRecords}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Produtividade Mínima:</span>
+                                <span className="font-medium">
+                                    {stat.minProdutividade.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Produtividade Máxima:</span>
+                                <span className="font-medium">
+                                    {stat.maxProdutividade.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Mediana Produtividade:</span>
+                                <span className="font-medium">
+                                    {stat.medianProdutividade.toLocaleString("pt-BR", {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                    })}
+                                </span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Desvio Padrão:</span>
+                                <span className="font-medium">
+                                    {stat.stdDevProdutividade.toLocaleString("pt-BR", {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                    })}
+                                </span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Comparação com Média Geral:</span>
+                                <span className={`font-medium ${comparisonPercent >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                    {comparisonPercent >= 0 ? "+" : ""}
+                                    {comparisonPercent.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                                </span>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
@@ -778,59 +1064,249 @@ function ExpandedDetailsWithAnnual({
                     <CardHeader>
                         <CardTitle className="text-base">Alertas e Anomalias</CardTitle>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="space-y-4">
                         {anomalies.length === 0 ? (
                             <p className="text-sm text-muted-foreground">Nenhuma anomalia detectada no período.</p>
                         ) : (
-                            <div className="space-y-2">
-                                {anomalies.map((anomaly, i) => (
-                                    <div key={i} className="flex items-start gap-2 text-sm">
-                                        <AlertTriangle className="h-4 w-4 text-orange-600 mt-0.5 shrink-0" />
-                                        <div>
-                                            <span className="font-medium">{formatMonth(anomaly.month)}</span>
-                                            <span className="text-muted-foreground">
-                                                {" "}
-                                                - Queda de{" "}
-                                                {anomaly.drop.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-                                            </span>
+                            <div className="space-y-4">
+                                {anomalies.map((anomaly, i) => {
+                                    const getSeverityColor = (severity: string) => {
+                                        switch (severity) {
+                                            case 'critical': return 'bg-red-100 text-red-800 border-red-300';
+                                            case 'high': return 'bg-orange-100 text-orange-800 border-orange-300';
+                                            case 'moderate': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+                                            default: return 'bg-gray-100 text-gray-800 border-gray-300';
+                                        }
+                                    };
+
+                                    const getSeverityLabel = (severity: string) => {
+                                        switch (severity) {
+                                            case 'critical': return 'Crítico';
+                                            case 'high': return 'Alto';
+                                            case 'moderate': return 'Moderado';
+                                            default: return severity;
+                                        }
+                                    };
+
+                                    return (
+                                        <div key={i} className="border rounded-lg p-4 space-y-3 bg-muted/30">
+                                            {/* Header with month and severity */}
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex items-center gap-2">
+                                                    <AlertTriangle className="h-5 w-5 text-orange-600 shrink-0" />
+                                                    <div>
+                                                        <h4 className="font-semibold text-base">{formatMonth(anomaly.month)}</h4>
+                                                        <p className="text-sm text-muted-foreground">
+                                                            Queda de {anomaly.drop.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% na produtividade
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <span className={`px-2 py-1 rounded-md text-xs font-medium border ${getSeverityColor(anomaly.severity)}`}>
+                                                    {getSeverityLabel(anomaly.severity)}
+                                                </span>
+                                            </div>
+
+                                            {/* Metrics comparison */}
+                                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-1 text-muted-foreground">
+                                                        <Info className="h-3 w-3" />
+                                                        <span className="text-xs font-medium">Produtividade (kg/h)</span>
+                                                    </div>
+                                                    <div className="flex items-baseline gap-2">
+                                                        <span className="text-muted-foreground line-through">
+                                                            {anomaly.prevProdutividade.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                                        </span>
+                                                        <span className="text-red-600 font-semibold">
+                                                            → {anomaly.currProdutividade.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-1 text-muted-foreground">
+                                                        <Info className="h-3 w-3" />
+                                                        <span className="text-xs font-medium">Eficiência (%)</span>
+                                                    </div>
+                                                    <div className="flex items-baseline gap-2">
+                                                        <span className="text-muted-foreground line-through">
+                                                            {anomaly.prevEficiencia.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                                                        </span>
+                                                        <span className={`font-semibold ${anomaly.currEficiencia < anomaly.prevEficiencia ? 'text-red-600' : 'text-green-600'}`}>
+                                                            → {anomaly.currEficiencia.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-1 text-muted-foreground">
+                                                        <Info className="h-3 w-3" />
+                                                        <span className="text-xs font-medium">Registros</span>
+                                                    </div>
+                                                    <div className="flex items-baseline gap-2">
+                                                        <span className="text-muted-foreground">
+                                                            {anomaly.prevRecordCount} → {anomaly.currRecordCount}
+                                                        </span>
+                                                        {anomaly.prevRecordCount !== anomaly.currRecordCount && (
+                                                            <span className={`text-xs ${anomaly.currRecordCount < anomaly.prevRecordCount ? 'text-red-600' : 'text-green-600'}`}>
+                                                                ({anomaly.currRecordCount > anomaly.prevRecordCount ? '+' : ''}
+                                                                {((anomaly.currRecordCount - anomaly.prevRecordCount) / anomaly.prevRecordCount * 100).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}%)
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Possible causes */}
+                                            {anomaly.possibleCauses.length > 0 && (
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                                                        <AlertTriangle className="h-3.5 w-3.5 text-orange-600" />
+                                                        <span>Possíveis Causas:</span>
+                                                    </div>
+                                                    <ul className="space-y-1 ml-5">
+                                                        {anomaly.possibleCauses.map((cause, idx) => (
+                                                            <li key={idx} className="text-sm text-muted-foreground list-disc">
+                                                                {cause}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+
+                                            {/* Recommendations */}
+                                            {anomaly.recommendations.length > 0 && (
+                                                <div className="space-y-1.5 pt-2 border-t">
+                                                    <div className="flex items-center gap-1.5 text-sm font-medium text-blue-700">
+                                                        <Lightbulb className="h-3.5 w-3.5" />
+                                                        <span>Recomendação:</span>
+                                                    </div>
+                                                    <ul className="space-y-1 ml-5">
+                                                        {anomaly.recommendations.map((rec, idx) => (
+                                                            <li key={idx} className="text-sm text-muted-foreground list-disc">
+                                                                {rec}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
+
+                        <div className="pt-4 border-t">
+                            <label className="text-sm font-medium mb-2 block">Observações</label>
+                            <textarea
+                                className="w-full min-h-[100px] p-3 rounded-md border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                placeholder="Digite aqui suas considerações e correções já feitas na Matriz..."
+                                value={observation}
+                                onChange={(e) => onObservationChange(e.target.value)}
+                            />
+                        </div>
                     </CardContent>
                 </Card>
             </div>
 
-            {/* Charts side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Monthly chart */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base">Produtividade Mensal - {stat.matriz}</CardTitle>
-                        <CardDescription>Evolução mensal específica desta matriz</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <MonthlyChart data={stat.monthlyData} />
-                    </CardContent>
-                </Card>
+            {/* Dialog for specific observations */}
+            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+                <DialogContent className="max-w-4xl">
+                    <DialogHeader>
+                        <DialogTitle>Detalhes de {selectedPoint ? formatMonth(selectedPoint.month) : ''}</DialogTitle>
+                        <DialogDescription>
+                            Adicione observações específicas para este mês.
+                        </DialogDescription>
+                    </DialogHeader>
 
-                {/* Annual Performance Chart */}
-                {annualData.length > 0 && (
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-base">Desempenho Anual - Produtividade Média Geral</CardTitle>
-                            <CardDescription>
-                                Evolução da produtividade média de todas as matrizes com linha de tendência
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <AnnualPerformanceChart data={annualData} />
-                        </CardContent>
-                    </Card>
-                )}
-            </div>
-        </div>
+                    {selectedPoint && (
+                        <div className="space-y-4 py-2">
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">Produtividade:</span>
+                                <span className="font-medium">{selectedPoint.value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg/h</span>
+                            </div>
+
+                            {selectedPoint.isAnomaly && (
+                                <div className="flex items-center gap-2 text-orange-600 bg-orange-50 p-2 rounded text-sm">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <span className="font-medium">Anomalia Detectada neste mês</span>
+                                </div>
+                            )}
+
+                            <div className="space-y-2">
+                                <Label htmlFor="specific-obs">Observação do Mês</Label>
+                                <Textarea
+                                    id="specific-obs"
+                                    placeholder="Digite o motivo da queda ou observação..."
+                                    value={tempObservation}
+                                    onChange={(e) => setTempObservation(e.target.value)}
+                                    className="min-h-[100px]"
+                                />
+                            </div>
+
+                            {/* Detailed Records Table */}
+                            <div className="space-y-2 pt-4 border-t">
+                                <h4 className="text-sm font-medium">Registros do Mês</h4>
+                                <div className="max-h-[300px] overflow-auto border rounded-md">
+                                    <table className="w-full text-xs">
+                                        <thead className="bg-muted sticky top-0">
+                                            <tr>
+                                                <th className="p-2 text-left font-medium">Data</th>
+                                                <th className="p-2 text-left font-medium">Turno</th>
+                                                <th className="p-2 text-left font-medium">Prensa</th>
+                                                <th className="p-2 text-right font-medium">Prod.</th>
+                                                <th className="p-2 text-right font-medium">Efic.</th>
+                                                <th className="p-2 text-right font-medium">Peso Bruto</th>
+                                                <th className="p-2 text-left font-medium">Parada</th>
+                                                <th className="p-2 text-left font-medium">Liga</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {stat.rows
+                                                .filter(r => {
+                                                    const dateStr = r["Data Produção"];
+                                                    if (!dateStr) return false;
+                                                    const parts = dateStr.split("/");
+                                                    if (parts.length !== 3) return false;
+                                                    const month = `${parts[2]}-${parts[1]}`;
+                                                    return month === selectedPoint.month;
+                                                })
+                                                .sort((a, b) => {
+                                                    // Sort by date desc
+                                                    const da = a["Data Produção"].split("/").reverse().join("-");
+                                                    const db = b["Data Produção"].split("/").reverse().join("-");
+                                                    return db.localeCompare(da);
+                                                })
+                                                .map((row, idx) => (
+                                                    <tr key={idx} className="border-b last:border-0 hover:bg-muted/20">
+                                                        <td className="p-2">{row["Data Produção"]}</td>
+                                                        <td className="p-2">{row["Turno"]}</td>
+                                                        <td className="p-2">{row["Prensa"]}</td>
+                                                        <td className="p-2 text-right">
+                                                            {Number(row["Produtividade"]).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                                        </td>
+                                                        <td className="p-2 text-right">
+                                                            {Number(row["Eficiência"]).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                                                        </td>
+                                                        <td className="p-2 text-right">
+                                                            {Number(row["Peso Bruto"] || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                                        </td>
+                                                        <td className="p-2 truncate max-w-[100px]" title={row["Cod Parada"]}>{row["Cod Parada"]}</td>
+                                                        <td className="p-2">{row["Liga Utilizada"]}</td>
+                                                    </tr>
+                                                ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
+                        <Button onClick={handleSaveObservation}>Salvar Observação</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div >
     );
 }
 
@@ -1086,6 +1562,226 @@ function AnnualPerformanceChart({ data }: { data: { month: string; avgProdutivid
                     Produtividade (kg/h)
                 </text>
             </svg>
+        </div>
+    );
+}
+
+// Evolution Chart with interactive points
+function EvolutionChart({
+    monthlyData,
+    anomalies = [],
+    avgProdutividade,
+    onPointClick
+}: {
+    monthlyData: any[];
+    anomalies?: AnomalyDetail[];
+    avgProdutividade: number;
+    onPointClick?: (point: { month: string; value: number; isAnomaly: boolean }) => void;
+}) {
+    const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
+
+    if (monthlyData.length === 0) return <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">Sem dados disponíveis</div>;
+
+    // Calculate monthly averages or use provided values
+    const dataPoints = monthlyData.map(m => {
+        let value = 0;
+        if (typeof m.value === 'number') {
+            value = m.value;
+        } else if (Array.isArray(m.produtividade)) {
+            value = m.produtividade.reduce((sum: number, v: number) => sum + v, 0) / (m.produtividade.length || 1);
+        }
+        return {
+            month: m.month,
+            value,
+            isAnomaly: m.isAnomaly
+        };
+    });
+
+    const values = dataPoints.map(d => d.value);
+    const min = Math.min(...values, avgProdutividade) * 0.95;
+    const max = Math.max(...values, avgProdutividade) * 1.05;
+    const range = max - min || 1;
+
+    const width = 500;
+    const height = 180;
+    const padding = { top: 20, right: 20, bottom: 40, left: 60 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    // Create anomaly set for quick lookup
+    const anomalyMonths = new Set(anomalies?.map(a => a.month) || []);
+
+    // Calculate positions
+    const points = dataPoints.map((d, i) => {
+        const x = padding.left + (i / (dataPoints.length - 1 || 1)) * chartWidth;
+        const y = padding.top + chartHeight - ((d.value - min) / range) * chartHeight;
+        // Use either the explicit isAnomaly flag or check the anomalies list
+        const isAnomaly = d.isAnomaly || anomalyMonths.has(d.month);
+        return { x, y, ...d, isAnomaly };
+    });
+
+    // Average line Y position
+    const avgY = padding.top + chartHeight - ((avgProdutividade - min) / range) * chartHeight;
+
+    // Create path for line
+    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ');
+
+    return (
+        <div className="w-full">
+            <svg width={width} height={height} className="w-full" style={{ maxWidth: '100%', height: 'auto' }}>
+                {/* Grid lines */}
+                {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
+                    const y = padding.top + chartHeight * (1 - ratio);
+                    const value = min + range * ratio;
+                    return (
+                        <g key={i}>
+                            <line
+                                x1={padding.left}
+                                y1={y}
+                                x2={width - padding.right}
+                                y2={y}
+                                stroke="hsl(var(--border))"
+                                strokeWidth="1"
+                                opacity="0.3"
+                            />
+                            <text
+                                x={padding.left - 8}
+                                y={y + 4}
+                                textAnchor="end"
+                                fontSize="10"
+                                fill="hsl(var(--muted-foreground))"
+                            >
+                                {value.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}
+                            </text>
+                        </g>
+                    );
+                })}
+
+                {/* Anomaly background highlights */}
+                {points.map((p, i) => p.isAnomaly && (
+                    <rect
+                        key={`bg-${i}`}
+                        x={p.x - 15}
+                        y={padding.top}
+                        width={30}
+                        height={chartHeight}
+                        fill="hsl(var(--destructive))"
+                        opacity="0.08"
+                    />
+                ))}
+
+                {/* Average line */}
+                <line
+                    x1={padding.left}
+                    y1={avgY}
+                    x2={width - padding.right}
+                    y2={avgY}
+                    stroke="hsl(var(--primary))"
+                    strokeWidth="1.5"
+                    strokeDasharray="4 4"
+                    opacity="0.5"
+                />
+
+                {/* Main line */}
+                <path
+                    d={linePath}
+                    fill="none"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                />
+
+                {/* Data points */}
+                {points.map((p, i) => (
+                    <g key={i}>
+                        <circle
+                            cx={p.x}
+                            cy={p.y}
+                            r={p.isAnomaly ? "5" : "3"}
+                            fill={p.isAnomaly ? "hsl(var(--destructive))" : "hsl(var(--primary))"}
+                            stroke="hsl(var(--background))"
+                            strokeWidth="2"
+                            className={`transition-all ${onPointClick ? 'cursor-pointer' : ''}`}
+                            onMouseEnter={() => setHoveredPoint(i)}
+                            onMouseLeave={() => setHoveredPoint(null)}
+                            onClick={() => onPointClick?.({ month: p.month, value: p.value, isAnomaly: p.isAnomaly })}
+                            style={{
+                                filter: hoveredPoint === i ? 'drop-shadow(0 0 4px rgba(0,0,0,0.3))' : 'none',
+                                transform: hoveredPoint === i ? 'scale(1.3)' : 'scale(1)',
+                                transformOrigin: `${p.x}px ${p.y}px`
+                            }}
+                        />
+                        {/* Tooltip on hover */}
+                        {hoveredPoint === i && (
+                            <g>
+                                <rect
+                                    x={p.x - 40}
+                                    y={p.y - 35}
+                                    width="80"
+                                    height="25"
+                                    rx="4"
+                                    fill="hsl(var(--popover))"
+                                    stroke="hsl(var(--border))"
+                                    strokeWidth="1"
+                                />
+                                <text
+                                    x={p.x}
+                                    y={p.y - 18}
+                                    textAnchor="middle"
+                                    fontSize="10"
+                                    fill="hsl(var(--popover-foreground))"
+                                    fontWeight="500"
+                                >
+                                    {p.value.toFixed(1)}
+                                </text>
+                            </g>
+                        )}
+                        {/* X-axis labels (every 2 months or if few points) */}
+                        {(points.length <= 6 || i % 2 === 0) && (
+                            <text
+                                x={p.x}
+                                y={height - padding.bottom + 15}
+                                textAnchor="middle"
+                                fontSize="10"
+                                fill="hsl(var(--muted-foreground))"
+                                transform={`rotate(-45, ${p.x}, ${height - padding.bottom + 15})`}
+                            >
+                                {formatMonth(p.month)}
+                            </text>
+                        )}
+                    </g>
+                ))}
+
+                {/* Y-axis label */}
+                <text
+                    x={padding.left - 45}
+                    y={padding.top + chartHeight / 2}
+                    textAnchor="middle"
+                    fontSize="11"
+                    fill="hsl(var(--muted-foreground))"
+                    transform={`rotate(-90, ${padding.left - 45}, ${padding.top + chartHeight / 2})`}
+                    fontWeight="500"
+                >
+                    Produtividade (kg/h)
+                </text>
+            </svg>
+
+            {/* Legend */}
+            <div className="flex items-center justify-center gap-4 mt-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-primary" />
+                    <span>Produtividade</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <div className="w-8 h-0.5 bg-primary opacity-50" style={{ borderTop: '1.5px dashed' }} />
+                    <span>Média</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-destructive" />
+                    <span>Anomalia</span>
+                </div>
+            </div>
         </div>
     );
 }

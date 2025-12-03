@@ -11,6 +11,16 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - Adicionada restrição CHECK para validar valores: 'Aprovado', 'Reprovado' ou NULL
   - Atualizada documentação para refletir a nova estrutura
 
+### 28/11/2025 - Nova análise de produtividade e planejamento mobile-first
+- **Objetivo**: Implementar análise completa de produtividade com gráficos interativos e iniciar planejamento para responsividade mobile
+- **Alterações**:
+  - Novo componente `AnalysisProdutividadeView.tsx` com análise de produtividade
+  - Novo utilitário `productivityAnalysis.ts` para cálculos e processamento
+  - Gráficos interativos: linha, barras e pizza para métricas de produtividade
+  - Filtros avançados por cliente, ferramenta e período
+  - Documentação completa para planejamento mobile-first (8 documentos)
+  - Melhorias de responsividade em componentes principais
+
 ## Entidades
 
 - **folders**
