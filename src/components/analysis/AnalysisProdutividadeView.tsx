@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Upload, TrendingUp, TrendingDown, Minus, BarChart3, AlertTriangle, HelpCircle, Info, Lightbulb } from "lucide-react";
+import { Upload, TrendingUp, TrendingDown, Minus, BarChart3, AlertTriangle, HelpCircle, Info, Lightbulb, Download, FileSpreadsheet, Database } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Dialog,
     DialogContent,
@@ -9,6 +10,7 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -75,24 +77,18 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
     const [expandedMatriz, setExpandedMatriz] = useState<string | null>(null);
     const [importing, setImporting] = useState(false);
-    const [importMsg, setImportMsg] = useState<string>("");
-    const [importProgress, setImportProgress] = useState<number>(0);
-    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const [importMsg, setImportMsg] = useState("");
+    const [importProgress, setImportProgress] = useState(0);
     const [reloadKey, setReloadKey] = useState(0);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isDataManagementOpen, setIsDataManagementOpen] = useState(false);
     const [expandedData, setExpandedData] = useState<Record<string, RpcEvolutionData[]>>({});
     const [expandedLoading, setExpandedLoading] = useState(false);
     const [groupBySeq, setGroupBySeq] = useState(false);
     const [expandedSeq, setExpandedSeq] = useState<string | null>(null);
     const [observations, setObservations] = useState<Record<string, string>>({});
-
-    // Save observations to localStorage whenever they change
-
-
-    // State for specific observations (per matrix AND month)
     const [specificObservations, setSpecificObservations] = useState<Record<string, string>>({});
-
-    // Save specific observations to localStorage
-
+    const [showAnomaliesOnly, setShowAnomaliesOnly] = useState(false);
 
     const updateSpecificObservation = async (matriz: string, month: string, text: string) => {
         const key = `${matriz}|${month}`;
@@ -150,20 +146,23 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
             setImportMsg("Lendo planilha...");
             const records = await parseWorkbook(file);
             setImportProgress(0);
-            setImportMsg(`Encontradas ${records.length.toLocaleString("pt-BR")} linhas. Limpando tabela...`);
-            await deleteAllProducao();
+            setImportMsg(`Encontradas ${records.length.toLocaleString("pt-BR")} linhas. Adicionando ao banco...`);
+
+            // REMOVED: await deleteAllProducao(); // We now APPEND data
+
             setImportMsg("Inserindo registros em lotes...");
             const batch = 500;
-            const totalBatches = Math.ceil(records.length / batch) || 1;
+            const totalBatches = Math.ceil(records.length / batch);
+
             for (let i = 0; i < totalBatches; i++) {
-                const start = i * batch;
-                const chunk = records.slice(start, start + batch);
+                const chunk = records.slice(i * batch, (i + 1) * batch);
                 const { error } = await supabase.from("analysis_producao").insert(chunk);
                 if (error) throw error;
                 setImportProgress(Math.round(((i + 1) / totalBatches) * 100));
             }
-            setImportMsg("Importação concluída.");
+            setImportMsg("Importação concluída com sucesso!");
             setReloadKey((k) => k + 1);
+            setTimeout(() => setIsDataManagementOpen(false), 1500);
         } catch (err: any) {
             setImportMsg(`Erro na importação: ${err?.message ?? String(err)}`);
         } finally {
@@ -173,6 +172,55 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
         }
     };
 
+    const handleDownloadTemplate = () => {
+        const headers = [
+            "Prensa", "Data Produção", "Turno", "Ferramenta", "Peso Bruto",
+            "Eficiência", "Produtividade", "Cod Parada", "Liga Utilizada", "Observação Lote"
+        ];
+        const sampleRow = [
+            "1.9", "01/01/2024", "TA", "TR-0000", 100,
+            95.5, 800, "000 - SEM PARADA", "6063", "Exemplo de observação"
+        ];
+
+        const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Dados");
+        XLSX.writeFile(wb, "Modelo_Importacao_Produtividade.xlsx");
+    };
+
+    const handleDownloadReport = () => {
+        // Create a map of observations for fast lookup
+        // Key: Matriz (General) or Matriz|Month (Specific)
+
+        // We need to map the rows to export format and add observations
+        const exportData = rows.map(row => {
+            const matriz = row.Matriz || "";
+            const dateStr = row["Data Produção"];
+            let specificObs = "";
+
+            if (matriz && dateStr) {
+                const parts = dateStr.split("/");
+                if (parts.length === 3) {
+                    const month = `${parts[2]}-${parts[1]}`;
+                    const key = `${matriz}|${month}`;
+                    specificObs = specificObservations[key] || "";
+                }
+            }
+
+            const generalObs = matriz ? (observations[matriz] || "") : "";
+
+            return {
+                ...row,
+                "Observação Mensal": specificObs,
+                "Observação Geral": generalObs
+            };
+        });
+
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Relatório Completo");
+        XLSX.writeFile(wb, `Relatorio_Produtividade_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
     useEffect(() => {
         let active = true;
         async function loadData() {
@@ -199,8 +247,10 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
 
                 const { data, error } = await query;
                 if (error) throw error;
+                console.log('📦 Fetched data count:', data?.length);
                 if (!active) return;
                 const mapped = (data as RawRow[] | null | undefined)?.map(mapRow) ?? [];
+                console.log('🗺️ Mapped rows count:', mapped.length);
                 console.log('✅ Loaded rows:', mapped.length);
                 setRows(mapped);
             } catch (e: any) {
@@ -319,7 +369,16 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                 const prod = stat.avgProdutividade;
                 if (!Number.isNaN(minProd) && prod < minProd) return false;
                 if (!Number.isNaN(maxProd) && prod > maxProd) return false;
+
                 return true;
+            });
+        }
+
+        // Apply anomalies filter
+        if (showAnomaliesOnly) {
+            filtered = filtered.filter((stat) => {
+                const anomalies = detectAnomalies(stat.monthlyData);
+                return anomalies.length > 0;
             });
         }
 
@@ -343,7 +402,7 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
             return sortOrder === "asc" ? comparison : -comparison;
         });
         return filtered;
-    }, [stats, sortBy, sortOrder, prodMinFilter, prodMaxFilter]);
+    }, [stats, sortBy, sortOrder, prodMinFilter, prodMaxFilter, showAnomaliesOnly]);
 
     const seqOptions = useMemo(() => {
         const set = new Set<string>();
@@ -558,49 +617,157 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                             <option value="asc">Menor → Maior</option>
                         </select>
                     </div>
-                    <div className="flex items-end">
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".xlsx,.xls,.csv"
-                            className="hidden"
-                            onChange={handleFileChange}
+                    <Dialog open={isDataManagementOpen} onOpenChange={setIsDataManagementOpen}>
+                        <DialogTrigger asChild>
+                            <Button variant="outline" size="sm" className="ml-1 gap-2">
+                                <Database className="h-4 w-4" />
+                                Gerenciar Dados
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[600px]">
+                            <DialogHeader>
+                                <DialogTitle>Gerenciamento de Dados</DialogTitle>
+                                <DialogDescription>
+                                    Importe novos dados ou exporte relatórios e modelos.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <Tabs defaultValue="import" className="w-full">
+                                <TabsList className="grid w-full grid-cols-2">
+                                    <TabsTrigger value="import">Importar</TabsTrigger>
+                                    <TabsTrigger value="export">Exportar / Modelo</TabsTrigger>
+                                </TabsList>
+
+                                <TabsContent value="import" className="space-y-4 py-4">
+                                    <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 text-sm text-yellow-800">
+                                        <div className="flex items-center gap-2 font-medium mb-1">
+                                            <AlertTriangle className="h-4 w-4" />
+                                            Atenção: Modo de Adição
+                                        </div>
+                                        <p>
+                                            A importação irá <strong>ADICIONAR</strong> os novos dados ao banco.
+                                            Dados existentes <strong>NÃO</strong> serão apagados.
+                                            Certifique-se de que a planilha contém apenas novos registros para evitar duplicidade.
+                                        </p>
+                                    </div>
+
+                                    <div className="flex flex-col gap-4 items-center justify-center border-2 border-dashed rounded-lg p-8">
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept=".xlsx,.xls,.csv"
+                                            className="hidden"
+                                            onChange={handleFileChange}
+                                        />
+                                        <Button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            disabled={importing}
+                                            className="w-full max-w-xs"
+                                        >
+                                            {importing ? (
+                                                "Importando..."
+                                            ) : (
+                                                <>
+                                                    <Upload className="mr-2 h-4 w-4" />
+                                                    Selecionar Arquivo
+                                                </>
+                                            )}
+                                        </Button>
+                                        {importMsg && (
+                                            <div className="w-full space-y-2">
+                                                <p className="text-xs text-center text-muted-foreground">{importMsg}</p>
+                                                {(importing || importProgress > 0) && (
+                                                    <div className="h-2 w-full rounded bg-muted overflow-hidden">
+                                                        <div
+                                                            className="h-full bg-primary transition-all duration-300"
+                                                            style={{ width: `${importProgress}%` }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </TabsContent>
+
+                                <TabsContent value="export" className="space-y-4 py-4">
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <Card>
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-base flex items-center gap-2">
+                                                    <FileSpreadsheet className="h-4 w-4" />
+                                                    Relatório Completo
+                                                </CardTitle>
+                                                <CardDescription>
+                                                    Baixe todos os dados atuais incluindo as observações salvas.
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <Button onClick={handleDownloadReport} variant="secondary" className="w-full">
+                                                    <Download className="mr-2 h-4 w-4" />
+                                                    Baixar Relatório
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card>
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-base flex items-center gap-2">
+                                                    <Info className="h-4 w-4" />
+                                                    Modelo de Importação
+                                                </CardTitle>
+                                                <CardDescription>
+                                                    Baixe a planilha modelo para preencher novos dados corretamente.
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <Button onClick={handleDownloadTemplate} variant="outline" className="w-full">
+                                                    <Download className="mr-2 h-4 w-4" />
+                                                    Baixar Modelo Padrão
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                </TabsContent>
+                            </Tabs>
+                        </DialogContent>
+                    </Dialog>
+                </div>
+                <div className="flex flex-col justify-end pb-1">
+                    <div className="flex items-center space-x-2">
+                        <Switch
+                            id="group-by-seq"
+                            checked={groupBySeq}
+                            onCheckedChange={setGroupBySeq}
                         />
-                        <button
-                            type="button"
-                            className="ml-1 h-9 w-9 flex items-center justify-center rounded-md border hover:bg-muted disabled:opacity-50"
-                            title={importing ? "Importando..." : "Carregar planilha"}
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={importing}
-                        >
-                            <Upload className="h-4 w-4" />
-                        </button>
+                        <Label htmlFor="group-by-seq" className="text-xs text-muted-foreground cursor-pointer">
+                            Agrupar por Sequência
+                        </Label>
                     </div>
-                    <div className="flex flex-col justify-end pb-1">
-                        <div className="flex items-center space-x-2">
-                            <Switch
-                                id="group-by-seq"
-                                checked={groupBySeq}
-                                onCheckedChange={setGroupBySeq}
-                            />
-                            <Label htmlFor="group-by-seq" className="text-xs text-muted-foreground cursor-pointer">
-                                Agrupar por Sequência
-                            </Label>
-                        </div>
+                    <div className="flex items-center space-x-2">
+                        <Switch
+                            id="show-anomalies"
+                            checked={showAnomaliesOnly}
+                            onCheckedChange={setShowAnomaliesOnly}
+                        />
+                        <Label htmlFor="show-anomalies" className="text-xs text-muted-foreground cursor-pointer">
+                            Apenas com Alertas
+                        </Label>
                     </div>
                 </div>
             </div>
 
-            {importMsg && (
-                <div className="mb-2 text-xs text-muted-foreground flex items-center gap-3">
-                    <span>{importMsg}</span>
-                    {importing || importProgress > 0 ? (
-                        <div className="h-2 w-40 rounded bg-muted">
-                            <div className="h-2 rounded bg-primary" style={{ width: `${importProgress}%` }} />
-                        </div>
-                    ) : null}
-                </div>
-            )}
+
+            {
+                importMsg && (
+                    <div className="mb-2 text-xs text-muted-foreground flex items-center gap-3">
+                        <span>{importMsg}</span>
+                        {importing || importProgress > 0 ? (
+                            <div className="h-2 w-40 rounded bg-muted">
+                                <div className="h-2 rounded bg-primary" style={{ width: `${importProgress}%` }} />
+                            </div>
+                        ) : null}
+                    </div>
+                )
+            }
 
             {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -639,139 +806,147 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
 
             {loading && <div className="text-sm text-muted-foreground">Carregando dados...</div>}
             {error && <div className="text-sm text-red-600">Erro: {error}</div>}
-            {!loading && !error && stats.length === 0 && (
-                <div className="text-sm text-muted-foreground">Nenhum dado encontrado para o período selecionado.</div>
-            )}
+            {
+                !loading && !error && stats.length === 0 && (
+                    <div className="text-sm text-muted-foreground">Nenhum dado encontrado para o período selecionado.</div>
+                )
+            }
 
             {/* Main Table */}
-            {!loading && !error && stats.length > 0 && (
-                <div className="overflow-auto">
-                    <table className="w-full border-collapse text-sm">
-                        <thead>
-                            <tr className="border-b">
-                                <th className="sticky top-0 bg-muted px-3 py-2 text-left font-medium text-muted-foreground">Matriz</th>
-                                <th className="sticky top-0 bg-muted px-3 py-2 text-center font-medium text-muted-foreground">Seq</th>
-                                <th className="sticky top-0 bg-muted px-3 py-2 text-right font-medium text-muted-foreground">
-                                    <span className="inline-flex items-center">
-                                        Produtividade Média
-                                        <HelpTooltip text="Média de kg produzidos por hora. Quanto maior, melhor o desempenho da matriz." />
-                                    </span>
-                                </th>
-                                <th className="sticky top-0 bg-muted px-3 py-2 text-right font-medium text-muted-foreground">
-                                    <span className="inline-flex items-center">
-                                        Eficiência Média
-                                        <HelpTooltip text="Percentual de aproveitamento do tempo. Valores acima de 80% são bons." />
-                                    </span>
-                                </th>
-                                <th className="sticky top-0 bg-muted px-3 py-2 text-center font-medium text-muted-foreground">
-                                    <span className="inline-flex items-center">
-                                        Tendência
-                                        <HelpTooltip text="Direção da performance: ↑ Melhorando | ↓ Piorando | → Estável" />
-                                    </span>
-                                </th>
-                                <th className="sticky top-0 bg-muted px-3 py-2 text-right font-medium text-muted-foreground">
-                                    <span className="inline-flex items-center">
-                                        Variação (CV%)
-                                        <HelpTooltip text="Coeficiente de Variação: mede a estabilidade. Valores baixos (<15%) indicam produção consistente." />
-                                    </span>
-                                </th>
-                                <th className="sticky top-0 bg-muted px-3 py-2 text-left font-medium text-muted-foreground w-48">
-                                    <span className="inline-flex items-center">
-                                        Sparkline ({monthsToAnalyze} meses)
-                                        <HelpTooltip text="Mini-gráfico mostrando a evolução da produtividade ao longo dos meses." />
-                                    </span>
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sortedStats.map((stat) => {
-                                const anomalies = detectAnomalies(stat.monthlyData);
-                                const hasAnomalies = anomalies.length > 0;
-                                const isExpanded = expandedMatriz === stat.matriz && (!groupBySeq || expandedSeq === stat.seq);
-                                const expandedKey = expandedSeq ? `${stat.matriz}|${expandedSeq}` : stat.matriz;
+            {
+                !loading && !error && stats.length > 0 && (
+                    <div className="overflow-auto">
+                        <table className="w-full border-collapse text-sm">
+                            <thead>
+                                <tr className="border-b">
+                                    <th className="sticky top-0 bg-muted px-3 py-2 text-left font-medium text-muted-foreground">Matriz</th>
+                                    <th className="sticky top-0 bg-muted px-3 py-2 text-center font-medium text-muted-foreground">Seq</th>
+                                    <th className="sticky top-0 bg-muted px-3 py-2 text-right font-medium text-muted-foreground">
+                                        <span className="inline-flex items-center">
+                                            Produtividade Média
+                                            <HelpTooltip text="Média de kg produzidos por hora. Quanto maior, melhor o desempenho da matriz." />
+                                        </span>
+                                    </th>
+                                    <th className="sticky top-0 bg-muted px-3 py-2 text-right font-medium text-muted-foreground">
+                                        <span className="inline-flex items-center">
+                                            Eficiência Média
+                                            <HelpTooltip text="Percentual de aproveitamento do tempo. Valores acima de 80% são bons." />
+                                        </span>
+                                    </th>
+                                    <th className="sticky top-0 bg-muted px-3 py-2 text-center font-medium text-muted-foreground">
+                                        <span className="inline-flex items-center">
+                                            Tendência
+                                            <HelpTooltip text="Direção da performance: ↑ Melhorando | ↓ Piorando | → Estável" />
+                                        </span>
+                                    </th>
+                                    <th className="sticky top-0 bg-muted px-3 py-2 text-right font-medium text-muted-foreground">
+                                        <span className="inline-flex items-center">
+                                            Variação (CV%)
+                                            <HelpTooltip text="Coeficiente de Variação: mede a estabilidade. Valores baixos (<15%) indicam produção consistente." />
+                                        </span>
+                                    </th>
+                                    <th className="sticky top-0 bg-muted px-3 py-2 text-left font-medium text-muted-foreground w-48">
+                                        <span className="inline-flex items-center">
+                                            Sparkline ({monthsToAnalyze} meses)
+                                            <HelpTooltip text="Mini-gráfico mostrando a evolução da produtividade ao longo dos meses." />
+                                        </span>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedStats.map((stat) => {
+                                    const anomalies = detectAnomalies(stat.monthlyData);
+                                    const hasAnomalies = anomalies.length > 0;
+                                    const isExpanded = expandedMatriz === stat.matriz && (!groupBySeq || expandedSeq === stat.seq);
+                                    const expandedKey = expandedSeq ? `${stat.matriz}|${expandedSeq}` : stat.matriz;
 
-                                return (
-                                    <>
-                                        <tr
-                                            key={`${stat.matriz}-${stat.seq}`}
-                                            className="border-b hover:bg-muted/40 cursor-pointer"
-                                            onClick={() => {
-                                                if (isExpanded) {
-                                                    setExpandedMatriz(null);
-                                                    setExpandedSeq(null);
-                                                } else {
-                                                    setExpandedMatriz(stat.matriz);
-                                                    setExpandedSeq(stat.seq);
-                                                }
-                                            }}
-                                        >
-                                            <td className="px-3 py-2 text-left">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium">{stat.matriz}</span>
-                                                    {hasAnomalies && (
-                                                        <AlertTriangle className="h-4 w-4 text-orange-600" />
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-3 py-2 text-center">{stat.seq}</td>
-                                            <td className="px-3 py-2 text-right tabular-nums">
-                                                {stat.avgProdutividade.toLocaleString("pt-BR", {
-                                                    minimumFractionDigits: 2,
-                                                    maximumFractionDigits: 2,
-                                                })}
-                                            </td>
-                                            <td className="px-3 py-2 text-right tabular-nums">
-                                                {stat.avgEficiencia.toLocaleString("pt-BR", {
-                                                    minimumFractionDigits: 2,
-                                                    maximumFractionDigits: 2,
-                                                })}
-                                                %
-                                            </td>
-                                            <td className="px-3 py-2 text-center">
-                                                <div className="flex items-center justify-center gap-1">
-                                                    {getTrendIcon(stat.trend)}
-                                                    <span className={`text-xs ${getTrendColor(stat.trend)}`}>
-                                                        {stat.trend === "up" ? "↑" : stat.trend === "down" ? "↓" : "→"}
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <td className="px-3 py-2 text-right tabular-nums">
-                                                {stat.cvProdutividade.toLocaleString("pt-BR", {
-                                                    minimumFractionDigits: 1,
-                                                    maximumFractionDigits: 1,
-                                                })}
-                                                %
-                                            </td>
-                                        </tr>
-                                        {isExpanded && (
-                                            <tr>
-                                                <td colSpan={7} className="p-0 border-b bg-muted/10">
-                                                    <ExpandedDetailsWithAnnual
-                                                        stat={stat}
-                                                        anomalies={anomalies}
-                                                        overallAvg={overallStats.avgProd}
-                                                        observation={observations[stat.matriz] || ''}
-                                                        onObservationChange={(text) => updateObservation(stat.matriz, text)}
-                                                        rpcData={expandedData[expandedKey]}
-                                                        isLoading={expandedLoading}
-                                                        specificObservations={specificObservations}
-                                                        onSpecificObservationChange={(month, text) => updateSpecificObservation(stat.matriz, month, text)}
-                                                    />
+                                    return (
+                                        <>
+                                            <tr
+                                                key={`${stat.matriz}-${stat.seq}`}
+                                                className="border-b hover:bg-muted/40 cursor-pointer"
+                                                onClick={() => {
+                                                    if (isExpanded) {
+                                                        setExpandedMatriz(null);
+                                                        setExpandedSeq(null);
+                                                    } else {
+                                                        setExpandedMatriz(stat.matriz);
+                                                        setExpandedSeq(stat.seq);
+                                                    }
+                                                }}
+                                            >
+                                                <td className="px-3 py-2 text-left">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium">{stat.matriz}</span>
+                                                        {hasAnomalies && (
+                                                            <AlertTriangle className="h-4 w-4 text-orange-600" />
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-3 py-2 text-center">{stat.seq}</td>
+                                                <td className="px-3 py-2 text-right tabular-nums">
+                                                    {stat.avgProdutividade.toLocaleString("pt-BR", {
+                                                        minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2,
+                                                    })}
+                                                </td>
+                                                <td className="px-3 py-2 text-right tabular-nums">
+                                                    {stat.avgEficiencia.toLocaleString("pt-BR", {
+                                                        minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2,
+                                                    })}
+                                                    %
+                                                </td>
+                                                <td className="px-3 py-2 text-center">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        {getTrendIcon(stat.trend)}
+                                                        <span className={`text-xs ${getTrendColor(stat.trend)}`}>
+                                                            {stat.trend === "up" ? "↑" : stat.trend === "down" ? "↓" : "→"}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-3 py-2 text-right tabular-nums">
+                                                    {stat.cvProdutividade.toLocaleString("pt-BR", {
+                                                        minimumFractionDigits: 1,
+                                                        maximumFractionDigits: 1,
+                                                    })}
+                                                    %
+                                                </td>
+                                                <td className="px-3 py-2 text-left">
+                                                    <Sparkline data={stat.sparklineData} />
                                                 </td>
                                             </tr>
-                                        )}
-                                    </>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
+                                            {isExpanded && (
+                                                <tr>
+                                                    <td colSpan={7} className="p-0 border-b bg-muted/10">
+                                                        <ExpandedDetailsWithAnnual
+                                                            stat={stat}
+                                                            anomalies={anomalies}
+                                                            overallAvg={overallStats.avgProd}
+                                                            observation={observations[stat.matriz] || ''}
+                                                            onObservationChange={(text) => updateObservation(stat.matriz, text)}
+                                                            rpcData={expandedData[expandedKey]}
+                                                            isLoading={expandedLoading}
+                                                            specificObservations={specificObservations}
+                                                            onSpecificObservationChange={(month, text) => updateSpecificObservation(stat.matriz, month, text)}
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )
+            }
+        </div >
     );
 }
 
 // Sparkline component
+// Sparkline component with smoothing
 function Sparkline({ data }: { data: { month: string; value: number }[] }) {
     if (data.length === 0) return <div className="h-8" />;
 
@@ -784,23 +959,47 @@ function Sparkline({ data }: { data: { month: string; value: number }[] }) {
     const height = 32;
     const padding = 2;
 
-    const points = data
-        .map((d, i) => {
-            const x = (i / (data.length - 1 || 1)) * (width - 2 * padding) + padding;
-            const y = height - padding - ((d.value - min) / range) * (height - 2 * padding);
-            return `${x},${y}`;
-        })
-        .join(" ");
+    // Calculate points
+    const points = data.map((d, i) => {
+        const x = (i / (data.length - 1 || 1)) * (width - 2 * padding) + padding;
+        const y = height - padding - ((d.value - min) / range) * (height - 2 * padding);
+        return [x, y] as [number, number];
+    });
+
+    // Generate smooth path (Catmull-Rom spline converted to Bezier or simple Bezier)
+    // Simple smoothing strategy: Control points based on previous and next points
+    const getPath = (points: [number, number][]) => {
+        if (points.length === 0) return "";
+        if (points.length === 1) return `M ${points[0][0]} ${points[0][1]} L ${points[0][0] + 1} ${points[0][1]}`;
+
+        let d = `M ${points[0][0]} ${points[0][1]}`;
+
+        for (let i = 0; i < points.length - 1; i++) {
+            const current = points[i];
+            const next = points[i + 1];
+
+            // Control points for simple smoothing
+            const cp1x = current[0] + (next[0] - current[0]) * 0.5;
+            const cp1y = current[1];
+            const cp2x = current[0] + (next[0] - current[0]) * 0.5;
+            const cp2y = next[1];
+
+            d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next[0]} ${next[1]}`;
+        }
+        return d;
+    };
+
+    const pathD = getPath(points);
 
     return (
         <svg width={width} height={height} className="inline-block">
-            <polyline
-                points={points}
+            <path
+                d={pathD}
                 fill="none"
                 stroke="hsl(var(--primary))"
                 strokeWidth="1.5"
-                strokeLinejoin="round"
                 strokeLinecap="round"
+                strokeLinejoin="round"
             />
         </svg>
     );
@@ -1834,10 +2033,30 @@ async function parseWorkbook(file: File) {
     const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: null });
     return rows.map((r) => {
         const ferramenta = r["Ferramenta"] ?? r["ferramenta"] ?? "";
+        const dataProducao = r["Data Produção"] ?? r["Data Producao"] ?? null;
+
+        // Parse date for produced_on column
+        let produced_on: string | null = null;
+        if (typeof dataProducao === "number") {
+            const dateStr = excelToDateStr(dataProducao);
+            if (dateStr) {
+                const parts = dateStr.split("/");
+                if (parts.length === 3) produced_on = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+        } else if (typeof dataProducao === "string") {
+            if (dataProducao.includes("/")) {
+                const parts = dataProducao.split("/");
+                if (parts.length === 3) produced_on = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            } else if (dataProducao.includes("-")) {
+                produced_on = dataProducao; // Assume already ISO
+            }
+        }
+
         return {
+            produced_on,
             payload: {
                 Prensa: r["Prensa"] ?? null,
-                "Data Produção": r["Data Produção"] ?? r["Data Producao"] ?? null,
+                "Data Produção": dataProducao,
                 Turno: r["Turno"] ?? null,
                 Ferramenta: ferramenta ?? null,
                 "Peso Bruto": r["Peso Bruto"] ?? null,

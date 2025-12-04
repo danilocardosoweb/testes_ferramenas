@@ -150,9 +150,20 @@ export function calculateMatrizStats(
       if (!dateStr) return;
 
       // Parse DD/MM/YYYY to YYYY-MM
-      const parts = dateStr.split("/");
-      if (parts.length !== 3) return;
-      const month = `${parts[2]}-${parts[1]}`;
+      let month = "";
+      if (dateStr.includes("/")) {
+        const parts = dateStr.split("/");
+        if (parts.length === 3) {
+          month = `${parts[2]}-${parts[1]}`;
+        }
+      } else if (dateStr.includes("-")) {
+        const parts = dateStr.split("-");
+        if (parts.length === 3) {
+          month = `${parts[0]}-${parts[1]}`;
+        }
+      }
+
+      if (!month) return;
 
       if (!monthMap.has(month)) {
         monthMap.set(month, { produtividade: [], eficiencia: [] });

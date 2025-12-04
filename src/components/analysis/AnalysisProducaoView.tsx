@@ -139,7 +139,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz, onOpenFerra
           .limit(1);
         setDbMinDate((minQ.data?.[0] as any)?.produced_on?.slice(0, 10));
         setDbMaxDate((maxQ.data?.[0] as any)?.produced_on?.slice(0, 10));
-      } catch {}
+      } catch { }
     } catch (err: any) {
       setImportMsg(`Erro na importação: ${err?.message ?? String(err)}`);
     } finally {
@@ -168,7 +168,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz, onOpenFerra
         if (!active) return;
         setDbMinDate((minQ.data?.[0] as any)?.produced_on?.slice(0, 10));
         setDbMaxDate((maxQ.data?.[0] as any)?.produced_on?.slice(0, 10));
-      } catch {}
+      } catch { }
     }
     loadDbPeriod();
     return () => { active = false; };
@@ -265,8 +265,8 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz, onOpenFerra
     const m = monthFilter.trim();
     const mf = matrizFilter.trim().toLowerCase();
     const pf = prensaFilter.trim().toLowerCase();
-    const min = prodMin.trim() ? Number(prodMin.replace(",",".")) : NaN;
-    const max = prodMax.trim() ? Number(prodMax.replace(",",".")) : NaN;
+    const min = prodMin.trim() ? Number(prodMin.replace(",", ".")) : NaN;
+    const max = prodMax.trim() ? Number(prodMax.replace(",", ".")) : NaN;
     const ps = periodStart.trim();
     const pe = periodEnd.trim();
     const ks = ps ? isoDateKey(ps) : 0;
@@ -534,7 +534,7 @@ export function AnalysisProducaoView({ onSelectMatriz, presetMatriz, onOpenFerra
           </button>
         </div>
       </div>
-      
+
     </div>
   );
 }
@@ -547,10 +547,30 @@ async function parseWorkbook(file: File) {
   const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: null });
   return rows.map((r) => {
     const ferramenta = r["Ferramenta"] ?? r["ferramenta"] ?? "";
+    const dataProducao = r["Data Produção"] ?? r["Data Producao"] ?? null;
+
+    // Parse date for produced_on column
+    let produced_on: string | null = null;
+    if (typeof dataProducao === "number") {
+      const dateStr = excelToDateStr(dataProducao);
+      if (dateStr) {
+        const parts = dateStr.split("/");
+        if (parts.length === 3) produced_on = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+    } else if (typeof dataProducao === "string") {
+      if (dataProducao.includes("/")) {
+        const parts = dataProducao.split("/");
+        if (parts.length === 3) produced_on = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      } else if (dataProducao.includes("-")) {
+        produced_on = dataProducao; // Assume already ISO
+      }
+    }
+
     return {
+      produced_on,
       payload: {
         "Prensa": r["Prensa"] ?? null,
-        "Data Produção": r["Data Produção"] ?? r["Data Producao"] ?? null,
+        "Data Produção": dataProducao,
         "Turno": r["Turno"] ?? null,
         "Ferramenta": ferramenta ?? null,
         "Peso Bruto": r["Peso Bruto"] ?? null,
