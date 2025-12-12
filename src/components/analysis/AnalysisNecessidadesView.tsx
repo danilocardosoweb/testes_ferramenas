@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { AlertTriangle, TrendingUp, Package, Hammer, Clock, Target, Zap, AlertCircle, CheckCircle2, Info, ArrowUpRight, Layers } from "lucide-react";
 
 // Tipos retornados pelas RPCs existentes
 interface SeqRPC {
@@ -269,21 +270,213 @@ export function AnalysisNecessidadesView() {
       {error && <div className="text-sm text-red-600">Erro: {error}</div>}
 
       {!loading && !error && (
+        <>
+          {/* KPIs Estratégicos de Necessidades */}
+          {(() => {
+            const altaPrioridade = rows.filter(r => r.prioridade === 'Alta').length;
+            const mediaPrioridade = rows.filter(r => r.prioridade === 'Média').length;
+            const baixaPrioridade = rows.filter(r => r.prioridade === 'Baixa').length;
+            const matrizesUnicas = new Set(rows.map(r => r.matriz)).size;
+            const comInsuficiencia = rows.filter(r => r.insuf_seq !== null).length;
+            const demandaCrescente = rows.filter(r => r.crescimento_ratio > 1.1).length;
+            const reposicao30dias = rows.filter(r => {
+              if (!r.data_pedido) return false;
+              const pedidoDate = new Date(r.data_pedido + 'T00:00:00');
+              const hoje = new Date(periodEnd + 'T00:00:00');
+              const diff = (pedidoDate.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24);
+              return diff >= 0 && diff <= 30;
+            }).length;
+            const desgasteAlto = rows.filter(r => r.desgaste_perc >= 1).length; // >= 100%
+
+            // Insights automáticos
+            const insights: Array<{tipo: 'critico' | 'alerta' | 'info' | 'sucesso', msg: string, icon: any}> = [];
+            if (altaPrioridade > 0) {
+              insights.push({ tipo: 'critico', msg: `${altaPrioridade} sequência(s) com prioridade ALTA — necessitam ação imediata de reposição/confecção`, icon: AlertTriangle });
+            }
+            if (comInsuficiencia > 0) {
+              insights.push({ tipo: 'alerta', msg: `${comInsuficiencia} matriz(es) com sequências insuficientes para atender demanda anual`, icon: Layers });
+            }
+            if (demandaCrescente > 0) {
+              insights.push({ tipo: 'alerta', msg: `${demandaCrescente} sequência(s) com demanda crescente (6m > 12m) — considere ampliar capacidade`, icon: TrendingUp });
+            }
+            if (reposicao30dias > 0) {
+              insights.push({ tipo: 'info', msg: `${reposicao30dias} sequência(s) com previsão de reposição nos próximos 30 dias`, icon: Clock });
+            }
+            if (desgasteAlto > 0) {
+              insights.push({ tipo: 'alerta', msg: `${desgasteAlto} sequência(s) ultrapassaram 30t de produção — avaliar condição física`, icon: Hammer });
+            }
+            if (altaPrioridade === 0 && mediaPrioridade === 0) {
+              insights.push({ tipo: 'sucesso', msg: `Nenhuma necessidade crítica ou média identificada no momento`, icon: CheckCircle2 });
+            }
+
+            return (
+              <div className="mb-4 space-y-4">
+                {/* Cards de KPIs */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-red-50 to-red-100/50 p-3 shadow-sm cursor-help"
+                    title="🔴 PRIORIDADE ALTA — Sequências que requerem ação imediata.&#10;&#10;📊 Como é calculado:&#10;Sequências são classificadas como Alta quando o SCORE é ≥ 60.&#10;&#10;O Score considera:&#10;• Cobertura baixa (poucos meses restantes)&#10;• Desgaste alto (muita produção acumulada)&#10;• Produção excedente (acima de 30t)&#10;• Demanda crescente (6m > 12m)&#10;• Sequências insuficientes na matriz&#10;&#10;⚠️ Ação necessária:&#10;Confeccionar nova sequência ou solicitar reposição urgente para evitar ruptura no atendimento."
+                  >
+                    <div className="flex items-center gap-2 text-red-700">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="text-xs font-medium">Prioridade Alta</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-red-700">{altaPrioridade}</div>
+                    <div className="text-[10px] text-red-600/70">Ação imediata</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-amber-50 to-amber-100/50 p-3 shadow-sm cursor-help"
+                    title="🟡 PRIORIDADE MÉDIA — Sequências que precisam de planejamento.&#10;&#10;📊 Como é calculado:&#10;Sequências são classificadas como Média quando o SCORE está entre 30 e 59.&#10;&#10;⚠️ Ação necessária:&#10;Incluir no planejamento de reposição das próximas semanas. Monitorar evolução para evitar que se tornem críticas."
+                  >
+                    <div className="flex items-center gap-2 text-amber-700">
+                      <AlertCircle className="h-4 w-4" />
+                      <span className="text-xs font-medium">Prioridade Média</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-amber-700">{mediaPrioridade}</div>
+                    <div className="text-[10px] text-amber-600/70">Planejar reposição</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-3 shadow-sm cursor-help"
+                    title="🟢 PRIORIDADE BAIXA — Sequências em situação estável.&#10;&#10;📊 Como é calculado:&#10;Sequências são classificadas como Baixa quando o SCORE é < 30.&#10;&#10;✅ Situação:&#10;Não requerem ação imediata. Manter monitoramento regular para identificar mudanças de tendência."
+                  >
+                    <div className="flex items-center gap-2 text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span className="text-xs font-medium">Prioridade Baixa</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-emerald-700">{baixaPrioridade}</div>
+                    <div className="text-[10px] text-emerald-600/70">Monitoramento</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-blue-50 to-blue-100/50 p-3 shadow-sm cursor-help"
+                    title="⏰ REPOSIÇÃO 30 DIAS — Sequências que precisam ser repostas no próximo mês.&#10;&#10;📊 Como é calculado:&#10;Conta as sequências onde a Data de Pedido está nos próximos 30 dias.&#10;&#10;📅 Data de Pedido = Data EOL - Lead Time (dias de antecedência para solicitar)&#10;&#10;⚠️ Ação necessária:&#10;Iniciar processo de confecção ou compra imediatamente para garantir entrega a tempo."
+                  >
+                    <div className="flex items-center gap-2 text-blue-700">
+                      <Clock className="h-4 w-4" />
+                      <span className="text-xs font-medium">Reposição 30d</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-blue-700">{reposicao30dias}</div>
+                    <div className="text-[10px] text-blue-600/70">Próximo mês</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-purple-50 to-purple-100/50 p-3 shadow-sm cursor-help"
+                    title="📈 DEMANDA CRESCENTE — Sequências com tendência de aumento de consumo.&#10;&#10;📊 Como é calculado:&#10;Compara a demanda média dos últimos 6 meses com os últimos 12 meses.&#10;Se a razão (6m ÷ 12m) for > 1.1 (10% de aumento), a demanda é considerada crescente.&#10;&#10;⚠️ O que significa:&#10;Essas matrizes estão sendo mais demandadas recentemente. A capacidade atual pode não ser suficiente no futuro.&#10;&#10;✅ Recomendação:&#10;Considere ampliar a capacidade (nova sequência) antes que se torne crítico."
+                  >
+                    <div className="flex items-center gap-2 text-purple-700">
+                      <TrendingUp className="h-4 w-4" />
+                      <span className="text-xs font-medium">Demanda Crescente</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-purple-700">{demandaCrescente}</div>
+                    <div className="text-[10px] text-purple-600/70">Tendência alta</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-slate-50 to-slate-100/50 p-3 shadow-sm cursor-help"
+                    title="📦 MATRIZES ANALISADAS — Total de matrizes únicas no período.&#10;&#10;📊 Como é calculado:&#10;Conta o número de matrizes distintas que possuem dados de produção e demanda no período selecionado.&#10;&#10;ℹ️ O que significa:&#10;Representa a abrangência da análise. Quanto mais matrizes, mais completa é a visão do parque de ferramentas."
+                  >
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <Package className="h-4 w-4" />
+                      <span className="text-xs font-medium">Matrizes Analisadas</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-slate-700">{matrizesUnicas}</div>
+                    <div className="text-[10px] text-slate-600/70">Total no período</div>
+                  </div>
+                </div>
+
+                {/* Insights Automáticos */}
+                {insights.length > 0 && (
+                  <div className="rounded-lg border bg-white/50 p-3 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="h-4 w-4 text-amber-600" />
+                      <span className="text-sm font-semibold text-gray-700">Insights de Necessidades</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {insights.map((ins, idx) => {
+                        const Icon = ins.icon;
+                        const colors = {
+                          critico: 'bg-red-50 border-red-200 text-red-800',
+                          alerta: 'bg-amber-50 border-amber-200 text-amber-800',
+                          info: 'bg-blue-50 border-blue-200 text-blue-800',
+                          sucesso: 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        };
+                        return (
+                          <div key={idx} className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs ${colors[ins.tipo]}`}>
+                            <Icon className="h-3.5 w-3.5 shrink-0" />
+                            <span>{ins.msg}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Resumo de Ações Sugeridas */}
+                {(altaPrioridade > 0 || comInsuficiencia > 0) && (
+                  <div 
+                    className="rounded-lg border bg-gradient-to-r from-indigo-50 to-violet-50 p-3 shadow-sm cursor-help"
+                    title="🎯 AÇÕES RECOMENDADAS — Resumo das ações prioritárias.&#10;&#10;Este painel consolida as principais ações necessárias com base na análise de todas as sequências.&#10;&#10;Cada ação é derivada dos indicadores calculados e visa evitar rupturas no atendimento aos pedidos."
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Target className="h-4 w-4 text-indigo-600" />
+                      <span className="text-sm font-semibold text-gray-700">Ações Recomendadas</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                      {altaPrioridade > 0 && (
+                        <div 
+                          className="flex items-start gap-2 bg-white/60 rounded p-2 border border-indigo-100 cursor-help"
+                          title="🔧 CONFECCIONAR/REPOR&#10;&#10;Sequências com prioridade ALTA que precisam de ação imediata.&#10;&#10;O que fazer:&#10;1. Verificar qual matriz/sequência está crítica&#10;2. Solicitar confecção de nova sequência ao fornecedor&#10;3. Ou solicitar reposição se houver sequência disponível em estoque&#10;&#10;Prazo: URGENTE - Agir imediatamente"
+                        >
+                          <ArrowUpRight className="h-3.5 w-3.5 text-indigo-600 mt-0.5 shrink-0" />
+                          <div>
+                            <span className="font-medium text-indigo-800">Confeccionar/Repor</span>
+                            <p className="text-gray-600 mt-0.5">{altaPrioridade} seq. requerem confecção urgente</p>
+                          </div>
+                        </div>
+                      )}
+                      {comInsuficiencia > 0 && (
+                        <div 
+                          className="flex items-start gap-2 bg-white/60 rounded p-2 border border-indigo-100 cursor-help"
+                          title="📦 AMPLIAR CAPACIDADE&#10;&#10;Matrizes com sequências insuficientes para atender a demanda anual projetada.&#10;&#10;O que significa:&#10;A capacidade atual de todas as sequências ativas somadas não é suficiente para atender 12 meses de demanda.&#10;&#10;O que fazer:&#10;1. Avaliar quais matrizes precisam de mais sequências&#10;2. Solicitar confecção de sequências adicionais&#10;3. Redistribuir produção se possível&#10;&#10;Prazo: Médio prazo - Planejar nas próximas semanas"
+                        >
+                          <Layers className="h-3.5 w-3.5 text-indigo-600 mt-0.5 shrink-0" />
+                          <div>
+                            <span className="font-medium text-indigo-800">Ampliar Capacidade</span>
+                            <p className="text-gray-600 mt-0.5">{comInsuficiencia} matrizes precisam de novas seq.</p>
+                          </div>
+                        </div>
+                      )}
+                      {demandaCrescente > 0 && (
+                        <div 
+                          className="flex items-start gap-2 bg-white/60 rounded p-2 border border-indigo-100 cursor-help"
+                          title="📈 REVISAR PLANEJAMENTO&#10;&#10;Sequências com demanda crescente (últimos 6 meses > últimos 12 meses).&#10;&#10;O que significa:&#10;O consumo está aumentando. Se a tendência continuar, a capacidade atual pode se tornar insuficiente.&#10;&#10;O que fazer:&#10;1. Analisar se o aumento é sazonal ou permanente&#10;2. Ajustar previsões de demanda&#10;3. Considerar antecipar confecção de novas sequências&#10;&#10;Prazo: Avaliar e planejar nas próximas revisões"
+                        >
+                          <TrendingUp className="h-3.5 w-3.5 text-indigo-600 mt-0.5 shrink-0" />
+                          <div>
+                            <span className="font-medium text-indigo-800">Revisar Planejamento</span>
+                            <p className="text-gray-600 mt-0.5">{demandaCrescente} seq. com tendência de alta</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
         <div className="overflow-auto">
           <table className="w-full table-auto border-collapse text-xs">
             <thead>
               <tr className="border-b">
-                <th className="sticky top-0 bg-muted px-2 py-2 text-left">Matriz</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-left">Seq</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-right">Consumo m/mês (kg)</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-right">Consumo a/a (kg)</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-right">Seq Ativas</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-right">Desgaste (%)</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-right">Restante (kg)</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-right">Meses cobertura</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-right">Prev. Reposição</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-left">Prioridade</th>
-                <th className="sticky top-0 bg-muted px-2 py-2 text-left">Motivo</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-left font-medium">Matriz</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-left font-medium">Seq</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-right font-medium">Consumo m/mês (kg)</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-right font-medium">Consumo a/a (kg)</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-right font-medium">Seq Ativas</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-right font-medium">Desgaste (%)</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-right font-medium">Restante (kg)</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-right font-medium">Meses cobertura</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-right font-medium">Prev. Reposição</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-left font-medium">Prioridade</th>
+                <th className="sticky top-0 bg-muted px-2 py-2 text-left font-medium">Motivo</th>
               </tr>
             </thead>
             <tbody>
@@ -314,6 +507,7 @@ export function AnalysisNecessidadesView() {
             Exibindo {displayed.length} sequências com maior prioridade de necessidade.
           </div>
         </div>
+        </>
       )}
     </div>
   );

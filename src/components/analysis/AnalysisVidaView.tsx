@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Wrench } from "lucide-react";
+import { Wrench, AlertTriangle, TrendingDown, Clock, Factory, Target, Zap, ChevronRight, AlertCircle, CheckCircle2, Info, Skull, TrendingUp, ShieldAlert, Layers, BarChart3, ArrowUpRight, Activity } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 type VidaRow = {
@@ -391,6 +391,468 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
       {loading && <div className="text-sm text-muted-foreground">Carregando…</div>}
       {error && <div className="text-sm text-red-600">Erro: {error}</div>}
       {!loading && !error && (
+        <>
+          {/* KPIs Estratégicos */}
+          {(() => {
+            const criticas = finalRows.filter(r => r.cap_restante <= 0 || (r.meses_cobertura != null && r.meses_cobertura <= 1)).length;
+            const atencao = finalRows.filter(r => r.meses_cobertura != null && r.meses_cobertura > 1 && r.meses_cobertura <= 3).length;
+            const saudaveis = finalRows.length - criticas - atencao;
+            const capRestanteTotal = finalRows.reduce((s, r) => s + (r.cap_restante || 0), 0);
+            const capTotalGeral = finalRows.reduce((s, r) => s + (r.cap_total || 0), 0);
+            const utilizacaoMedia = capTotalGeral > 0 ? ((capTotalGeral - capRestanteTotal) / capTotalGeral * 100) : 0;
+            const eol30dias = finalRows.filter(r => {
+              if (!r.data_eol) return false;
+              const eolDate = new Date(r.data_eol + 'T00:00:00');
+              const hoje = new Date(periodEnd + 'T00:00:00');
+              const diff = (eolDate.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24);
+              return diff >= 0 && diff <= 30;
+            }).length;
+            const eol60dias = finalRows.filter(r => {
+              if (!r.data_eol) return false;
+              const eolDate = new Date(r.data_eol + 'T00:00:00');
+              const hoje = new Date(periodEnd + 'T00:00:00');
+              const diff = (eolDate.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24);
+              return diff > 30 && diff <= 60;
+            }).length;
+            const seqAtivas = finalRows.reduce((s, r) => s + (r.seq_ativas || 0), 0);
+
+            // Insights automáticos
+            const insights: Array<{tipo: 'critico' | 'alerta' | 'info' | 'sucesso', msg: string, icon: any}> = [];
+            if (criticas > 0) {
+              insights.push({ tipo: 'critico', msg: `${criticas} matriz(es) em estado CRÍTICO requer(em) ação imediata`, icon: AlertTriangle });
+            }
+            if (eol30dias > 0) {
+              insights.push({ tipo: 'alerta', msg: `${eol30dias} matriz(es) atingirá(ão) fim de vida nos próximos 30 dias`, icon: Clock });
+            }
+            if (utilizacaoMedia > 80) {
+              insights.push({ tipo: 'alerta', msg: `Utilização média do parque em ${utilizacaoMedia.toFixed(0)}% — considere ampliar capacidade`, icon: TrendingDown });
+            }
+            if (atencao > 0 && criticas === 0) {
+              insights.push({ tipo: 'info', msg: `${atencao} matriz(es) em atenção — monitorar nas próximas semanas`, icon: Info });
+            }
+            if (saudaveis === finalRows.length && finalRows.length > 0) {
+              insights.push({ tipo: 'sucesso', msg: `Todas as ${finalRows.length} matrizes estão com cobertura saudável`, icon: CheckCircle2 });
+            }
+
+            return (
+              <div className="mb-4 space-y-4">
+                {/* Cards de KPIs */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-red-50 to-red-100/50 p-3 shadow-sm cursor-help"
+                    title="🔴 CRÍTICAS — Matrizes em estado crítico que requerem ação imediata.&#10;&#10;📊 Como é calculado:&#10;Conta as matrizes onde:&#10;• Capacidade restante ≤ 0 kg, OU&#10;• Meses de cobertura ≤ 1 mês&#10;&#10;⚠️ O que significa:&#10;Essas matrizes podem não atender a demanda atual. É necessário confeccionar novas sequências ou solicitar reposição urgente."
+                  >
+                    <div className="flex items-center gap-2 text-red-700">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="text-xs font-medium">Críticas</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-red-700">{criticas}</div>
+                    <div className="text-[10px] text-red-600/70">Cobertura ≤ 1 mês</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-amber-50 to-amber-100/50 p-3 shadow-sm cursor-help"
+                    title="🟡 EM ATENÇÃO — Matrizes que precisam de monitoramento.&#10;&#10;📊 Como é calculado:&#10;Conta as matrizes onde:&#10;• Meses de cobertura entre 1 e 3 meses&#10;&#10;⚠️ O que significa:&#10;Essas matrizes ainda atendem a demanda, mas em breve podem se tornar críticas. Planeje a reposição nas próximas semanas."
+                  >
+                    <div className="flex items-center gap-2 text-amber-700">
+                      <AlertCircle className="h-4 w-4" />
+                      <span className="text-xs font-medium">Em Atenção</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-amber-700">{atencao}</div>
+                    <div className="text-[10px] text-amber-600/70">Cobertura 1-3 meses</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-3 shadow-sm cursor-help"
+                    title="🟢 SAUDÁVEIS — Matrizes com capacidade adequada.&#10;&#10;📊 Como é calculado:&#10;Conta as matrizes onde:&#10;• Meses de cobertura > 3 meses&#10;&#10;✅ O que significa:&#10;Essas matrizes têm capacidade suficiente para atender a demanda por mais de 3 meses. Não requerem ação imediata."
+                  >
+                    <div className="flex items-center gap-2 text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span className="text-xs font-medium">Saudáveis</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-emerald-700">{saudaveis}</div>
+                    <div className="text-[10px] text-emerald-600/70">Cobertura &gt; 3 meses</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-blue-50 to-blue-100/50 p-3 shadow-sm cursor-help"
+                    title="⏰ EOL 30 DIAS — End of Life (Fim de Vida) nos próximos 30 dias.&#10;&#10;📊 Como é calculado:&#10;Conta as matrizes onde:&#10;• Data EOL está entre hoje e 30 dias à frente&#10;&#10;📅 Data EOL = Data atual + (Capacidade Restante ÷ Demanda Mensal)&#10;&#10;⚠️ O que significa:&#10;Essas matrizes atingirão capacidade zero em até 30 dias se a demanda continuar no ritmo atual. Ação urgente necessária!"
+                  >
+                    <div className="flex items-center gap-2 text-blue-700">
+                      <Clock className="h-4 w-4" />
+                      <span className="text-xs font-medium">EOL 30 dias</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-blue-700">{eol30dias}</div>
+                    <div className="text-[10px] text-blue-600/70">Fim de vida iminente</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-purple-50 to-purple-100/50 p-3 shadow-sm cursor-help"
+                    title="🏭 SEQUÊNCIAS ATIVAS — Total de sequências em operação.&#10;&#10;📊 Como é calculado:&#10;Soma todas as sequências marcadas como 'Ativa' em todas as matrizes do período filtrado.&#10;&#10;ℹ️ O que significa:&#10;Representa o parque total de ferramentas disponíveis para produção. Quanto mais sequências ativas, maior a capacidade produtiva."
+                  >
+                    <div className="flex items-center gap-2 text-purple-700">
+                      <Factory className="h-4 w-4" />
+                      <span className="text-xs font-medium">Seq. Ativas</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-purple-700">{seqAtivas}</div>
+                    <div className="text-[10px] text-purple-600/70">Total no parque</div>
+                  </div>
+                  <div 
+                    className="rounded-lg border bg-gradient-to-br from-slate-50 to-slate-100/50 p-3 shadow-sm cursor-help"
+                    title={`📊 UTILIZAÇÃO — Percentual de capacidade já consumida.&#10;&#10;📊 Como é calculado:&#10;Utilização = (Cap. Total - Cap. Restante) ÷ Cap. Total × 100&#10;&#10;Valores atuais:&#10;• Cap. Total: ${formatNumberBR(capTotalGeral)} kg&#10;• Cap. Restante: ${formatNumberBR(capRestanteTotal)} kg&#10;• Consumido: ${formatNumberBR(capTotalGeral - capRestanteTotal)} kg&#10;&#10;ℹ️ O que significa:&#10;• < 50%: Parque com folga&#10;• 50-80%: Utilização saudável&#10;• > 80%: Considere ampliar capacidade`}
+                  >
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <Target className="h-4 w-4" />
+                      <span className="text-xs font-medium">Utilização</span>
+                    </div>
+                    <div className="mt-1 text-2xl font-bold text-slate-700">{utilizacaoMedia.toFixed(0)}%</div>
+                    <div className="text-[10px] text-slate-600/70">Capacidade consumida</div>
+                  </div>
+                </div>
+
+                {/* Insights Automáticos */}
+                {insights.length > 0 && (
+                  <div className="rounded-lg border bg-white/50 p-3 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="h-4 w-4 text-amber-600" />
+                      <span className="text-sm font-semibold text-gray-700">Insights Automáticos</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {insights.map((ins, idx) => {
+                        const Icon = ins.icon;
+                        const colors = {
+                          critico: 'bg-red-50 border-red-200 text-red-800',
+                          alerta: 'bg-amber-50 border-amber-200 text-amber-800',
+                          info: 'bg-blue-50 border-blue-200 text-blue-800',
+                          sucesso: 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        };
+                        return (
+                          <div key={idx} className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs ${colors[ins.tipo]}`}>
+                            <Icon className="h-3.5 w-3.5 shrink-0" />
+                            <span>{ins.msg}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ═══════════════════════════════════════════════════════════════════════════════ */}
+                {/* ANÁLISES ESTRATÉGICAS AVANÇADAS */}
+                {/* ═══════════════════════════════════════════════════════════════════════════════ */}
+                {(() => {
+                  // 1. Calcular Score de Risco Composto para cada matriz
+                  const matrizesComScore = finalRows.map(r => {
+                    const demanda = r.demanda_media_mensal || 0;
+                    const cobertura = r.meses_cobertura ?? 0;
+                    const desgaste = r.cap_total > 0 ? ((r.cap_total - r.cap_restante) / r.cap_total) : 0;
+                    const seqUnica = r.seq_ativas === 1;
+                    
+                    // Score composto: quanto maior, mais crítico (0-100)
+                    let score = 0;
+                    
+                    // Fator 1: Cobertura (peso 40) - quanto menor, pior
+                    if (cobertura <= 0) score += 40;
+                    else if (cobertura <= 1) score += 35;
+                    else if (cobertura <= 2) score += 25;
+                    else if (cobertura <= 3) score += 15;
+                    else if (cobertura <= 6) score += 5;
+                    
+                    // Fator 2: Desgaste (peso 25) - quanto maior, pior
+                    score += Math.min(25, desgaste * 25);
+                    
+                    // Fator 3: Demanda alta (peso 20) - matrizes mais demandadas são mais críticas
+                    const demandaNormalizada = Math.min(1, demanda / 5000); // 5000 kg/mês = máximo
+                    score += demandaNormalizada * 20;
+                    
+                    // Fator 4: Single Point of Failure (peso 15) - apenas 1 seq ativa
+                    if (seqUnica && demanda > 0) score += 15;
+                    
+                    // Fator 5: Capacidade esgotada (bônus crítico)
+                    if (r.cap_restante <= 0) score += 10;
+                    
+                    return {
+                      ...r,
+                      scoreRisco: Math.min(100, Math.round(score)),
+                      desgastePerc: desgaste * 100,
+                      singlePointOfFailure: seqUnica && demanda > 0,
+                      diasParaEOL: r.data_eol ? Math.round((new Date(r.data_eol + 'T00:00:00').getTime() - new Date(periodEnd + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)) : null
+                    };
+                  });
+
+                  // Top 10 mais críticas ordenadas por score
+                  const top10Criticas = [...matrizesComScore]
+                    .sort((a, b) => b.scoreRisco - a.scoreRisco)
+                    .slice(0, 10);
+
+                  // Single Point of Failure - matrizes com apenas 1 seq ativa e demanda
+                  const singlePointFailures = matrizesComScore.filter(m => m.singlePointOfFailure);
+
+                  // Matrizes com consumo acelerado (desgaste > 80%)
+                  const consumoAcelerado = matrizesComScore.filter(m => m.desgastePerc >= 80);
+
+                  // Previsão de gargalos - EOL nos próximos 30/60/90 dias
+                  const gargalos30d = matrizesComScore.filter(m => m.diasParaEOL !== null && m.diasParaEOL >= 0 && m.diasParaEOL <= 30);
+                  const gargalos60d = matrizesComScore.filter(m => m.diasParaEOL !== null && m.diasParaEOL > 30 && m.diasParaEOL <= 60);
+                  const gargalos90d = matrizesComScore.filter(m => m.diasParaEOL !== null && m.diasParaEOL > 60 && m.diasParaEOL <= 90);
+
+                  // Capacidade restante por faixa de risco
+                  const capCritica = matrizesComScore.filter(m => m.scoreRisco >= 70).reduce((s, m) => s + (m.cap_restante || 0), 0);
+                  const capAtencao = matrizesComScore.filter(m => m.scoreRisco >= 40 && m.scoreRisco < 70).reduce((s, m) => s + (m.cap_restante || 0), 0);
+                  const capSaudavel = matrizesComScore.filter(m => m.scoreRisco < 40).reduce((s, m) => s + (m.cap_restante || 0), 0);
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Título da seção */}
+                      <div className="flex items-center gap-2 pt-2">
+                        <Activity className="h-5 w-5 text-indigo-600" />
+                        <h3 className="text-sm font-bold text-gray-800">Análises Estratégicas Avançadas</h3>
+                      </div>
+
+                      {/* Grid de análises */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                        {/* SALA DE GUERRA - Top 10 Críticas */}
+                        <div 
+                          className="rounded-lg border border-red-200 bg-gradient-to-br from-red-50/80 to-orange-50/50 p-4 shadow-sm cursor-help"
+                          title="🚨 SALA DE GUERRA — Ranking das 10 matrizes mais críticas.&#10;&#10;📊 Como funciona:&#10;Cada matriz recebe um SCORE DE RISCO (0-100) calculado assim:&#10;&#10;• Cobertura (peso 40%):&#10;  - 0 meses = 40 pts&#10;  - ≤1 mês = 35 pts&#10;  - ≤2 meses = 25 pts&#10;  - ≤3 meses = 15 pts&#10;  - ≤6 meses = 5 pts&#10;&#10;• Desgaste (peso 25%):&#10;  - % da capacidade já consumida × 25&#10;&#10;• Demanda (peso 20%):&#10;  - Demanda mensal normalizada (5.000 kg = máx)&#10;&#10;• Single Seq (peso 15%):&#10;  - +15 pts se tiver apenas 1 sequência&#10;&#10;🎯 Interpretação do Score:&#10;• ≥70: 🔴 CRÍTICO — Ação imediata&#10;• 40-69: 🟡 ATENÇÃO — Planejar&#10;• <40: 🟢 OK — Monitorar"
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <Skull className="h-4 w-4 text-red-600" />
+                            <span className="text-sm font-bold text-red-800">🚨 Sala de Guerra — Top 10 Críticas</span>
+                          </div>
+                          <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+                            {top10Criticas.length === 0 ? (
+                              <div className="text-xs text-gray-500 italic">Nenhuma matriz crítica identificada</div>
+                            ) : (
+                              top10Criticas.map((m, i) => (
+                                <div key={m.matriz} className="flex items-center gap-2 bg-white/70 rounded px-2 py-1.5 border border-red-100">
+                                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${i < 3 ? 'bg-red-600 text-white' : 'bg-red-200 text-red-800'}`}>
+                                    {i + 1}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-medium text-gray-800 truncate">{m.matriz}</div>
+                                    <div className="text-[10px] text-gray-500">
+                                      {m.seq_ativas} seq • {formatNumberBR(m.cap_restante)} kg rest. • {m.meses_cobertura?.toFixed(1) || '0'} meses
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-col items-end">
+                                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                                      m.scoreRisco >= 70 ? 'bg-red-600 text-white' :
+                                      m.scoreRisco >= 40 ? 'bg-amber-500 text-white' :
+                                      'bg-emerald-500 text-white'
+                                    }`}>
+                                      {m.scoreRisco}
+                                    </span>
+                                    <span className="text-[9px] text-gray-400">score</span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-red-200 text-[10px] text-red-700">
+                            Score = Cobertura (40%) + Desgaste (25%) + Demanda (20%) + Single Seq (15%)
+                          </div>
+                        </div>
+
+                        {/* PREVISÃO DE GARGALOS */}
+                        <div 
+                          className="rounded-lg border border-amber-200 bg-gradient-to-br from-amber-50/80 to-yellow-50/50 p-4 shadow-sm cursor-help"
+                          title="📉 PREVISÃO DE GARGALOS — Matrizes que atingirão fim de vida (EOL).&#10;&#10;📊 Como é calculado:&#10;Para cada matriz, calcula-se a Data EOL:&#10;Data EOL = Data Atual + (Cap. Restante ÷ Demanda Mensal)&#10;&#10;Depois, conta-se quantas matrizes têm EOL em cada faixa:&#10;&#10;🔴 Próx. 30 dias (URGENTE):&#10;Matrizes que esgotarão em até 1 mês.&#10;Ação: Confeccionar nova sequência AGORA.&#10;&#10;🟡 30-60 dias (ATENÇÃO):&#10;Matrizes que esgotarão em 1-2 meses.&#10;Ação: Solicitar reposição nas próximas semanas.&#10;&#10;🔵 60-90 dias (PLANEJAR):&#10;Matrizes que esgotarão em 2-3 meses.&#10;Ação: Incluir no planejamento de compras."
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <TrendingDown className="h-4 w-4 text-amber-600" />
+                            <span className="text-sm font-bold text-amber-800">📉 Previsão de Gargalos</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div 
+                              className="text-center p-2 bg-red-100/60 rounded-lg border border-red-200 cursor-help"
+                              title="🔴 URGENTE — Matrizes que atingirão EOL nos próximos 30 dias.&#10;&#10;Essas matrizes precisam de ação IMEDIATA para evitar ruptura no atendimento aos pedidos."
+                            >
+                              <div className="text-2xl font-bold text-red-700">{gargalos30d.length}</div>
+                              <div className="text-[10px] text-red-600 font-medium">Próx. 30 dias</div>
+                              <div className="text-[9px] text-red-500 mt-1">URGENTE</div>
+                            </div>
+                            <div 
+                              className="text-center p-2 bg-amber-100/60 rounded-lg border border-amber-200 cursor-help"
+                              title="🟡 ATENÇÃO — Matrizes que atingirão EOL entre 30 e 60 dias.&#10;&#10;Planeje a reposição nas próximas semanas para evitar que se tornem urgentes."
+                            >
+                              <div className="text-2xl font-bold text-amber-700">{gargalos60d.length}</div>
+                              <div className="text-[10px] text-amber-600 font-medium">30-60 dias</div>
+                              <div className="text-[9px] text-amber-500 mt-1">ATENÇÃO</div>
+                            </div>
+                            <div 
+                              className="text-center p-2 bg-blue-100/60 rounded-lg border border-blue-200 cursor-help"
+                              title="🔵 PLANEJAR — Matrizes que atingirão EOL entre 60 e 90 dias.&#10;&#10;Inclua no planejamento de compras e confecção para os próximos meses."
+                            >
+                              <div className="text-2xl font-bold text-blue-700">{gargalos90d.length}</div>
+                              <div className="text-[10px] text-blue-600 font-medium">60-90 dias</div>
+                              <div className="text-[9px] text-blue-500 mt-1">PLANEJAR</div>
+                            </div>
+                          </div>
+                          {gargalos30d.length > 0 && (
+                            <div className="mt-3 pt-2 border-t border-amber-200">
+                              <div className="text-[10px] font-medium text-amber-800 mb-1">Matrizes críticas (30d):</div>
+                              <div className="text-[10px] text-amber-700 line-clamp-2">
+                                {gargalos30d.slice(0, 5).map(m => m.matriz).join(', ')}
+                                {gargalos30d.length > 5 && ` +${gargalos30d.length - 5} mais`}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* SINGLE POINT OF FAILURE */}
+                        <div 
+                          className="rounded-lg border border-purple-200 bg-gradient-to-br from-purple-50/80 to-fuchsia-50/50 p-4 shadow-sm cursor-help"
+                          title="⚠️ SINGLE POINT OF FAILURE — Matrizes vulneráveis sem redundância.&#10;&#10;📊 Como é calculado:&#10;Identifica matrizes onde:&#10;• Existe apenas 1 sequência ativa, E&#10;• A demanda mensal é maior que zero&#10;&#10;🔴 Por que isso é um risco:&#10;Se essa única sequência apresentar problemas (quebra, desgaste excessivo, necessidade de manutenção), não há backup disponível para continuar a produção.&#10;&#10;✅ Recomendação:&#10;Para matrizes com alta demanda e apenas 1 sequência, considere solicitar a confecção de uma segunda sequência para criar redundância e evitar paradas na produção."
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <ShieldAlert className="h-4 w-4 text-purple-600" />
+                            <span className="text-sm font-bold text-purple-800">⚠️ Single Point of Failure</span>
+                          </div>
+                          <div className="flex items-center gap-4 mb-3">
+                            <div className="text-center">
+                              <div className="text-3xl font-bold text-purple-700">{singlePointFailures.length}</div>
+                              <div className="text-[10px] text-purple-600">Matrizes vulneráveis</div>
+                            </div>
+                            <div className="flex-1 text-xs text-purple-700 bg-purple-100/50 rounded p-2">
+                              Matrizes com <strong>apenas 1 sequência ativa</strong> atendendo demanda. 
+                              Se falhar, não há backup.
+                            </div>
+                          </div>
+                          {singlePointFailures.length > 0 && (
+                            <div className="space-y-1 max-h-[80px] overflow-y-auto">
+                              {singlePointFailures.slice(0, 5).map(m => (
+                                <div key={m.matriz} className="flex justify-between items-center text-[10px] bg-white/60 rounded px-2 py-1 border border-purple-100">
+                                  <span className="font-medium text-purple-800">{m.matriz}</span>
+                                  <span className="text-purple-600">{formatNumberBR(m.demanda_media_mensal)} kg/mês</span>
+                                </div>
+                              ))}
+                              {singlePointFailures.length > 5 && (
+                                <div className="text-[10px] text-purple-500 text-center">+{singlePointFailures.length - 5} mais</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* DISTRIBUIÇÃO DE CAPACIDADE */}
+                        <div 
+                          className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50/80 to-gray-50/50 p-4 shadow-sm cursor-help"
+                          title="📊 DISTRIBUIÇÃO DE CAPACIDADE — Visão geral do parque por faixa de risco.&#10;&#10;📊 Como é calculado:&#10;A capacidade restante total é dividida em 3 categorias baseadas no Score de Risco:&#10;&#10;🔴 Crítico (Score ≥ 70):&#10;Capacidade restante de matrizes em estado crítico.&#10;Risco alto de ruptura.&#10;&#10;🟡 Atenção (Score 40-69):&#10;Capacidade restante de matrizes que precisam de monitoramento.&#10;Planejar reposição.&#10;&#10;🟢 Saudável (Score < 40):&#10;Capacidade restante de matrizes em bom estado.&#10;Sem ação imediata necessária.&#10;&#10;📈 Consumo Acelerado:&#10;Matrizes com desgaste > 80% da capacidade total.&#10;Podem precisar de avaliação física."
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <BarChart3 className="h-4 w-4 text-slate-600" />
+                            <span className="text-sm font-bold text-slate-800">📊 Distribuição de Capacidade</span>
+                          </div>
+                          <div className="space-y-2">
+                            {/* Barra de capacidade por risco */}
+                            <div className="h-6 w-full rounded-full overflow-hidden flex bg-gray-200">
+                              {capRestanteTotal > 0 && (
+                                <>
+                                  <div 
+                                    className="bg-red-500 h-full transition-all" 
+                                    style={{ width: `${(capCritica / capRestanteTotal) * 100}%` }}
+                                    title={`Crítico: ${formatNumberBR(capCritica)} kg`}
+                                  />
+                                  <div 
+                                    className="bg-amber-400 h-full transition-all" 
+                                    style={{ width: `${(capAtencao / capRestanteTotal) * 100}%` }}
+                                    title={`Atenção: ${formatNumberBR(capAtencao)} kg`}
+                                  />
+                                  <div 
+                                    className="bg-emerald-500 h-full transition-all" 
+                                    style={{ width: `${(capSaudavel / capRestanteTotal) * 100}%` }}
+                                    title={`Saudável: ${formatNumberBR(capSaudavel)} kg`}
+                                  />
+                                </>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-[10px]">
+                              <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 rounded-full bg-red-500" />
+                                <span className="text-gray-600">Crítico:</span>
+                                <span className="font-medium">{formatNumberBR(capCritica)} kg</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 rounded-full bg-amber-400" />
+                                <span className="text-gray-600">Atenção:</span>
+                                <span className="font-medium">{formatNumberBR(capAtencao)} kg</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                <span className="text-gray-600">Saudável:</span>
+                                <span className="font-medium">{formatNumberBR(capSaudavel)} kg</span>
+                              </div>
+                            </div>
+                            <div className="pt-2 border-t border-slate-200 text-[10px] text-slate-600">
+                              <strong>Consumo acelerado (&gt;80% desgaste):</strong> {consumoAcelerado.length} matrizes
+                              {consumoAcelerado.length > 0 && (
+                                <span className="text-slate-500 ml-1">
+                                  ({consumoAcelerado.slice(0, 3).map(m => m.matriz).join(', ')}{consumoAcelerado.length > 3 && '...'})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {/* Ações Recomendadas Detalhadas */}
+                      {(top10Criticas.filter(m => m.scoreRisco >= 70).length > 0 || singlePointFailures.length > 0 || gargalos30d.length > 0) && (
+                        <div className="rounded-lg border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-4 shadow-sm">
+                          <div className="flex items-center gap-2 mb-3">
+                            <ArrowUpRight className="h-4 w-4 text-indigo-600" />
+                            <span className="text-sm font-bold text-indigo-800">🎯 Plano de Ação Recomendado</span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {gargalos30d.length > 0 && (
+                              <div className="bg-white/60 rounded-lg p-3 border border-red-200">
+                                <div className="flex items-center gap-2 text-red-700 font-medium text-xs mb-1">
+                                  <Skull className="h-3.5 w-3.5" />
+                                  URGENTE - Confeccionar Agora
+                                </div>
+                                <div className="text-[10px] text-gray-600 mb-2">
+                                  {gargalos30d.length} matrizes atingirão EOL em até 30 dias
+                                </div>
+                                <div className="text-[10px] text-red-600 font-medium">
+                                  {gargalos30d.slice(0, 3).map(m => m.matriz).join(', ')}
+                                </div>
+                              </div>
+                            )}
+                            {singlePointFailures.filter(m => m.scoreRisco >= 50).length > 0 && (
+                              <div className="bg-white/60 rounded-lg p-3 border border-purple-200">
+                                <div className="flex items-center gap-2 text-purple-700 font-medium text-xs mb-1">
+                                  <Layers className="h-3.5 w-3.5" />
+                                  Criar Redundância
+                                </div>
+                                <div className="text-[10px] text-gray-600 mb-2">
+                                  {singlePointFailures.filter(m => m.scoreRisco >= 50).length} matrizes críticas sem backup
+                                </div>
+                                <div className="text-[10px] text-purple-600 font-medium">
+                                  Solicitar nova sequência para eliminar vulnerabilidade
+                                </div>
+                              </div>
+                            )}
+                            {consumoAcelerado.length > 0 && (
+                              <div className="bg-white/60 rounded-lg p-3 border border-amber-200">
+                                <div className="flex items-center gap-2 text-amber-700 font-medium text-xs mb-1">
+                                  <TrendingUp className="h-3.5 w-3.5" />
+                                  Avaliar Condição Física
+                                </div>
+                                <div className="text-[10px] text-gray-600 mb-2">
+                                  {consumoAcelerado.length} matrizes com desgaste &gt;80%
+                                </div>
+                                <div className="text-[10px] text-amber-600 font-medium">
+                                  Inspecionar e planejar substituição preventiva
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })()}
+
         <div className="overflow-auto">
           <table className="w-full table-auto border-collapse text-sm">
             <thead>
@@ -686,6 +1148,7 @@ export function AnalysisVidaView({ onOpenFerramentas }: VidaProps) {
             Exibindo {finalRows.length} matrizes.
           </div>
         </div>
+        </>
       )}
     </div>
   );
