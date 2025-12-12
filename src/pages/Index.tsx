@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Matrix, MatrixEvent, AuthSession } from "@/types";
 // Supabase services
 import {
@@ -79,6 +79,11 @@ const Index = () => {
   const timelineSearchInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
   const isAdmin = authSession?.user?.role === 'admin';
+  const [dailyAlertOpen, setDailyAlertOpen] = useState(false);
+  const [delayedManufacturing, setDelayedManufacturing] = useState<Array<{ code: string; supplier: string; deliveryDate: string; daysLate: number }>>([]);
+  const [stalledTests, setStalledTests] = useState<Array<{ code: string; receivedDate: string; daysInProgress: number; status: string }>>([]);
+
+  const DAILY_ALERT_KEY = 'extrudeflow_daily_alert_last_seen';
 
   useEffect(() => {
     // Verificar sessão ao carregar
@@ -97,6 +102,95 @@ const Index = () => {
     };
     bootstrap();
   }, []);
+
+  const calculateDaysBetween = (fromISO: string | undefined | null, to: Date): number | null => {
+    if (!fromISO) return null;
+    const base = new Date(fromISO);
+    base.setHours(0, 0, 0, 0);
+    const end = new Date(to);
+    end.setHours(0, 0, 0, 0);
+    const diffMs = end.getTime() - base.getTime();
+    if (Number.isNaN(diffMs)) return null;
+    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  };
+
+  const hasApproval = (m: Matrix) => m.events?.some((e) => e.type.toLowerCase().includes("aprov")) ?? false;
+
+  useEffect(() => {
+    const runDailyAlert = async () => {
+      if (typeof window === 'undefined') return;
+      const todayISO = new Date().toISOString().split('T')[0];
+      const lastSeen = window.localStorage.getItem(DAILY_ALERT_KEY);
+      if (lastSeen === todayISO) return;
+
+      try {
+        const today = new Date();
+        const { data: manuf, error } = await supabase
+          .from('manufacturing_records')
+          .select('matrix_code,supplier,custom_supplier,estimated_delivery_date,follow_up_dates,processed_at,status')
+          .eq('status', 'approved')
+          .is('processed_at', null);
+
+        if (error) throw error;
+
+        const getCurrentDeliveryDate = (record: any): string | null => {
+          const history = record.follow_up_dates as Array<{ date: string; new_date: string }> | null;
+          if (history && history.length > 0) {
+            const sorted = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            const last = sorted[sorted.length - 1];
+            return last?.new_date || null;
+          }
+          return record.estimated_delivery_date || null;
+        };
+
+        const delayed: Array<{ code: string; supplier: string; deliveryDate: string; daysLate: number }> = [];
+        (manuf || []).forEach((r: any) => {
+          const delivery = getCurrentDeliveryDate(r);
+          if (!delivery) return;
+          const daysDiff = calculateDaysBetween(delivery, today);
+          if (daysDiff !== null && daysDiff > 0) {
+            delayed.push({
+              code: r.matrix_code,
+              supplier: r.supplier === 'Outro' ? r.custom_supplier || 'Outro' : r.supplier,
+              deliveryDate: delivery,
+              daysLate: daysDiff,
+            });
+          }
+        });
+
+        const stalled: Array<{ code: string; receivedDate: string; daysInProgress: number; status: string }> = [];
+        matrices.forEach((m) => {
+          if (hasApproval(m)) return;
+          const status = getStatusFromLastEvent(m);
+          if (!status || !/teste/i.test(status)) return;
+          const days = calculateDaysBetween(m.receivedDate, today);
+          if (days !== null && days > 15) {
+            stalled.push({
+              code: m.code,
+              receivedDate: m.receivedDate || '',
+              daysInProgress: days,
+              status,
+            });
+          }
+        });
+
+        if (delayed.length === 0 && stalled.length === 0) {
+          return;
+        }
+
+        setDelayedManufacturing(delayed.sort((a, b) => b.daysLate - a.daysLate));
+        setStalledTests(stalled.sort((a, b) => b.daysInProgress - a.daysInProgress));
+        setDailyAlertOpen(true);
+        window.localStorage.setItem(DAILY_ALERT_KEY, todayISO);
+      } catch (err) {
+        console.error('Erro ao carregar alertas diários:', err);
+      }
+    };
+
+    if (matrices.length > 0) {
+      runDailyAlert();
+    }
+  }, [matrices]);
 
   // Botão de recarregar manualmente
   const reloadAll = async () => {
@@ -355,7 +449,6 @@ const Index = () => {
     baseFiltered = baseFiltered.filter((m) => daysSinceLastEvent(m) > STALE_DAYS);
   }
 
-  const hasApproval = (m: Matrix) => m.events?.some((e) => e.type.toLowerCase().includes("aprov")) ?? false;
   // Sidebar: sempre sem aprovadas (menu)
   const sidebarMatrices = baseFiltered.filter((m) => !hasApproval(m));
   // Main: sem aprovadas apenas para timeline/planilha; dashboard e approved mostram todas conforme a aba
@@ -368,6 +461,110 @@ const Index = () => {
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-full overflow-hidden bg-background">
+      {/* Pop-up diário de alertas críticos */}
+      <Dialog open={dailyAlertOpen} onOpenChange={setDailyAlertOpen}>
+        <DialogContent className="sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Alertas do dia</DialogTitle>
+            <DialogDescription>
+              Itens críticos identificados na Confecção e nos Testes. Revise estas matrizes e ferramentas com prioridade.
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-2">
+            <div className="space-y-4">
+              {/* Matrizes com atraso de entrega */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-sm">1️⃣ Matrizes com atraso de entrega</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => {
+                      setMainView("manufacturing");
+                      setDailyAlertOpen(false);
+                    }}
+                  >Ir para Confecção</Button>
+                </div>
+                {delayedManufacturing.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Nenhuma matriz em atraso hoje.</p>
+                ) : (
+                  <div className="border rounded-md divide-y">
+                    {delayedManufacturing.map((item) => (
+                      <div
+                        key={`${item.code}-${item.deliveryDate}`}
+                        className={`flex items-center justify-between px-3 py-2 text-xs ${
+                          item.daysLate > 5 ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-semibold">
+                            {item.code}
+                            <span className="ml-2 text-[11px] font-normal">Fornecedor: {item.supplier}</span>
+                          </div>
+                          <div className="text-[11px]">
+                            Entrega atual: {item.deliveryDate.split("-").reverse().join("/")} •
+                            <span className="ml-1 font-semibold">{item.daysLate} dia(s) de atraso</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Ferramentas em teste paradas */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-sm">2️⃣ Ferramentas em teste paradas</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => {
+                      setMainView("sheet");
+                      setDailyAlertOpen(false);
+                    }}
+                  >Ir para Planilha</Button>
+                </div>
+                {stalledTests.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Nenhuma ferramenta em teste parada acima de 15 dias.</p>
+                ) : (
+                  <div className="border rounded-md divide-y">
+                    {stalledTests.map((item) => (
+                      <div
+                        key={`${item.code}-${item.receivedDate}`}
+                        className={`flex items-center justify-between px-3 py-2 text-xs ${
+                          item.daysInProgress > 20
+                            ? "bg-red-100 text-red-900"
+                            : "bg-amber-50 text-amber-900"
+                        }`}
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-semibold">
+                            {item.code}
+                            <span className="ml-2 text-[11px] font-normal">Status: {item.status}</span>
+                          </div>
+                          <div className="text-[11px]">
+                            Recebida em: {item.receivedDate ? item.receivedDate.split("-").reverse().join("/") : "-"} •
+                            <span className="ml-1 font-semibold">{item.daysInProgress} dia(s) em andamento</span>
+                            {item.daysInProgress > 20 && (
+                              <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold">
+                                CRÍTICO &gt; 20 dias
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={timelineSearchOpen} onOpenChange={setTimelineSearchOpen}>
         <DialogContent className="sm:max-w-[28rem]">
           <DialogHeader>

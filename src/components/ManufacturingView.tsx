@@ -89,6 +89,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   const [filterPriority, setFilterPriority] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"need" | "pending" | "approved">("need");
+  const [showOnlyLateApproved, setShowOnlyLateApproved] = useState(false);
   
   // Seleção múltipla
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
@@ -242,6 +243,16 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
       setIsUpdatingDate(false);
     }
   };
+
+  const getCurrentDeliveryDate = useCallback((record: ManufacturingRecord): string | null => {
+    const history = (record as any).follow_up_dates as FollowUpEntry[] | undefined;
+    if (history && history.length > 0) {
+      const sorted = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const last = sorted[sorted.length - 1];
+      return last?.new_date || null;
+    }
+    return record.estimated_delivery_date || null;
+  }, []);
 
   const formatDate = useCallback((dateString: string | null | undefined) => {
     if (!dateString) return '-';
@@ -736,6 +747,46 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
     try {
       setLoading(true);
+
+      // Validação de duplicidade de matriz (nova ou reposição) em processo ativo
+      if (!isAccessory) {
+        const matrixCode = formData.matrixCode.trim().toUpperCase();
+        if (!matrixCode) {
+          toast.error("Código da matriz não informado");
+          setLoading(false);
+          return;
+        }
+
+        const { data: existing, error: existingError } = await supabase
+          .from('manufacturing_records')
+          .select('status, matrix_code')
+          .eq('matrix_code', matrixCode)
+          .is('processed_at', null)
+          .in('status', ['need', 'pending', 'approved']);
+
+        if (existingError) {
+          console.error('Erro ao verificar duplicidade de matriz:', existingError);
+          toast.error('Não foi possível validar se a matriz já está no processo. Tente novamente.');
+          setLoading(false);
+          return;
+        }
+
+        if (existing && existing.length > 0) {
+          const status = existing[0].status as 'need' | 'pending' | 'approved';
+          const statusMessages: Record<'need' | 'pending' | 'approved', string> = {
+            need: 'Necessidade',
+            pending: 'Solicitação',
+            approved: 'Em Fabricação',
+          };
+
+          toast.error(
+            `Matriz já cadastrada: o código ${matrixCode} já está em "${statusMessages[status]}". Não é permitido criar outra necessidade para o mesmo código.`
+          );
+          setLoading(false);
+          return;
+        }
+      }
+
       const profileTypeToSave = isAccessory ? "tubular" : (formData.profileType as "tubular" | "solido");
       const packageSizeToSave = isAccessory ? null : (formData.packageSize || null);
       const holeCountToSave = isAccessory ? null : (formData.holeCount ? Number(formData.holeCount) : null);
@@ -1250,6 +1301,15 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                   <SelectItem value="critical">Crítica</SelectItem>
                 </SelectContent>
               </Select>
+              <Button
+                size="sm"
+                variant={showOnlyLateApproved ? "destructive" : "outline"}
+                className="h-6 px-2 text-xs flex items-center gap-1"
+                onClick={() => setShowOnlyLateApproved((prev) => !prev)}
+             >
+                <TriangleAlert className="h-3 w-3" />
+                {showOnlyLateApproved ? "Atrasados" : "Todos"}
+              </Button>
               {(filterYear || filterMonth || filterSupplier || filterPriority) && (
                 <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => { setFilterYear(""); setFilterMonth(""); setFilterSupplier(""); setFilterPriority(""); }}>
                   Limpar
@@ -1719,7 +1779,19 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                       const matchSearch = !searchTerm || 
                         r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
                         (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
-                      return r.status === 'approved' && matchYear && matchMonth && matchSupplier && matchSearch;
+
+                      const baseMatch = r.status === 'approved' && matchYear && matchMonth && matchSupplier && matchSearch;
+                      if (!baseMatch) return false;
+
+                      if (!showOnlyLateApproved) return true;
+
+                      const currentDelivery = getCurrentDeliveryDate(r);
+                      if (!currentDelivery) return false;
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const deliveryDate = new Date(currentDelivery);
+                      deliveryDate.setHours(0, 0, 0, 0);
+                      return deliveryDate.getTime() < today.getTime();
                     }).length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={10} className="text-center text-xs text-muted-foreground py-6">
@@ -1737,7 +1809,19 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                         const matchSearch = !searchTerm || 
                           r.matrix_code.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (r.replaced_matrix && r.replaced_matrix.toLowerCase().includes(searchTerm.toLowerCase()));
-                        return r.status === 'approved' && matchYear && matchMonth && matchSupplier && matchSearch;
+
+                        const baseMatch = r.status === 'approved' && matchYear && matchMonth && matchSupplier && matchSearch;
+                        if (!baseMatch) return false;
+
+                        if (!showOnlyLateApproved) return true;
+
+                        const currentDelivery = getCurrentDeliveryDate(r);
+                        if (!currentDelivery) return false;
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const deliveryDate = new Date(currentDelivery);
+                        deliveryDate.setHours(0, 0, 0, 0);
+                        return deliveryDate.getTime() < today.getTime();
                       }).map((record) => (
                         <TableRow key={record.id} className="text-xs hover:bg-green-50/50">
                           <TableCell className="px-2 py-1 font-mono">{record.matrix_code}</TableCell>
@@ -1769,8 +1853,8 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                           <TableCell className="px-2 py-1 text-center">
                             {formatDate(record.original_delivery_date)}
                           </TableCell>
-                          <TableCell className={`px-2 py-1 text-center whitespace-nowrap ${getDeliveryDateClass(record.estimated_delivery_date)}`}>
-                            {formatDate(record.estimated_delivery_date)}
+                          <TableCell className={`px-2 py-1 text-center whitespace-nowrap ${getDeliveryDateClass(getCurrentDeliveryDate(record))}`}>
+                            {formatDate(getCurrentDeliveryDate(record))}
                           </TableCell>
                           <TableCell className="px-2 py-1 text-center">
                             <div className="inline-flex items-center gap-1">
