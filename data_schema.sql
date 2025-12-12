@@ -887,3 +887,120 @@ BEGIN
 END $$;
 
 COMMIT;
+
+-- =============================================================
+-- 12/12/2025 - RPC Otimizada: get_productivity_stats
+-- Objetivo: Retornar dados agregados por matriz SERVER-SIDE para evitar
+--           transferir 100k+ linhas para o frontend
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.get_productivity_stats(
+  p_months_back integer DEFAULT 12,
+  p_matriz_filter text DEFAULT NULL,
+  p_prensa_filter text DEFAULT NULL,
+  p_seq_filter text DEFAULT NULL,
+  p_liga_filter text DEFAULT NULL
+)
+RETURNS TABLE (
+  matriz text,
+  seq text,
+  month text,
+  avg_produtividade numeric,
+  avg_eficiencia numeric,
+  min_produtividade numeric,
+  max_produtividade numeric,
+  total_records bigint,
+  turno_data jsonb,
+  prensa_data jsonb,
+  liga_data jsonb
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_start_date date;
+BEGIN
+  v_start_date := CURRENT_DATE - (p_months_back * INTERVAL '1 month');
+  
+  RETURN QUERY
+  SELECT 
+    COALESCE(p.payload->>'Matriz', p.payload->>'Ferramenta', 'N/D')::text AS matriz,
+    COALESCE(p.payload->>'Seq', '1')::text AS seq,
+    TO_CHAR(p.produced_on, 'YYYY-MM')::text AS month,
+    ROUND(AVG(
+      CASE 
+        WHEN (p.payload->>'Produtividade') ~ '^[0-9]+([.,][0-9]+)?$' 
+        THEN REPLACE(p.payload->>'Produtividade', ',', '.')::numeric 
+        ELSE NULL 
+      END
+    ), 2) AS avg_produtividade,
+    ROUND(AVG(
+      CASE 
+        WHEN (p.payload->>'Eficiência') ~ '^[0-9]+([.,][0-9]+)?$' 
+        THEN REPLACE(p.payload->>'Eficiência', ',', '.')::numeric 
+        ELSE NULL 
+      END
+    ), 2) AS avg_eficiencia,
+    ROUND(MIN(
+      CASE 
+        WHEN (p.payload->>'Produtividade') ~ '^[0-9]+([.,][0-9]+)?$' 
+        THEN REPLACE(p.payload->>'Produtividade', ',', '.')::numeric 
+        ELSE NULL 
+      END
+    ), 2) AS min_produtividade,
+    ROUND(MAX(
+      CASE 
+        WHEN (p.payload->>'Produtividade') ~ '^[0-9]+([.,][0-9]+)?$' 
+        THEN REPLACE(p.payload->>'Produtividade', ',', '.')::numeric 
+        ELSE NULL 
+      END
+    ), 2) AS max_produtividade,
+    COUNT(*)::bigint AS total_records,
+    jsonb_object_agg(
+      DISTINCT COALESCE(p.payload->>'Turno', 'N/D'),
+      1
+    ) FILTER (WHERE p.payload->>'Turno' IS NOT NULL) AS turno_data,
+    jsonb_object_agg(
+      DISTINCT COALESCE(p.payload->>'Prensa', 'N/D'),
+      1
+    ) FILTER (WHERE p.payload->>'Prensa' IS NOT NULL) AS prensa_data,
+    jsonb_object_agg(
+      DISTINCT COALESCE(p.payload->>'Liga Utilizada', 'N/D'),
+      1
+    ) FILTER (WHERE p.payload->>'Liga Utilizada' IS NOT NULL) AS liga_data
+  FROM public.analysis_producao p
+  WHERE p.produced_on IS NOT NULL
+    AND p.produced_on >= v_start_date
+    AND (p_matriz_filter IS NULL OR UPPER(COALESCE(p.payload->>'Matriz', p.payload->>'Ferramenta', '')) LIKE '%' || UPPER(p_matriz_filter) || '%')
+    AND (p_prensa_filter IS NULL OR UPPER(COALESCE(p.payload->>'Prensa', '')) LIKE '%' || UPPER(p_prensa_filter) || '%')
+    AND (p_seq_filter IS NULL OR COALESCE(p.payload->>'Seq', '1') = p_seq_filter)
+    AND (p_liga_filter IS NULL OR UPPER(COALESCE(p.payload->>'Liga Utilizada', '')) LIKE '%' || UPPER(p_liga_filter) || '%')
+  GROUP BY 
+    COALESCE(p.payload->>'Matriz', p.payload->>'Ferramenta', 'N/D'),
+    COALESCE(p.payload->>'Seq', '1'),
+    TO_CHAR(p.produced_on, 'YYYY-MM')
+  HAVING AVG(
+    CASE 
+      WHEN (p.payload->>'Produtividade') ~ '^[0-9]+([.,][0-9]+)?$' 
+      THEN REPLACE(p.payload->>'Produtividade', ',', '.')::numeric 
+      ELSE NULL 
+    END
+  ) IS NOT NULL
+  ORDER BY matriz, seq, month DESC;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_productivity_stats(integer, text, text, text, text) TO anon, authenticated;
+
+-- Notify PostgREST to reload schema
+DO $$
+BEGIN
+  PERFORM pg_notify('pgrst', 'reload schema');
+EXCEPTION WHEN others THEN
+  NULL;
+END $$;
+
+-- Rollback:
+-- REVOKE EXECUTE ON FUNCTION public.get_productivity_stats(integer, text, text, text, text) FROM anon, authenticated;
+-- DROP FUNCTION IF EXISTS public.get_productivity_stats(integer, text, text, text, text);

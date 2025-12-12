@@ -180,8 +180,8 @@ export function calculateMatrizStats(
       }
     });
 
-    // Sort months and take last N months
-    const sortedMonths = Array.from(monthMap.keys()).sort().slice(-monthsToAnalyze);
+    // Sort months chronologically (data is already filtered by RPC)
+    const sortedMonths = Array.from(monthMap.keys()).sort();
 
     const monthlyData: MonthlyData[] = sortedMonths.map((month) => ({
       month,
@@ -189,7 +189,7 @@ export function calculateMatrizStats(
       eficiencia: monthMap.get(month)!.eficiencia,
     }));
 
-    // Calculate overall statistics
+    // Calculate overall statistics using ALL data from the period
     const allProdutividade = monthlyData.flatMap((m) => m.produtividade);
     const allEficiencia = monthlyData.flatMap((m) => m.eficiencia);
 

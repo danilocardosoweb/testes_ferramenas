@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Upload, TrendingUp, TrendingDown, Minus, BarChart3, AlertTriangle, HelpCircle, Info, Lightbulb, Download, FileSpreadsheet, Database } from "lucide-react";
+import { Upload, TrendingUp, TrendingDown, Minus, BarChart3, AlertTriangle, HelpCircle, Info, Lightbulb, Download, FileSpreadsheet, Database, ChevronDown, ChevronUp, Calendar, Search, Settings, Layers, ArrowUpDown } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -23,6 +23,39 @@ import {
     type MatrizStats,
     type AnomalyDetail,
 } from "@/utils/productivityAnalysis";
+import {
+    calculateMatrixScore,
+    getScoreColor,
+    getScoreBgColor,
+    getScoreEmoji,
+    type ScoreBreakdown,
+} from "@/utils/productivityScore";
+import {
+    generateInsights,
+    generateSuggestedActions,
+    getInsightTypeColor,
+    type Insight,
+    type InsightDetail,
+} from "@/utils/productivityInsights";
+import {
+    generatePredictions,
+    generateAlerts,
+    getAlertTypeColor,
+    getAlertIcon,
+    getReliabilityBadge,
+    type PredictionResult,
+    type Alert,
+    type AlertDetail,
+} from "@/utils/productivityPrediction";
+import {
+    calculateDrilldown,
+    generateDrilldownInsights,
+    getComparisonColor,
+    getComparisonBgColor,
+    getTrendIcon as getDrilldownTrendIcon,
+    type DrilldownResult,
+    type RawProductionData,
+} from "@/utils/productivityDrilldown";
 import * as XLSX from "xlsx";
 
 type RawRow = {
@@ -73,7 +106,7 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
     const [prodMinFilter, setProdMinFilter] = useState("");
     const [prodMaxFilter, setProdMaxFilter] = useState("");
     const [ligaFilter, setLigaFilter] = useState("");
-    const [sortBy, setSortBy] = useState<"matriz" | "produtividade" | "eficiencia" | "trend">("produtividade");
+    const [sortBy, setSortBy] = useState<"matriz" | "produtividade" | "eficiencia" | "trend" | "score">("produtividade");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
     const [expandedMatriz, setExpandedMatriz] = useState<string | null>(null);
     const [importing, setImporting] = useState(false);
@@ -89,6 +122,34 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
     const [observations, setObservations] = useState<Record<string, string>>({});
     const [specificObservations, setSpecificObservations] = useState<Record<string, string>>({});
     const [showAnomaliesOnly, setShowAnomaliesOnly] = useState(false);
+    const [insightsExpanded, setInsightsExpanded] = useState(false);
+    const [alertsExpanded, setAlertsExpanded] = useState(false);
+    const [showOnlyActive, setShowOnlyActive] = useState(false);
+    const [activeMatrices, setActiveMatrices] = useState<Set<string>>(new Set());
+    const [filterOptions, setFilterOptions] = useState<{ prensas: string[]; seqs: string[]; ligas: string[] }>({
+        prensas: [],
+        seqs: [],
+        ligas: []
+    });
+    const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
+    const [isInsightModalOpen, setIsInsightModalOpen] = useState(false);
+    const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+    const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+    const [isAllAlertsModalOpen, setIsAllAlertsModalOpen] = useState(false);
+    const [abcMode, setAbcMode] = useState(false); // ABC classification by total production
+    const [showOnlyWithObs, setShowOnlyWithObs] = useState(false); // Filter matrices with observations
+    const [abcData, setAbcData] = useState<{
+        ferramenta_base: string;
+        matrizes: string[];
+        qtd_matrizes: number;
+        total_peso_bruto: number;
+        avg_produtividade: number;
+        avg_eficiencia: number;
+        total_records: number;
+        abc_class: string;
+        cumulative_percent: number;
+    }[]>([]);
+    const [abcLoading, setAbcLoading] = useState(false);
 
     const updateSpecificObservation = async (matriz: string, month: string, text: string) => {
         const key = `${matriz}|${month}`;
@@ -188,11 +249,57 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
         XLSX.writeFile(wb, "Modelo_Importacao_Produtividade.xlsx");
     };
 
-    const handleDownloadReport = () => {
-        // Create a map of observations for fast lookup
-        // Key: Matriz (General) or Matriz|Month (Specific)
+    // Import observations from filled template
+    const [importingObs, setImportingObs] = useState(false);
+    const [importObsMsg, setImportObsMsg] = useState("");
+    const obsFileInputRef = useRef<HTMLInputElement>(null);
 
-        // We need to map the rows to export format and add observations
+    const handleImportObservations = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+
+        try {
+            setImportingObs(true);
+            setImportObsMsg("Lendo planilha de observações...");
+
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+
+            let updated = 0;
+            let skipped = 0;
+
+            for (const row of rows) {
+                const matriz = row["Matriz"]?.toString().trim();
+                const newObs = row["Nova Observação"]?.toString().trim();
+
+                if (!matriz) {
+                    skipped++;
+                    continue;
+                }
+
+                // Only update if there's a new observation
+                if (newObs && newObs.length > 0) {
+                    await updateObservation(matriz, newObs);
+                    updated++;
+                } else {
+                    skipped++;
+                }
+            }
+
+            setImportObsMsg(`✅ Importação concluída! ${updated} observações atualizadas, ${skipped} ignoradas.`);
+            setTimeout(() => setImportObsMsg(""), 5000);
+        } catch (err: any) {
+            setImportObsMsg(`❌ Erro: ${err?.message || String(err)}`);
+        } finally {
+            setImportingObs(false);
+        }
+    };
+
+    const handleDownloadReport = () => {
+        // Legacy: Export raw data with observations
         const exportData = rows.map(row => {
             const matriz = row.Matriz || "";
             const dateStr = row["Data Produção"];
@@ -218,9 +325,40 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
 
         const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Relatório Completo");
-        XLSX.writeFile(wb, `Relatorio_Produtividade_${new Date().toISOString().split('T')[0]}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, "Dados Brutos");
+        XLSX.writeFile(wb, `Dados_Produtividade_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
+
+    // Load filter options and active matrices on mount and when period changes
+    useEffect(() => {
+        async function loadFilterOptions() {
+            try {
+                // Load filter options
+                const { data: optionsData } = await supabase.rpc('get_productivity_filter_options', {
+                    p_months_back: monthsToAnalyze
+                });
+                
+                if (optionsData && optionsData.length > 0) {
+                    const opts = optionsData[0];
+                    setFilterOptions({
+                        prensas: opts.prensas || [],
+                        seqs: opts.seqs || [],
+                        ligas: opts.ligas || []
+                    });
+                }
+
+                // Load active matrices
+                const { data: activeData } = await supabase.rpc('get_active_matrices');
+                if (activeData) {
+                    setActiveMatrices(new Set(activeData.map((r: any) => r.matriz?.toUpperCase())));
+                }
+            } catch (e) {
+                console.error('Error loading filter options:', e);
+            }
+        }
+        loadFilterOptions();
+    }, [monthsToAnalyze]);
+
     useEffect(() => {
         let active = true;
         async function loadData() {
@@ -228,33 +366,46 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
             setLoading(true);
             setError(null);
             try {
-                // Calculate date range based on monthsToAnalyze
-                const today = new Date();
-                const fromDate = new Date(today);
-                fromDate.setMonth(fromDate.getMonth() - monthsToAnalyze);
-                const periodStart = dateToISO(fromDate);
-                const periodEnd = dateToISO(today);
+                // Use optimized RPC that aggregates data server-side
+                console.log('📅 Calling get_productivity_stats RPC with months:', monthsToAnalyze);
 
-                console.log('📅 Date range:', { periodStart, periodEnd, monthsToAnalyze });
+                const { data, error } = await supabase.rpc('get_productivity_stats', {
+                    p_months_back: monthsToAnalyze,
+                    p_matriz_filter: matrizFilter.trim() || null,
+                    p_prensa_filter: prensaFilter || null,
+                    p_seq_filter: seqFilter === "Todas" ? null : seqFilter,
+                    p_liga_filter: ligaFilter || null
+                });
 
-                let query = supabase
-                    .from("analysis_producao")
-                    .select("id,payload")
-                    .order("produced_on", { ascending: false })
-                    .gte("produced_on", periodStart)
-                    .lte("produced_on", periodEnd)
-                    .limit(50000); // Limit for performance
-
-                const { data, error } = await query;
                 if (error) throw error;
-                console.log('📦 Fetched data count:', data?.length);
+                console.log('📦 RPC returned aggregated data:', data?.length, 'rows');
                 if (!active) return;
-                const mapped = (data as RawRow[] | null | undefined)?.map(mapRow) ?? [];
-                console.log('🗺️ Mapped rows count:', mapped.length);
-                console.log('✅ Loaded rows:', mapped.length);
+
+                // Transform RPC data to ViewRow format for compatibility
+                const mapped: ViewRow[] = (data || []).map((row: any) => ({
+                    Prensa: row.prensa_data ? Object.keys(row.prensa_data).join(', ') : null,
+                    "Data Produção": row.month ? `01/${row.month.split('-')[1]}/${row.month.split('-')[0]}` : null,
+                    Turno: row.turno_data ? Object.keys(row.turno_data).join(', ') : null,
+                    Matriz: row.matriz,
+                    Seq: row.seq,
+                    "Peso Bruto": null,
+                    "Eficiência": row.avg_eficiencia,
+                    Produtividade: row.avg_produtividade,
+                    "Cod Parada": null,
+                    "Liga Utilizada": row.liga_data ? Object.keys(row.liga_data).join(', ') : null,
+                    "Observação Lote": null,
+                    // Extra fields for stats calculation
+                    _month: row.month,
+                    _min_prod: row.min_produtividade,
+                    _max_prod: row.max_produtividade,
+                    _total_records: row.total_records
+                } as ViewRow & { _month: string; _min_prod: number; _max_prod: number; _total_records: number }));
+
+                console.log('✅ Loaded aggregated rows:', mapped.length);
                 setRows(mapped);
             } catch (e: any) {
                 if (!active) return;
+                console.error('❌ Error loading data:', e);
                 setError(e?.message ?? String(e));
                 setRows([]);
             } finally {
@@ -265,7 +416,39 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
         return () => {
             active = false;
         };
-    }, [monthsToAnalyze, reloadKey]);
+    }, [monthsToAnalyze, reloadKey, matrizFilter, prensaFilter, seqFilter, ligaFilter]);
+
+    // Load ABC classification data
+    useEffect(() => {
+        if (!abcMode) {
+            setAbcData([]);
+            return;
+        }
+
+        let active = true;
+        async function loadAbcData() {
+            setAbcLoading(true);
+            try {
+                console.log('📊 Loading ABC classification data...');
+                const { data, error } = await supabase.rpc('get_abc_classification', {
+                    p_months_back: monthsToAnalyze
+                });
+
+                if (error) throw error;
+                if (!active) return;
+
+                console.log('✅ ABC data loaded:', data?.length, 'ferramentas');
+                setAbcData(data || []);
+            } catch (e: any) {
+                console.error('❌ Error loading ABC data:', e);
+                if (active) setAbcData([]);
+            } finally {
+                if (active) setAbcLoading(false);
+            }
+        }
+        loadAbcData();
+        return () => { active = false; };
+    }, [abcMode, monthsToAnalyze]);
 
     // Load detailed data for expanded matrix via RPC
     useEffect(() => {
@@ -335,28 +518,73 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
     const stats = useMemo(() => {
         let filtered = rows;
 
-        if (matrizFilter.trim()) {
-            filtered = filtered.filter((r) =>
-                (r.Matriz || "").toString().toLowerCase().includes(matrizFilter.trim().toLowerCase())
-            );
-        }
-        if (prensaFilter.trim()) {
-            filtered = filtered.filter((r) =>
-                (r.Prensa ?? "").toString().toLowerCase().includes(prensaFilter.trim().toLowerCase())
-            );
-        }
-        if (seqFilter !== "Todas") {
-            filtered = filtered.filter((r) => (r.Seq ?? "").toString().trim() === seqFilter.trim());
-        }
-        if (ligaFilter.trim()) {
-            filtered = filtered.filter((r) =>
-                (r["Liga Utilizada"] ?? "").toString().toLowerCase().includes(ligaFilter.trim().toLowerCase())
-            );
+        // Apply active matrices filter (cross-reference with Ferramentas data)
+        if (showOnlyActive && activeMatrices.size > 0) {
+            filtered = filtered.filter((r) => {
+                const matriz = (r.Matriz || "").toString().toUpperCase().trim();
+                // Extract base code (e.g., "TR-0100" from "TR-0100/001")
+                const baseCode = matriz.split('/')[0];
+                return activeMatrices.has(matriz) || activeMatrices.has(baseCode);
+            });
         }
 
         return calculateMatrizStats(filtered, monthsToAnalyze, groupBySeq);
-    }, [rows, monthsToAnalyze, matrizFilter, prensaFilter, seqFilter, ligaFilter, groupBySeq]);
+    }, [rows, monthsToAnalyze, groupBySeq, showOnlyActive, activeMatrices]);
 
+    // Use server-side filter options instead of calculating from aggregated data
+    const seqOptions = useMemo(() => {
+        return ["Todas", ...filterOptions.seqs];
+    }, [filterOptions.seqs]);
+
+    const ligaOptions = useMemo(() => {
+        return filterOptions.ligas;
+    }, [filterOptions.ligas]);
+
+    const prensaOptions = useMemo(() => {
+        return ["", ...filterOptions.prensas];
+    }, [filterOptions.prensas]);
+
+    const overallStats = useMemo(() => {
+        if (stats.length === 0) return { avgProd: 0, avgEfic: 0, totalMatrizes: 0 };
+        const totalProd = stats.reduce((sum, s) => sum + s.avgProdutividade, 0);
+        const totalEfic = stats.reduce((sum, s) => sum + s.avgEficiencia, 0);
+        return {
+            avgProd: totalProd / stats.length,
+            avgEfic: totalEfic / stats.length,
+            totalMatrizes: stats.length,
+        };
+    }, [stats]);
+
+    // Calculate scores and anomalies for all matrices
+    const scoresAndAnomalies = useMemo(() => {
+        const scoresMap = new Map<string, ScoreBreakdown>();
+        const anomaliesMap = new Map<string, AnomalyDetail[]>();
+        
+        stats.forEach(stat => {
+            const anomalies = detectAnomalies(stat.monthlyData);
+            const score = calculateMatrixScore(stat, overallStats.avgProd, anomalies);
+            scoresMap.set(stat.matriz, score);
+            anomaliesMap.set(stat.matriz, anomalies);
+        });
+        
+        return { scoresMap, anomaliesMap };
+    }, [stats, overallStats.avgProd]);
+
+    // Generate automatic insights
+    const insights = useMemo(() => {
+        if (stats.length === 0) return [];
+        
+        return generateInsights({
+            stats,
+            scores: scoresAndAnomalies.scoresMap,
+            anomaliesMap: scoresAndAnomalies.anomaliesMap,
+            overallAvgProd: overallStats.avgProd,
+            overallAvgEfic: overallStats.avgEfic,
+            period: monthsToAnalyze
+        });
+    }, [stats, scoresAndAnomalies, overallStats, monthsToAnalyze]);
+
+    // Sorted and filtered stats (after scoresAndAnomalies is available)
     const sortedStats = useMemo(() => {
         let filtered = [...stats];
 
@@ -369,7 +597,6 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                 const prod = stat.avgProdutividade;
                 if (!Number.isNaN(minProd) && prod < minProd) return false;
                 if (!Number.isNaN(maxProd) && prod > maxProd) return false;
-
                 return true;
             });
         }
@@ -377,8 +604,16 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
         // Apply anomalies filter
         if (showAnomaliesOnly) {
             filtered = filtered.filter((stat) => {
-                const anomalies = detectAnomalies(stat.monthlyData);
+                const anomalies = scoresAndAnomalies.anomaliesMap.get(stat.matriz) || [];
                 return anomalies.length > 0;
+            });
+        }
+
+        // Apply observations filter
+        if (showOnlyWithObs) {
+            filtered = filtered.filter((stat) => {
+                const obs = observations[stat.matriz];
+                return obs && obs.trim().length > 0;
             });
         }
 
@@ -398,59 +633,34 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                 case "trend":
                     comparison = a.trendValue - b.trendValue;
                     break;
+                case "score":
+                    const scoreA = scoresAndAnomalies.scoresMap.get(a.matriz)?.total || 0;
+                    const scoreB = scoresAndAnomalies.scoresMap.get(b.matriz)?.total || 0;
+                    comparison = scoreA - scoreB;
+                    break;
             }
             return sortOrder === "asc" ? comparison : -comparison;
         });
         return filtered;
-    }, [stats, sortBy, sortOrder, prodMinFilter, prodMaxFilter, showAnomaliesOnly]);
+    }, [stats, sortBy, sortOrder, prodMinFilter, prodMaxFilter, showAnomaliesOnly, showOnlyWithObs, observations, scoresAndAnomalies]);
 
-    const seqOptions = useMemo(() => {
-        const set = new Set<string>();
-        // Filter rows based on current matriz filter to show only active seqs
-        let filteredRows = rows;
-        if (matrizFilter.trim()) {
-            filteredRows = rows.filter((r) =>
-                (r.Matriz || "").toString().toLowerCase().includes(matrizFilter.trim().toLowerCase())
-            );
-        }
-        for (const r of filteredRows) {
-            const v = (r.Seq ?? "").toString().trim();
-            if (v) set.add(v);
-        }
-        return ["Todas", ...Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"))];
-    }, [rows, matrizFilter]);
-
-    const ligaOptions = useMemo(() => {
-        const set = new Set<string>();
-        for (const r of rows) {
-            const v = (r["Liga Utilizada"] ?? "").toString().trim();
-            if (v) set.add(v);
-        }
-        return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
-    }, [rows]);
-
-    const prensaOptions = useMemo(() => {
-        const set = new Set<string>();
-        for (const r of rows) {
-            const v = (r.Prensa ?? "").toString().trim();
-            if (v) set.add(v);
-        }
-        return ["", ...Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"))];
-    }, [rows]);
-
-    const overallStats = useMemo(() => {
-        if (stats.length === 0) return { avgProd: 0, avgEfic: 0, totalMatrizes: 0 };
-        const totalProd = stats.reduce((sum, s) => sum + s.avgProdutividade, 0);
-        const totalEfic = stats.reduce((sum, s) => sum + s.avgEficiencia, 0);
-        return {
-            avgProd: totalProd / stats.length,
-            avgEfic: totalEfic / stats.length,
-            totalMatrizes: stats.length,
-        };
+    // Generate predictions for all matrices
+    const predictionsMap = useMemo(() => {
+        const map = new Map<string, PredictionResult>();
+        stats.forEach(stat => {
+            if (stat.monthlyData.length >= 3) {
+                const prediction = generatePredictions(stat, 3);
+                map.set(stat.matriz, prediction);
+            }
+        });
+        return map;
     }, [stats]);
 
-    // Calculate monthly aggregated data for annual chart (using filtered data)
-    // Not needed anymore - using RPC data directly
+    // Generate intelligent alerts
+    const alerts = useMemo(() => {
+        if (stats.length === 0) return [];
+        return generateAlerts(stats, predictionsMap, overallStats.avgProd, overallStats.avgEfic);
+    }, [stats, predictionsMap, overallStats]);
 
     // Generate dynamic title for annual chart based on active filters
     const annualChartTitle = useMemo(() => {
@@ -480,6 +690,155 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
 
         return `Evolução da produtividade média para ${filters.join(", ")} nos últimos 12 meses com linha de tendência`;
     }, [matrizFilter, prensaFilter, seqFilter, ligaFilter]);
+
+    // Export analysis report with matrices, metrics, insights and observations
+    const handleDownloadAnalysisReport = () => {
+        try {
+            console.log('📊 Gerando relatório de análise...');
+            console.log('Stats:', sortedStats.length, 'matrizes');
+            console.log('Insights:', insights.length);
+            console.log('Alerts:', alerts.length);
+
+            if (sortedStats.length === 0) {
+                alert('Nenhuma matriz para exportar. Aguarde o carregamento dos dados.');
+                return;
+            }
+
+            // Sheet 1: Summary of matrices with metrics and observations
+            const analysisData = sortedStats.map((stat, idx) => {
+                const score = scoresAndAnomalies.scoresMap.get(stat.matriz);
+                const prediction = predictionsMap.get(stat.matriz);
+                const matrizAnomalies = scoresAndAnomalies.anomaliesMap.get(stat.matriz) || [];
+                
+                return {
+                    "#": idx + 1,
+                    "Matriz": stat.matriz,
+                    "Score": score?.total?.toFixed(0) || "-",
+                    "Produtividade Media": stat.avgProdutividade?.toFixed(2) || "0",
+                    "Eficiencia Media": stat.avgEficiencia?.toFixed(2) || "0",
+                    "Tendencia": stat.trend === 'up' ? 'Subindo' : stat.trend === 'down' ? 'Caindo' : 'Estavel',
+                    "Variacao Tendencia (%)": stat.trendValue?.toFixed(2) || "0",
+                    "Coef Variacao": stat.cvProdutividade?.toFixed(2) || "-",
+                    "Min Prod": stat.minProdutividade?.toFixed(0) || "0",
+                    "Max Prod": stat.maxProdutividade?.toFixed(0) || "0",
+                    "Total Registros": stat.totalRecords || 0,
+                    "Qtd Anomalias": matrizAnomalies.length,
+                    "Previsao Prox Mes": prediction?.predictions?.[0]?.predictedValue?.toFixed(0) || "-",
+                    "Confiabilidade Previsao": prediction?.reliability || "-",
+                    "Observacao Geral": observations[stat.matriz] || "",
+                    "Acao Sugerida": ""
+                };
+            });
+
+            // Sheet 2: Insights generated
+            const insightsData = insights.length > 0 ? insights.map((insight, idx) => ({
+                "#": idx + 1,
+                "Tipo": insight.type === 'positive' ? 'Positivo' : insight.type === 'warning' ? 'Atencao' : 'Informativo',
+                "Titulo": insight.title || "",
+                "Descricao": insight.description || "",
+                "Metrica": insight.metric || "-",
+                "Valor": insight.value?.toFixed(2) || "-"
+            })) : [{ "#": 1, "Tipo": "-", "Titulo": "Nenhum insight gerado", "Descricao": "-", "Metrica": "-", "Valor": "-" }];
+
+            // Sheet 3: Alerts
+            const alertsData = alerts.length > 0 ? alerts.map((alert, idx) => ({
+                "#": idx + 1,
+                "Tipo": alert.type === 'critical' ? 'Critico' : alert.type === 'warning' ? 'Aviso' : alert.type === 'success' ? 'Sucesso' : 'Info',
+                "Categoria": alert.category || "-",
+                "Matriz": alert.matriz || "-",
+                "Titulo": alert.title || "",
+                "Descricao": alert.description || "",
+                "Acao Sugerida": alert.suggestedAction || ""
+            })) : [{ "#": 1, "Tipo": "-", "Categoria": "-", "Matriz": "-", "Titulo": "Nenhum alerta gerado", "Descricao": "-", "Acao Sugerida": "-" }];
+
+            console.log('Dados preparados:', analysisData.length, 'linhas');
+
+            const wb = XLSX.utils.book_new();
+            
+            const ws1 = XLSX.utils.json_to_sheet(analysisData);
+            XLSX.utils.book_append_sheet(wb, ws1, "Analise Matrizes");
+            
+            const ws2 = XLSX.utils.json_to_sheet(insightsData);
+            XLSX.utils.book_append_sheet(wb, ws2, "Insights");
+            
+            const ws3 = XLSX.utils.json_to_sheet(alertsData);
+            XLSX.utils.book_append_sheet(wb, ws3, "Alertas");
+            
+            const fileName = `Analise_Produtividade_${new Date().toISOString().split('T')[0]}.xlsx`;
+            console.log('Salvando arquivo:', fileName);
+            XLSX.writeFile(wb, fileName);
+            console.log('✅ Relatório gerado com sucesso!');
+        } catch (error) {
+            console.error('❌ Erro ao gerar relatório:', error);
+            alert(`Erro ao gerar relatório: ${error}`);
+        }
+    };
+
+    // Export template for filling observations
+    const handleDownloadObservationsTemplate = () => {
+        try {
+            console.log('📋 Gerando modelo de observações...');
+            
+            if (sortedStats.length === 0) {
+                alert('Nenhuma matriz para exportar. Aguarde o carregamento dos dados.');
+                return;
+            }
+
+            // Create template with current matrices and empty observation columns
+            const templateData = sortedStats.map((stat) => ({
+                "Matriz": stat.matriz,
+                "Produtividade Media": stat.avgProdutividade?.toFixed(2) || "0",
+                "Eficiencia Media": stat.avgEficiencia?.toFixed(2) || "0",
+                "Tendencia": stat.trend === 'up' ? 'Subindo' : stat.trend === 'down' ? 'Caindo' : 'Estavel',
+            "Observação Atual": observations[stat.matriz] || "",
+            "Nova Observação": "",
+            "Ação Recomendada": "",
+            "Prioridade": ""
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(templateData);
+        
+        // Set column widths
+        ws['!cols'] = [
+            { wch: 15 }, // Matriz
+            { wch: 12 }, // Prod
+            { wch: 12 }, // Efic
+            { wch: 12 }, // Tendência
+            { wch: 30 }, // Obs Atual
+            { wch: 40 }, // Nova Obs
+            { wch: 30 }, // Ação
+            { wch: 12 }  // Prioridade
+        ];
+        
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Observações");
+        
+        // Add instructions sheet
+        const instructionsData = [
+            ["INSTRUÇÕES PARA PREENCHIMENTO"],
+            [""],
+            ["1. Preencha a coluna 'Nova Observação' com suas análises"],
+            ["2. Use a coluna 'Ação Recomendada' para definir próximos passos"],
+            ["3. Prioridade pode ser: ALTA, MÉDIA, BAIXA ou deixar vazio"],
+            ["4. Após preencher, importe o arquivo na aba 'Observações'"],
+            [""],
+            ["IMPORTANTE:"],
+            ["- NÃO altere a coluna 'Matriz' (é usada para identificar)"],
+            ["- A coluna 'Observação Atual' mostra o que já está salvo"],
+            ["- 'Nova Observação' vai SUBSTITUIR a observação atual"],
+            ["- Deixe 'Nova Observação' vazia para manter a atual"]
+        ];
+        const wsInst = XLSX.utils.aoa_to_sheet(instructionsData);
+        XLSX.utils.book_append_sheet(wb, wsInst, "Instruções");
+        
+            const fileName = `Modelo_Observacoes_${new Date().toISOString().split('T')[0]}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+            console.log('✅ Modelo de observações gerado:', fileName);
+        } catch (error) {
+            console.error('❌ Erro ao gerar modelo:', error);
+            alert(`Erro ao gerar modelo: ${error}`);
+        }
+    };
 
     const getTrendIcon = (trend: "up" | "down" | "stable") => {
         switch (trend) {
@@ -512,13 +871,14 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
 
     return (
         <div className="space-y-6">
-            {/* Header with filters */}
-            <div className="flex flex-wrap items-end gap-2 justify-between">
-                <div className="flex flex-wrap items-end gap-2 flex-1 min-w-0">
-                    <div className="flex flex-col">
-                        <label className="text-xs text-muted-foreground">Período (meses)</label>
+            {/* Header with filters - Line 1 */}
+            <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                    {/* Period */}
+                    <div className="flex items-center h-9 rounded-md border bg-background px-3 gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
                         <select
-                            className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
+                            className="bg-transparent text-sm focus:outline-none cursor-pointer"
                             value={monthsToAnalyze}
                             onChange={(e) => setMonthsToAnalyze(Number(e.target.value))}
                         >
@@ -528,19 +888,24 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                             <option value={24}>24 meses</option>
                         </select>
                     </div>
-                    <div className="flex flex-col">
-                        <label className="text-xs text-muted-foreground">Matriz</label>
+
+                    {/* Search Matrix */}
+                    <div className="flex items-center h-9 rounded-md border bg-background px-3 gap-2">
+                        <Search className="h-4 w-4 text-muted-foreground" />
                         <input
-                            className="h-9 w-36 rounded-md border bg-background px-2 text-sm"
-                            placeholder="Ex.: TUB-092"
+                            className="bg-transparent text-sm focus:outline-none w-28"
+                            placeholder="Buscar matriz..."
                             value={matrizFilter}
                             onChange={(e) => setMatrizFilter(e.target.value)}
                         />
                     </div>
-                    <div className="flex flex-col">
-                        <label className="text-xs text-muted-foreground">Prensa</label>
+
+                    {/* Prensa */}
+                    <div className="flex items-center h-9 rounded-md border bg-background px-3 gap-2">
+                        <Settings className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Prensa:</span>
                         <select
-                            className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
+                            className="bg-transparent text-sm focus:outline-none cursor-pointer"
                             value={prensaFilter}
                             onChange={(e) => setPrensaFilter(e.target.value)}
                         >
@@ -548,22 +913,13 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                             {prensaOptions.map((p) => (p !== "" ? <option key={p} value={p}>{p}</option> : null))}
                         </select>
                     </div>
-                    <div className="flex flex-col">
-                        <label className="text-xs text-muted-foreground">Seq</label>
+
+                    {/* Liga */}
+                    <div className="flex items-center h-9 rounded-md border bg-background px-3 gap-2">
+                        <Layers className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Liga:</span>
                         <select
-                            className="h-9 w-20 rounded-md border bg-background px-2 text-sm"
-                            value={seqFilter}
-                            onChange={(e) => setSeqFilter(e.target.value)}
-                        >
-                            {seqOptions.map((s) => (
-                                <option key={s} value={s}>{s}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="flex flex-col">
-                        <label className="text-xs text-muted-foreground">Liga</label>
-                        <select
-                            className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
+                            className="bg-transparent text-sm focus:outline-none cursor-pointer"
                             value={ligaFilter}
                             onChange={(e) => setLigaFilter(e.target.value)}
                         >
@@ -573,50 +929,113 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                             ))}
                         </select>
                     </div>
-                    <div className="flex items-end gap-1.5">
-                        <div className="flex flex-col">
-                            <label className="text-xs text-muted-foreground">Produtividade (kg/h)</label>
-                            <input
-                                className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
-                                placeholder="Mín. 500"
-                                value={prodMinFilter}
-                                onChange={(e) => setProdMinFilter(e.target.value)}
-                            />
-                        </div>
-                        <div className="flex flex-col">
-                            <label className="text-xs text-muted-foreground">até</label>
-                            <input
-                                className="h-9 w-24 rounded-md border bg-background px-2 text-sm"
-                                placeholder="Máx. 800"
-                                value={prodMaxFilter}
-                                onChange={(e) => setProdMaxFilter(e.target.value)}
-                            />
-                        </div>
+
+                    {/* Produtividade Range */}
+                    <div className="flex items-center h-9 rounded-md border bg-background px-3 gap-2">
+                        <span className="text-sm text-muted-foreground">Prod:</span>
+                        <input
+                            className="bg-transparent text-sm focus:outline-none w-14 text-center"
+                            placeholder="Min"
+                            value={prodMinFilter}
+                            onChange={(e) => setProdMinFilter(e.target.value)}
+                        />
+                        <span className="text-muted-foreground">-</span>
+                        <input
+                            className="bg-transparent text-sm focus:outline-none w-14 text-center"
+                            placeholder="Max"
+                            value={prodMaxFilter}
+                            onChange={(e) => setProdMaxFilter(e.target.value)}
+                        />
                     </div>
-                    <div className="flex flex-col">
-                        <label className="text-xs text-muted-foreground">Ordenar por</label>
+
+                    {/* Sort By */}
+                    <div className="flex items-center h-9 rounded-md border bg-background px-3 gap-2">
+                        <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
                         <select
-                            className="h-9 w-32 rounded-md border bg-background px-2 text-sm"
+                            className="bg-transparent text-sm focus:outline-none cursor-pointer"
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value as any)}
                         >
+                            <option value="score">Score</option>
                             <option value="produtividade">Produtividade</option>
                             <option value="eficiencia">Eficiência</option>
                             <option value="trend">Tendência</option>
                             <option value="matriz">Matriz</option>
                         </select>
                     </div>
-                    <div className="flex flex-col">
-                        <label className="text-xs text-muted-foreground">Ordem</label>
-                        <select
-                            className="h-9 w-28 rounded-md border bg-background px-2 text-sm"
-                            value={sortOrder}
-                            onChange={(e) => setSortOrder(e.target.value as any)}
-                        >
-                            <option value="desc">Maior → Menor</option>
-                            <option value="asc">Menor → Maior</option>
-                        </select>
+
+                    {/* Sort Order Toggle */}
+                    <button
+                        className="flex items-center justify-center h-9 w-9 rounded-md border bg-background hover:bg-muted/50 transition-colors"
+                        onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                        title={sortOrder === 'desc' ? 'Maior → Menor' : 'Menor → Maior'}
+                    >
+                        {sortOrder === 'desc' ? (
+                            <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                        )}
+                    </button>
+                </div>
+
+                {/* Line 2 - Toggles and Actions */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="group-by-seq"
+                                checked={groupBySeq}
+                                onCheckedChange={setGroupBySeq}
+                            />
+                            <Label htmlFor="group-by-seq" className="text-xs text-muted-foreground cursor-pointer">
+                                Agrupar por Sequência
+                            </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="show-anomalies"
+                                checked={showAnomaliesOnly}
+                                onCheckedChange={setShowAnomaliesOnly}
+                            />
+                            <Label htmlFor="show-anomalies" className="text-xs text-muted-foreground cursor-pointer flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3" />
+                                Apenas com Alertas
+                            </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="show-only-active"
+                                checked={showOnlyActive}
+                                onCheckedChange={setShowOnlyActive}
+                            />
+                            <Label htmlFor="show-only-active" className="text-xs text-muted-foreground cursor-pointer">
+                                Apenas Ativas
+                            </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="show-only-with-obs"
+                                checked={showOnlyWithObs}
+                                onCheckedChange={setShowOnlyWithObs}
+                            />
+                            <Label htmlFor="show-only-with-obs" className="text-xs text-muted-foreground cursor-pointer flex items-center gap-1">
+                                <FileSpreadsheet className="h-3 w-3" />
+                                Com Observações
+                            </Label>
+                        </div>
+                        <div className="flex items-center gap-2 ml-2 pl-2 border-l">
+                            <Switch
+                                id="abc-mode"
+                                checked={abcMode}
+                                onCheckedChange={setAbcMode}
+                            />
+                            <Label htmlFor="abc-mode" className="text-xs text-muted-foreground cursor-pointer flex items-center gap-1">
+                                <BarChart3 className="h-3 w-3" />
+                                ABC (Produção Total)
+                            </Label>
+                        </div>
                     </div>
+
                     <Dialog open={isDataManagementOpen} onOpenChange={setIsDataManagementOpen}>
                         <DialogTrigger asChild>
                             <Button variant="outline" size="sm" className="ml-1 gap-2">
@@ -624,33 +1043,149 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                 Gerenciar Dados
                             </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-[600px]">
+                        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-hidden flex flex-col">
                             <DialogHeader>
-                                <DialogTitle>Gerenciamento de Dados</DialogTitle>
+                                <DialogTitle className="flex items-center gap-2">
+                                    <Database className="h-5 w-5" />
+                                    Gerenciamento de Dados e Observações
+                                </DialogTitle>
                                 <DialogDescription>
-                                    Importe novos dados ou exporte relatórios e modelos.
+                                    Exporte relatórios de análise, importe observações ou gerencie dados de produção.
                                 </DialogDescription>
                             </DialogHeader>
-                            <Tabs defaultValue="import" className="w-full">
-                                <TabsList className="grid w-full grid-cols-2">
-                                    <TabsTrigger value="import">Importar</TabsTrigger>
-                                    <TabsTrigger value="export">Exportar / Modelo</TabsTrigger>
+                            <Tabs defaultValue="export" className="w-full flex-1 overflow-hidden flex flex-col">
+                                <TabsList className="grid w-full grid-cols-3">
+                                    <TabsTrigger value="export">Exportar</TabsTrigger>
+                                    <TabsTrigger value="import-obs">Observações</TabsTrigger>
+                                    <TabsTrigger value="import-data">Dados Produção</TabsTrigger>
                                 </TabsList>
 
-                                <TabsContent value="import" className="space-y-4 py-4">
-                                    <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 text-sm text-yellow-800">
+                                {/* Tab 1: Export Reports and Templates */}
+                                <TabsContent value="export" className="space-y-3 py-3 flex-1 overflow-auto">
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {/* Analysis Report */}
+                                        <Card className="border-green-200 bg-green-50/30">
+                                            <CardHeader className="pb-2">
+                                                <CardTitle className="text-sm flex items-center gap-2">
+                                                    <BarChart3 className="h-4 w-4 text-green-600" />
+                                                    Relatório de Análise Completo
+                                                </CardTitle>
+                                                <CardDescription className="text-xs">
+                                                    Excel com 3 abas: Análise das Matrizes, Insights e Alertas. Ideal para apresentações.
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="pt-0">
+                                                <Button onClick={handleDownloadAnalysisReport} variant="default" className="w-full" size="sm">
+                                                    <Download className="mr-2 h-4 w-4" />
+                                                    Baixar Relatório de Análise
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Observations Template */}
+                                        <Card className="border-blue-200 bg-blue-50/30">
+                                            <CardHeader className="pb-2">
+                                                <CardTitle className="text-sm flex items-center gap-2">
+                                                    <FileSpreadsheet className="h-4 w-4 text-blue-600" />
+                                                    Modelo para Observações
+                                                </CardTitle>
+                                                <CardDescription className="text-xs">
+                                                    Planilha com todas as matrizes para você preencher observações offline e importar depois.
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="pt-0">
+                                                <Button onClick={handleDownloadObservationsTemplate} variant="secondary" className="w-full" size="sm">
+                                                    <Download className="mr-2 h-4 w-4" />
+                                                    Baixar Modelo de Observações
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Raw Data Export */}
+                                        <Card>
+                                            <CardHeader className="pb-2">
+                                                <CardTitle className="text-sm flex items-center gap-2">
+                                                    <Database className="h-4 w-4 text-gray-600" />
+                                                    Dados Brutos
+                                                </CardTitle>
+                                                <CardDescription className="text-xs">
+                                                    Exporta todos os registros de produção com observações salvas.
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="pt-0">
+                                                <Button onClick={handleDownloadReport} variant="outline" className="w-full" size="sm">
+                                                    <Download className="mr-2 h-4 w-4" />
+                                                    Baixar Dados Brutos
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                </TabsContent>
+
+                                {/* Tab 2: Import Observations */}
+                                <TabsContent value="import-obs" className="space-y-4 py-3">
+                                    <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-800">
+                                        <div className="flex items-center gap-2 font-medium mb-1">
+                                            <Info className="h-4 w-4" />
+                                            Como funciona
+                                        </div>
+                                        <ol className="list-decimal list-inside space-y-1 text-xs">
+                                            <li>Baixe o <strong>Modelo de Observações</strong> na aba "Exportar"</li>
+                                            <li>Preencha a coluna <strong>"Nova Observação"</strong> no Excel</li>
+                                            <li>Importe o arquivo preenchido aqui</li>
+                                            <li>As observações serão atualizadas automaticamente</li>
+                                        </ol>
+                                    </div>
+
+                                    <div className="flex flex-col gap-4 items-center justify-center border-2 border-dashed border-blue-300 rounded-lg p-6 bg-blue-50/30">
+                                        <input
+                                            ref={obsFileInputRef}
+                                            type="file"
+                                            accept=".xlsx,.xls"
+                                            className="hidden"
+                                            onChange={handleImportObservations}
+                                        />
+                                        <div className="text-center">
+                                            <FileSpreadsheet className="h-10 w-10 text-blue-400 mx-auto mb-2" />
+                                            <p className="text-sm text-muted-foreground">Selecione o arquivo de observações preenchido</p>
+                                        </div>
+                                        <Button
+                                            onClick={() => obsFileInputRef.current?.click()}
+                                            disabled={importingObs}
+                                            variant="default"
+                                            className="w-full max-w-xs"
+                                        >
+                                            {importingObs ? (
+                                                "Importando observações..."
+                                            ) : (
+                                                <>
+                                                    <Upload className="mr-2 h-4 w-4" />
+                                                    Importar Observações
+                                                </>
+                                            )}
+                                        </Button>
+                                        {importObsMsg && (
+                                            <p className={`text-xs text-center ${importObsMsg.includes('✅') ? 'text-green-600' : 'text-red-600'}`}>
+                                                {importObsMsg}
+                                            </p>
+                                        )}
+                                    </div>
+                                </TabsContent>
+
+                                {/* Tab 3: Import Production Data */}
+                                <TabsContent value="import-data" className="space-y-4 py-3">
+                                    <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm text-yellow-800">
                                         <div className="flex items-center gap-2 font-medium mb-1">
                                             <AlertTriangle className="h-4 w-4" />
-                                            Atenção: Modo de Adição
+                                            Atenção: Importação de Dados de Produção
                                         </div>
-                                        <p>
-                                            A importação irá <strong>ADICIONAR</strong> os novos dados ao banco.
-                                            Dados existentes <strong>NÃO</strong> serão apagados.
-                                            Certifique-se de que a planilha contém apenas novos registros para evitar duplicidade.
+                                        <p className="text-xs">
+                                            Esta opção <strong>ADICIONA</strong> novos registros de produção ao banco.
+                                            Use apenas para carregar dados novos do sistema de produção.
                                         </p>
                                     </div>
 
-                                    <div className="flex flex-col gap-4 items-center justify-center border-2 border-dashed rounded-lg p-8">
+                                    <div className="flex flex-col gap-4 items-center justify-center border-2 border-dashed rounded-lg p-6">
                                         <input
                                             ref={fileInputRef}
                                             type="file"
@@ -661,6 +1196,7 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                         <Button
                                             onClick={() => fileInputRef.current?.click()}
                                             disabled={importing}
+                                            variant="outline"
                                             className="w-full max-w-xs"
                                         >
                                             {importing ? (
@@ -668,7 +1204,7 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                             ) : (
                                                 <>
                                                     <Upload className="mr-2 h-4 w-4" />
-                                                    Selecionar Arquivo
+                                                    Selecionar Arquivo de Produção
                                                 </>
                                             )}
                                         </Button>
@@ -686,72 +1222,28 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                             </div>
                                         )}
                                     </div>
-                                </TabsContent>
 
-                                <TabsContent value="export" className="space-y-4 py-4">
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <Card>
-                                            <CardHeader className="pb-3">
-                                                <CardTitle className="text-base flex items-center gap-2">
-                                                    <FileSpreadsheet className="h-4 w-4" />
-                                                    Relatório Completo
-                                                </CardTitle>
-                                                <CardDescription>
-                                                    Baixe todos os dados atuais incluindo as observações salvas.
-                                                </CardDescription>
-                                            </CardHeader>
-                                            <CardContent>
-                                                <Button onClick={handleDownloadReport} variant="secondary" className="w-full">
-                                                    <Download className="mr-2 h-4 w-4" />
-                                                    Baixar Relatório
-                                                </Button>
-                                            </CardContent>
-                                        </Card>
-
-                                        <Card>
-                                            <CardHeader className="pb-3">
-                                                <CardTitle className="text-base flex items-center gap-2">
-                                                    <Info className="h-4 w-4" />
-                                                    Modelo de Importação
-                                                </CardTitle>
-                                                <CardDescription>
-                                                    Baixe a planilha modelo para preencher novos dados corretamente.
-                                                </CardDescription>
-                                            </CardHeader>
-                                            <CardContent>
-                                                <Button onClick={handleDownloadTemplate} variant="outline" className="w-full">
-                                                    <Download className="mr-2 h-4 w-4" />
-                                                    Baixar Modelo Padrão
-                                                </Button>
-                                            </CardContent>
-                                        </Card>
-                                    </div>
+                                    <Card>
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-sm flex items-center gap-2">
+                                                <Info className="h-4 w-4" />
+                                                Modelo de Importação de Produção
+                                            </CardTitle>
+                                            <CardDescription className="text-xs">
+                                                Baixe o modelo se precisar do formato correto das colunas.
+                                            </CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="pt-0">
+                                            <Button onClick={handleDownloadTemplate} variant="ghost" className="w-full" size="sm">
+                                                <Download className="mr-2 h-4 w-4" />
+                                                Baixar Modelo Padrão
+                                            </Button>
+                                        </CardContent>
+                                    </Card>
                                 </TabsContent>
                             </Tabs>
                         </DialogContent>
                     </Dialog>
-                </div>
-                <div className="flex flex-col justify-end pb-1">
-                    <div className="flex items-center space-x-2">
-                        <Switch
-                            id="group-by-seq"
-                            checked={groupBySeq}
-                            onCheckedChange={setGroupBySeq}
-                        />
-                        <Label htmlFor="group-by-seq" className="text-xs text-muted-foreground cursor-pointer">
-                            Agrupar por Sequência
-                        </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                        <Switch
-                            id="show-anomalies"
-                            checked={showAnomaliesOnly}
-                            onCheckedChange={setShowAnomaliesOnly}
-                        />
-                        <Label htmlFor="show-anomalies" className="text-xs text-muted-foreground cursor-pointer">
-                            Apenas com Alertas
-                        </Label>
-                    </div>
                 </div>
             </div>
 
@@ -770,7 +1262,7 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
             }
 
             {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <Card>
                     <CardHeader className="pb-3">
                         <CardDescription className="flex items-center">
@@ -802,25 +1294,308 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                         </CardTitle>
                     </CardHeader>
                 </Card>
+                <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+                    <CardHeader className="pb-3">
+                        <CardDescription className="flex items-center text-blue-700">
+                            Score Médio
+                            <HelpTooltip text="Índice de saúde médio das matrizes (0-100). Considera produtividade, eficiência, estabilidade, tendência e consistência." />
+                        </CardDescription>
+                        <CardTitle className="text-3xl flex items-center gap-2">
+                            {(() => {
+                                if (stats.length === 0) return '—';
+                                const avgScore = Array.from(scoresAndAnomalies.scoresMap.values())
+                                    .reduce((sum, s) => sum + s.total, 0) / scoresAndAnomalies.scoresMap.size;
+                                return (
+                                    <>
+                                        <span className={getScoreColor(avgScore)}>{avgScore.toFixed(0)}</span>
+                                        <span className="text-lg">{getScoreEmoji(avgScore)}</span>
+                                    </>
+                                );
+                            })()}
+                        </CardTitle>
+                    </CardHeader>
+                </Card>
             </div>
+
+            {/* Insights Panel */}
+            {!loading && !error && insights.length > 0 && (
+                <Card className="bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50 border-amber-200">
+                    <CardHeader 
+                        className="pb-2 cursor-pointer select-none hover:bg-amber-100/50 transition-colors rounded-t-lg"
+                        onClick={() => setInsightsExpanded(!insightsExpanded)}
+                    >
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2 text-amber-800">
+                                <Lightbulb className="h-5 w-5" />
+                                🧠 Insights do Período
+                                <span className="text-xs font-normal text-amber-600 ml-2">
+                                    ({insights.length} {insights.length === 1 ? 'insight' : 'insights'})
+                                </span>
+                            </CardTitle>
+                            {insightsExpanded ? (
+                                <ChevronUp className="h-5 w-5 text-amber-600" />
+                            ) : (
+                                <ChevronDown className="h-5 w-5 text-amber-600" />
+                            )}
+                        </div>
+                        <CardDescription className="text-amber-700">
+                            Análise automática dos últimos {monthsToAnalyze} meses
+                        </CardDescription>
+                    </CardHeader>
+                    {insightsExpanded && (
+                        <CardContent>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {insights.slice(0, 6).map((insight) => (
+                                    <div
+                                        key={insight.id}
+                                        className={`p-3 rounded-lg border cursor-pointer hover:shadow-md transition-shadow ${getInsightTypeColor(insight.type)}`}
+                                        onClick={() => {
+                                            setSelectedInsight(insight);
+                                            setIsInsightModalOpen(true);
+                                        }}
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-xl">{insight.icon}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-medium text-sm leading-tight">{insight.title}</h4>
+                                                <p className="text-xs mt-1 opacity-80">{insight.description}</p>
+                                                {insight.details && insight.details.length > 0 && (
+                                                    <p className="text-[10px] mt-2 opacity-60">Clique para ver detalhes →</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </CardContent>
+                    )}
+                </Card>
+            )}
+
+            {/* Alerts and Predictions Panel */}
+            {!loading && !error && alerts.length > 0 && (
+                <Card className="border-slate-300">
+                    <CardHeader 
+                        className="pb-2 cursor-pointer select-none hover:bg-slate-50 transition-colors rounded-t-lg"
+                        onClick={() => setAlertsExpanded(!alertsExpanded)}
+                    >
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                                🔔 Alertas Inteligentes e Projeções
+                                <span className="text-xs font-normal text-muted-foreground ml-2">
+                                    ({alerts.length} {alerts.length === 1 ? 'alerta' : 'alertas'})
+                                </span>
+                            </CardTitle>
+                            {alertsExpanded ? (
+                                <ChevronUp className="h-5 w-5 text-slate-500" />
+                            ) : (
+                                <ChevronDown className="h-5 w-5 text-slate-500" />
+                            )}
+                        </div>
+                        <CardDescription>
+                            Alertas baseados em tendências, projeções e limiares críticos
+                        </CardDescription>
+                    </CardHeader>
+                    {alertsExpanded && (
+                        <CardContent>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {alerts.slice(0, 6).map((alert) => (
+                                    <div
+                                        key={alert.id}
+                                        className={`p-3 rounded-lg border cursor-pointer hover:shadow-md transition-shadow ${getAlertTypeColor(alert.type)}`}
+                                        onClick={() => {
+                                            setSelectedAlert(alert);
+                                            setIsAlertModalOpen(true);
+                                        }}
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-xl flex-shrink-0">{getAlertIcon(alert.type)}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="font-medium text-sm leading-tight">{alert.title}</h4>
+                                                    {alert.category === 'prediction' && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                                                            Projeção
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs mt-1 opacity-80">{alert.description}</p>
+                                                {alert.suggestedAction && (
+                                                    <p className="text-xs mt-2 font-medium opacity-90">
+                                                        💡 {alert.suggestedAction}
+                                                    </p>
+                                                )}
+                                                <p className="text-[10px] mt-2 opacity-60">Clique para ver detalhes e gráfico →</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            {alerts.length > 6 && (
+                                <button 
+                                    className="w-full text-xs text-primary hover:text-primary/80 mt-3 text-center py-2 hover:bg-muted/50 rounded-md transition-colors cursor-pointer"
+                                    onClick={() => setIsAllAlertsModalOpen(true)}
+                                >
+                                    📋 Ver todos os {alerts.length} alertas (+{alerts.length - 6} adicionais)
+                                </button>
+                            )}
+                        </CardContent>
+                    )}
+                </Card>
+            )}
 
             {loading && <div className="text-sm text-muted-foreground">Carregando dados...</div>}
             {error && <div className="text-sm text-red-600">Erro: {error}</div>}
             {
-                !loading && !error && stats.length === 0 && (
+                !loading && !error && stats.length === 0 && !abcMode && (
                     <div className="text-sm text-muted-foreground">Nenhum dado encontrado para o período selecionado.</div>
                 )
             }
 
+            {/* ABC Classification Table */}
+            {abcMode && (
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                            <BarChart3 className="h-5 w-5" />
+                            Classificação ABC por Ferramenta
+                        </CardTitle>
+                        <CardDescription>
+                            Ferramentas agrupadas por código base, ordenadas por produção total (Peso Bruto)
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {abcLoading ? (
+                            <div className="text-sm text-muted-foreground">Carregando classificação ABC...</div>
+                        ) : abcData.length === 0 ? (
+                            <div className="text-sm text-muted-foreground">Nenhum dado ABC disponível.</div>
+                        ) : (
+                            <>
+                                {/* ABC Summary */}
+                                <div className="grid grid-cols-3 gap-3 mb-4">
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold text-green-700">
+                                            {abcData.filter(d => d.abc_class === 'A').length}
+                                        </div>
+                                        <div className="text-xs text-green-600">Classe A (80% produção)</div>
+                                        <div className="text-[10px] text-green-500 mt-1">
+                                            {(abcData.filter(d => d.abc_class === 'A').reduce((s, d) => s + d.total_peso_bruto, 0) / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} ton
+                                        </div>
+                                    </div>
+                                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold text-amber-700">
+                                            {abcData.filter(d => d.abc_class === 'B').length}
+                                        </div>
+                                        <div className="text-xs text-amber-600">Classe B (15% produção)</div>
+                                        <div className="text-[10px] text-amber-500 mt-1">
+                                            {(abcData.filter(d => d.abc_class === 'B').reduce((s, d) => s + d.total_peso_bruto, 0) / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} ton
+                                        </div>
+                                    </div>
+                                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold text-gray-700">
+                                            {abcData.filter(d => d.abc_class === 'C').length}
+                                        </div>
+                                        <div className="text-xs text-gray-600">Classe C (5% produção)</div>
+                                        <div className="text-[10px] text-gray-500 mt-1">
+                                            {(abcData.filter(d => d.abc_class === 'C').reduce((s, d) => s + d.total_peso_bruto, 0) / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} ton
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* ABC Table */}
+                                <div className="border rounded-lg overflow-hidden">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-muted sticky top-0">
+                                            <tr>
+                                                <th className="px-3 py-2 text-center font-medium w-16">Classe</th>
+                                                <th className="px-3 py-2 text-left font-medium">Ferramenta</th>
+                                                <th className="px-3 py-2 text-center font-medium">Matrizes</th>
+                                                <th className="px-3 py-2 text-right font-medium">Peso Total (kg)</th>
+                                                <th className="px-3 py-2 text-right font-medium">Prod. Média</th>
+                                                <th className="px-3 py-2 text-right font-medium">Efic. Média</th>
+                                                <th className="px-3 py-2 text-right font-medium">% Acumulado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {abcData.map((item, idx) => (
+                                                <tr 
+                                                    key={item.ferramenta_base} 
+                                                    className={`border-t hover:bg-muted/30 ${
+                                                        item.abc_class === 'A' ? 'bg-green-50/50' :
+                                                        item.abc_class === 'B' ? 'bg-amber-50/50' :
+                                                        'bg-gray-50/30'
+                                                    }`}
+                                                >
+                                                    <td className="px-3 py-2 text-center">
+                                                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full font-bold text-sm ${
+                                                            item.abc_class === 'A' ? 'bg-green-500 text-white' :
+                                                            item.abc_class === 'B' ? 'bg-amber-500 text-white' :
+                                                            'bg-gray-400 text-white'
+                                                        }`}>
+                                                            {item.abc_class}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                        <div className="font-medium">{item.ferramenta_base}</div>
+                                                        <div className="text-[10px] text-muted-foreground truncate max-w-xs" title={item.matrizes.join(', ')}>
+                                                            {item.matrizes.slice(0, 3).join(', ')}{item.matrizes.length > 3 ? ` +${item.matrizes.length - 3}` : ''}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center font-medium">
+                                                        {item.qtd_matrizes}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right tabular-nums font-medium">
+                                                        {item.total_peso_bruto.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right tabular-nums">
+                                                        {item.avg_produtividade?.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) || '-'}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right tabular-nums">
+                                                        {item.avg_eficiencia?.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) || '-'}%
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                                <div 
+                                                                    className={`h-full rounded-full ${
+                                                                        item.abc_class === 'A' ? 'bg-green-500' :
+                                                                        item.abc_class === 'B' ? 'bg-amber-500' :
+                                                                        'bg-gray-400'
+                                                                    }`}
+                                                                    style={{ width: `${Math.min(100, item.cumulative_percent)}%` }}
+                                                                />
+                                                            </div>
+                                                            <span className="text-xs tabular-nums w-12 text-right">
+                                                                {item.cumulative_percent.toFixed(1)}%
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Main Table */}
             {
-                !loading && !error && stats.length > 0 && (
+                !loading && !error && stats.length > 0 && !abcMode && (
                     <div className="overflow-auto">
                         <table className="w-full border-collapse text-sm">
                             <thead>
                                 <tr className="border-b">
+                                    <th className="sticky top-0 bg-muted px-3 py-2 text-center font-medium text-muted-foreground w-20">
+                                        <span className="inline-flex items-center">
+                                            Score
+                                            <HelpTooltip text="Índice de saúde da matriz (0-100). Considera produtividade, eficiência, estabilidade, tendência e consistência." />
+                                        </span>
+                                    </th>
                                     <th className="sticky top-0 bg-muted px-3 py-2 text-left font-medium text-muted-foreground">Matriz</th>
-                                    <th className="sticky top-0 bg-muted px-3 py-2 text-center font-medium text-muted-foreground">Seq</th>
                                     <th className="sticky top-0 bg-muted px-3 py-2 text-right font-medium text-muted-foreground">
                                         <span className="inline-flex items-center">
                                             Produtividade Média
@@ -855,7 +1630,8 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                             </thead>
                             <tbody>
                                 {sortedStats.map((stat) => {
-                                    const anomalies = detectAnomalies(stat.monthlyData);
+                                    const anomalies = scoresAndAnomalies.anomaliesMap.get(stat.matriz) || [];
+                                    const score = scoresAndAnomalies.scoresMap.get(stat.matriz);
                                     const hasAnomalies = anomalies.length > 0;
                                     const isExpanded = expandedMatriz === stat.matriz && (!groupBySeq || expandedSeq === stat.seq);
                                     const expandedKey = expandedSeq ? `${stat.matriz}|${expandedSeq}` : stat.matriz;
@@ -864,7 +1640,10 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                         <>
                                             <tr
                                                 key={`${stat.matriz}-${stat.seq}`}
-                                                className="border-b hover:bg-muted/40 cursor-pointer"
+                                                className={`border-b hover:bg-muted/40 cursor-pointer ${
+                                                    score && score.total < 40 ? 'bg-red-50/50' : 
+                                                    score && score.total >= 80 ? 'bg-green-50/30' : ''
+                                                }`}
                                                 onClick={() => {
                                                     if (isExpanded) {
                                                         setExpandedMatriz(null);
@@ -875,6 +1654,24 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                                     }
                                                 }}
                                             >
+                                                <td className="px-3 py-2 text-center">
+                                                    {score && (
+                                                        <div className="flex flex-col items-center gap-0.5">
+                                                            <div className="flex items-center gap-1">
+                                                                <span className={`font-bold text-sm ${getScoreColor(score.total)}`}>
+                                                                    {score.total}
+                                                                </span>
+                                                                <span className="text-xs">{getScoreEmoji(score.total)}</span>
+                                                            </div>
+                                                            <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                                <div 
+                                                                    className={`h-full rounded-full ${getScoreBgColor(score.total)}`}
+                                                                    style={{ width: `${score.total}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </td>
                                                 <td className="px-3 py-2 text-left">
                                                     <div className="flex items-center gap-2">
                                                         <span className="font-medium">{stat.matriz}</span>
@@ -883,7 +1680,6 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="px-3 py-2 text-center">{stat.seq}</td>
                                                 <td className="px-3 py-2 text-right tabular-nums">
                                                     {stat.avgProdutividade.toLocaleString("pt-BR", {
                                                         minimumFractionDigits: 2,
@@ -929,6 +1725,9 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                                                             isLoading={expandedLoading}
                                                             specificObservations={specificObservations}
                                                             onSpecificObservationChange={(month, text) => updateSpecificObservation(stat.matriz, month, text)}
+                                                            score={score}
+                                                            prediction={predictionsMap.get(stat.matriz)}
+                                                            rawData={rows as RawProductionData[]}
                                                         />
                                                     </td>
                                                 </tr>
@@ -941,7 +1740,638 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                     </div>
                 )
             }
+
+            {/* Insight Details Modal */}
+            <Dialog open={isInsightModalOpen} onOpenChange={setIsInsightModalOpen}>
+                <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <span className="text-2xl">{selectedInsight?.icon}</span>
+                            {selectedInsight?.title}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {selectedInsight?.description}
+                        </DialogDescription>
+                    </DialogHeader>
+                    
+                    {selectedInsight?.details && selectedInsight.details.length > 0 && (
+                        <div className="flex-1 overflow-auto">
+                            <div className="space-y-4">
+                                {/* Summary Stats */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold text-primary">
+                                            {selectedInsight.details.length}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">Matrizes</div>
+                                    </div>
+                                    <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold text-blue-600">
+                                            {(selectedInsight.details.reduce((sum, d) => sum + d.avgProdutividade, 0) / selectedInsight.details.length).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">Prod. Média (kg/h)</div>
+                                    </div>
+                                    <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold text-green-600">
+                                            {(selectedInsight.details.reduce((sum, d) => sum + d.avgEficiencia, 0) / selectedInsight.details.length).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">Efic. Média</div>
+                                    </div>
+                                    <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold text-amber-600">
+                                            {selectedInsight.details.reduce((sum, d) => sum + d.totalRecords, 0).toLocaleString('pt-BR')}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">Registros</div>
+                                    </div>
+                                </div>
+
+                                {/* Detailed Table */}
+                                <div className="border rounded-lg overflow-hidden">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-muted">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left font-medium">Matriz</th>
+                                                <th className="px-3 py-2 text-right font-medium">Produtividade</th>
+                                                <th className="px-3 py-2 text-right font-medium">Eficiência</th>
+                                                <th className="px-3 py-2 text-center font-medium">Tendência</th>
+                                                <th className="px-3 py-2 text-right font-medium">CV%</th>
+                                                <th className="px-3 py-2 text-center font-medium">Score</th>
+                                                <th className="px-3 py-2 text-center font-medium">Anomalias</th>
+                                                <th className="px-3 py-2 text-left font-medium">Evolução</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {selectedInsight.details.map((detail, idx) => (
+                                                <tr key={detail.matriz} className={idx % 2 === 0 ? 'bg-white' : 'bg-muted/30'}>
+                                                    <td className="px-3 py-2 font-medium">{detail.matriz}</td>
+                                                    <td className="px-3 py-2 text-right tabular-nums">
+                                                        {detail.avgProdutividade.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right tabular-nums">
+                                                        {detail.avgEficiencia.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
+                                                            detail.trend === 'up' ? 'bg-green-100 text-green-700' :
+                                                            detail.trend === 'down' ? 'bg-red-100 text-red-700' :
+                                                            'bg-gray-100 text-gray-700'
+                                                        }`}>
+                                                            {detail.trend === 'up' ? '↗️ Alta' : detail.trend === 'down' ? '↘️ Queda' : '→ Estável'}
+                                                        </span>
+                                                    </td>
+                                                    <td className={`px-3 py-2 text-right tabular-nums ${detail.cvProdutividade > 25 ? 'text-red-600 font-medium' : ''}`}>
+                                                        {detail.cvProdutividade.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                        {detail.score !== undefined && (
+                                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                                                detail.score >= 80 ? 'bg-green-100 text-green-700' :
+                                                                detail.score >= 60 ? 'bg-blue-100 text-blue-700' :
+                                                                detail.score >= 40 ? 'bg-amber-100 text-amber-700' :
+                                                                'bg-red-100 text-red-700'
+                                                            }`}>
+                                                                {detail.score.toFixed(0)}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                        {detail.anomaliesCount !== undefined && detail.anomaliesCount > 0 && (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700">
+                                                                ⚠️ {detail.anomaliesCount}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                        <InsightSparkline data={detail.sparklineData} trend={detail.trend} />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsInsightModalOpen(false)}>
+                            Fechar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Alert Details Modal */}
+            <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
+                <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <span className="text-2xl">{selectedAlert && getAlertIcon(selectedAlert.type)}</span>
+                            {selectedAlert?.title}
+                            {selectedAlert?.category === 'prediction' && (
+                                <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700">
+                                    Projeção
+                                </span>
+                            )}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {selectedAlert?.description}
+                        </DialogDescription>
+                    </DialogHeader>
+                    
+                    {selectedAlert && (
+                        <div className="flex-1 overflow-auto">
+                            <div className="space-y-4">
+                                {/* Key Metrics */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                        <div className="text-2xl font-bold text-primary">
+                                            {selectedAlert.matriz || '-'}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">Matriz</div>
+                                    </div>
+                                    <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                        <div className={`text-2xl font-bold ${
+                                            selectedAlert.type === 'critical' ? 'text-red-600' :
+                                            selectedAlert.type === 'warning' ? 'text-amber-600' :
+                                            selectedAlert.type === 'success' ? 'text-green-600' :
+                                            'text-blue-600'
+                                        }`}>
+                                            {selectedAlert.value !== undefined ? 
+                                                `${selectedAlert.value > 0 ? '+' : ''}${selectedAlert.value.toFixed(1)}%` : 
+                                                '-'
+                                            }
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {selectedAlert.metric === 'produtividade' ? 'Variação Prevista' :
+                                             selectedAlert.metric === 'eficiência' ? 'Eficiência Atual' :
+                                             selectedAlert.metric === 'variabilidade' ? 'Coef. Variação' : 'Valor'}
+                                        </div>
+                                    </div>
+                                    {selectedAlert.details?.[0] && (
+                                        <>
+                                            <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                                <div className="text-2xl font-bold text-blue-600">
+                                                    {selectedAlert.details[0].avgProdutividade.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">Prod. Média (kg/h)</div>
+                                            </div>
+                                            <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                                <div className="text-2xl font-bold text-green-600">
+                                                    {selectedAlert.details[0].avgEficiencia.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">Eficiência Média</div>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+
+                                {/* Prediction Chart */}
+                                {selectedAlert.chartData && (
+                                    <div className="border rounded-lg p-4 bg-white">
+                                        <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                                            📊 Evolução e Projeção de Produtividade
+                                            {selectedAlert.details?.[0]?.reliability && (
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                                    selectedAlert.details[0].reliability === 'high' ? 'bg-green-100 text-green-700' :
+                                                    selectedAlert.details[0].reliability === 'medium' ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-red-100 text-red-700'
+                                                }`}>
+                                                    Confiança: {selectedAlert.details[0].reliability === 'high' ? 'Alta' : 
+                                                               selectedAlert.details[0].reliability === 'medium' ? 'Média' : 'Baixa'}
+                                                </span>
+                                            )}
+                                        </h4>
+                                        <AlertPredictionChart 
+                                            historical={selectedAlert.chartData.historical}
+                                            predictions={selectedAlert.chartData.predictions}
+                                            alertType={selectedAlert.type}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Suggested Action */}
+                                {selectedAlert.suggestedAction && (
+                                    <div className={`p-4 rounded-lg border-l-4 ${
+                                        selectedAlert.type === 'critical' ? 'bg-red-50 border-red-500' :
+                                        selectedAlert.type === 'warning' ? 'bg-amber-50 border-amber-500' :
+                                        selectedAlert.type === 'success' ? 'bg-green-50 border-green-500' :
+                                        'bg-blue-50 border-blue-500'
+                                    }`}>
+                                        <h4 className="font-medium text-sm mb-1">💡 Ação Sugerida</h4>
+                                        <p className="text-sm opacity-80">{selectedAlert.suggestedAction}</p>
+                                    </div>
+                                )}
+
+                                {/* Additional Info */}
+                                {selectedAlert.details?.[0] && (
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div className="space-y-2">
+                                            <h4 className="font-medium">📈 Tendência Atual</h4>
+                                            <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
+                                                selectedAlert.details[0].trend === 'up' ? 'bg-green-100 text-green-700' :
+                                                selectedAlert.details[0].trend === 'down' ? 'bg-red-100 text-red-700' :
+                                                'bg-gray-100 text-gray-700'
+                                            }`}>
+                                                {selectedAlert.details[0].trend === 'up' ? '↗️ Em Alta' : 
+                                                 selectedAlert.details[0].trend === 'down' ? '↘️ Em Queda' : 
+                                                 '→ Estável'}
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <h4 className="font-medium">🎯 Categoria</h4>
+                                            <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-muted">
+                                                {selectedAlert.category === 'prediction' ? '🔮 Projeção' :
+                                                 selectedAlert.category === 'anomaly' ? '⚠️ Anomalia' :
+                                                 selectedAlert.category === 'threshold' ? '📊 Limite' :
+                                                 selectedAlert.category === 'trend' ? '📈 Tendência' :
+                                                 '📋 Comparação'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsAlertModalOpen(false)}>
+                            Fechar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* All Alerts Modal */}
+            <Dialog open={isAllAlertsModalOpen} onOpenChange={setIsAllAlertsModalOpen}>
+                <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5 text-amber-600" />
+                            Todos os Alertas ({alerts.length})
+                        </DialogTitle>
+                        <DialogDescription>
+                            Lista completa de alertas baseados em tendências, projeções e limiares críticos
+                        </DialogDescription>
+                    </DialogHeader>
+                    
+                    <div className="flex-1 overflow-auto">
+                        {/* Summary by Category */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                                <div className="text-2xl font-bold text-red-600">
+                                    {alerts.filter(a => a.type === 'critical').length}
+                                </div>
+                                <div className="text-xs text-red-700">Críticos</div>
+                            </div>
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                                <div className="text-2xl font-bold text-amber-600">
+                                    {alerts.filter(a => a.type === 'warning').length}
+                                </div>
+                                <div className="text-xs text-amber-700">Avisos</div>
+                            </div>
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                                <div className="text-2xl font-bold text-green-600">
+                                    {alerts.filter(a => a.type === 'success').length}
+                                </div>
+                                <div className="text-xs text-green-700">Positivos</div>
+                            </div>
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                                <div className="text-2xl font-bold text-blue-600">
+                                    {alerts.filter(a => a.type === 'info').length}
+                                </div>
+                                <div className="text-xs text-blue-700">Informativos</div>
+                            </div>
+                        </div>
+
+                        {/* Alerts Table */}
+                        <div className="border rounded-lg overflow-hidden">
+                            <table className="w-full text-sm">
+                                <thead className="bg-muted sticky top-0">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left font-medium w-10">Tipo</th>
+                                        <th className="px-3 py-2 text-left font-medium">Matriz</th>
+                                        <th className="px-3 py-2 text-left font-medium">Alerta</th>
+                                        <th className="px-3 py-2 text-left font-medium hidden md:table-cell">Categoria</th>
+                                        <th className="px-3 py-2 text-center font-medium">Valor</th>
+                                        <th className="px-3 py-2 text-center font-medium w-20">Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {alerts.map((alert, idx) => (
+                                        <tr 
+                                            key={alert.id} 
+                                            className={`border-t hover:bg-muted/30 cursor-pointer ${
+                                                idx % 2 === 0 ? 'bg-white' : 'bg-muted/10'
+                                            }`}
+                                            onClick={() => {
+                                                setSelectedAlert(alert);
+                                                setIsAlertModalOpen(true);
+                                            }}
+                                        >
+                                            <td className="px-3 py-2 text-center">
+                                                <span className="text-lg">{getAlertIcon(alert.type)}</span>
+                                            </td>
+                                            <td className="px-3 py-2 font-medium">
+                                                {alert.matriz || '-'}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <div className="font-medium text-xs">{alert.title}</div>
+                                                <div className="text-[10px] text-muted-foreground truncate max-w-xs">
+                                                    {alert.description}
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-2 hidden md:table-cell">
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                                    alert.category === 'prediction' ? 'bg-purple-100 text-purple-700' :
+                                                    alert.category === 'anomaly' ? 'bg-orange-100 text-orange-700' :
+                                                    alert.category === 'threshold' ? 'bg-blue-100 text-blue-700' :
+                                                    alert.category === 'trend' ? 'bg-green-100 text-green-700' :
+                                                    'bg-gray-100 text-gray-700'
+                                                }`}>
+                                                    {alert.category === 'prediction' ? 'Projeção' :
+                                                     alert.category === 'anomaly' ? 'Anomalia' :
+                                                     alert.category === 'threshold' ? 'Limite' :
+                                                     alert.category === 'trend' ? 'Tendência' :
+                                                     'Comparação'}
+                                                </span>
+                                            </td>
+                                            <td className="px-3 py-2 text-center">
+                                                {alert.value !== undefined && (
+                                                    <span className={`font-medium ${
+                                                        alert.type === 'critical' ? 'text-red-600' :
+                                                        alert.type === 'warning' ? 'text-amber-600' :
+                                                        alert.type === 'success' ? 'text-green-600' :
+                                                        'text-blue-600'
+                                                    }`}>
+                                                        {alert.value > 0 ? '+' : ''}{alert.value.toFixed(1)}%
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-center">
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="sm"
+                                                    className="h-7 text-xs"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedAlert(alert);
+                                                        setIsAlertModalOpen(true);
+                                                    }}
+                                                >
+                                                    Ver →
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsAllAlertsModalOpen(false)}>
+                            Fechar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div >
+    );
+}
+
+// Alert Prediction Chart Component
+function AlertPredictionChart({ 
+    historical, 
+    predictions,
+    alertType
+}: { 
+    historical: { month: string; value: number }[];
+    predictions: { month: string; value: number; low: number; high: number }[];
+    alertType: 'critical' | 'warning' | 'info' | 'success';
+}) {
+    if (historical.length === 0) return <div className="h-48 flex items-center justify-center text-muted-foreground">Sem dados</div>;
+
+    const allValues = [
+        ...historical.map(h => h.value),
+        ...predictions.map(p => p.value),
+        ...predictions.map(p => p.high),
+        ...predictions.map(p => p.low)
+    ];
+    const min = Math.min(...allValues) * 0.9;
+    const max = Math.max(...allValues) * 1.1;
+    const range = max - min || 1;
+
+    const width = 600;
+    const height = 180;
+    const padding = { top: 20, right: 20, bottom: 40, left: 50 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    const totalPoints = historical.length + predictions.length;
+    const getX = (i: number) => padding.left + (i / (totalPoints - 1)) * chartWidth;
+    const getY = (v: number) => padding.top + chartHeight - ((v - min) / range) * chartHeight;
+
+    // Historical line
+    const historicalPath = historical.map((h, i) => 
+        `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(h.value)}`
+    ).join(' ');
+
+    // Prediction line
+    const predictionPath = predictions.map((p, i) => 
+        `${i === 0 ? 'M' : 'L'} ${getX(historical.length + i)} ${getY(p.value)}`
+    ).join(' ');
+
+    // Confidence area
+    const confidenceArea = predictions.length > 0 ? `
+        M ${getX(historical.length)} ${getY(predictions[0].high)}
+        ${predictions.map((p, i) => `L ${getX(historical.length + i)} ${getY(p.high)}`).join(' ')}
+        ${predictions.slice().reverse().map((p, i) => `L ${getX(historical.length + predictions.length - 1 - i)} ${getY(p.low)}`).join(' ')}
+        Z
+    ` : '';
+
+    // Connect historical to prediction
+    const connectionPath = historical.length > 0 && predictions.length > 0
+        ? `M ${getX(historical.length - 1)} ${getY(historical[historical.length - 1].value)} L ${getX(historical.length)} ${getY(predictions[0].value)}`
+        : '';
+
+    const predictionColor = alertType === 'success' ? '#22c55e' : 
+                           alertType === 'critical' ? '#ef4444' : 
+                           alertType === 'warning' ? '#f59e0b' : '#3b82f6';
+
+    const formatMonth = (month: string) => {
+        const [year, m] = month.split('-');
+        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        return `${months[parseInt(m) - 1]}/${year.slice(2)}`;
+    };
+
+    return (
+        <svg width="100%" viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
+            {/* Y-axis grid lines */}
+            {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
+                <g key={i}>
+                    <line
+                        x1={padding.left}
+                        y1={padding.top + chartHeight * ratio}
+                        x2={width - padding.right}
+                        y2={padding.top + chartHeight * ratio}
+                        stroke="#e5e7eb"
+                        strokeDasharray="4,4"
+                    />
+                    <text
+                        x={padding.left - 8}
+                        y={padding.top + chartHeight * ratio + 4}
+                        textAnchor="end"
+                        className="text-[10px] fill-muted-foreground"
+                    >
+                        {Math.round(max - ratio * range)}
+                    </text>
+                </g>
+            ))}
+
+            {/* Prediction zone background */}
+            {predictions.length > 0 && (
+                <rect
+                    x={getX(historical.length)}
+                    y={padding.top}
+                    width={chartWidth - getX(historical.length) + padding.left}
+                    height={chartHeight}
+                    fill={predictionColor}
+                    fillOpacity={0.05}
+                />
+            )}
+
+            {/* Confidence interval */}
+            {predictions.length > 0 && (
+                <path
+                    d={confidenceArea}
+                    fill={predictionColor}
+                    fillOpacity={0.15}
+                />
+            )}
+
+            {/* Historical line */}
+            <path
+                d={historicalPath}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="2.5"
+            />
+
+            {/* Connection line */}
+            {connectionPath && (
+                <path
+                    d={connectionPath}
+                    fill="none"
+                    stroke={predictionColor}
+                    strokeWidth="2"
+                    strokeDasharray="4,4"
+                />
+            )}
+
+            {/* Prediction line */}
+            {predictions.length > 0 && (
+                <path
+                    d={predictionPath}
+                    fill="none"
+                    stroke={predictionColor}
+                    strokeWidth="2.5"
+                    strokeDasharray="6,3"
+                />
+            )}
+
+            {/* Historical points */}
+            {historical.map((h, i) => (
+                <circle
+                    key={`h-${i}`}
+                    cx={getX(i)}
+                    cy={getY(h.value)}
+                    r="4"
+                    fill="#3b82f6"
+                />
+            ))}
+
+            {/* Prediction points */}
+            {predictions.map((p, i) => (
+                <circle
+                    key={`p-${i}`}
+                    cx={getX(historical.length + i)}
+                    cy={getY(p.value)}
+                    r="4"
+                    fill={predictionColor}
+                    stroke="white"
+                    strokeWidth="2"
+                />
+            ))}
+
+            {/* X-axis labels */}
+            {[...historical, ...predictions].map((p, i) => (
+                i % Math.ceil(totalPoints / 6) === 0 && (
+                    <text
+                        key={`label-${i}`}
+                        x={getX(i)}
+                        y={height - 10}
+                        textAnchor="middle"
+                        className="text-[10px] fill-muted-foreground"
+                    >
+                        {formatMonth('month' in p ? p.month : '')}
+                    </text>
+                )
+            ))}
+
+            {/* Vertical divider for prediction zone */}
+            {predictions.length > 0 && (
+                <line
+                    x1={getX(historical.length)}
+                    y1={padding.top}
+                    x2={getX(historical.length)}
+                    y2={padding.top + chartHeight}
+                    stroke={predictionColor}
+                    strokeWidth="1"
+                    strokeDasharray="4,2"
+                />
+            )}
+
+            {/* Legend */}
+            <g transform={`translate(${padding.left + 10}, ${padding.top + 10})`}>
+                <rect x="0" y="0" width="12" height="3" fill="#3b82f6" rx="1" />
+                <text x="16" y="3" className="text-[9px] fill-muted-foreground">Histórico</text>
+                <rect x="70" y="0" width="12" height="3" fill={predictionColor} rx="1" />
+                <text x="86" y="3" className="text-[9px] fill-muted-foreground">Projeção</text>
+            </g>
+        </svg>
+    );
+}
+
+// Mini Sparkline for Insight Modal
+function InsightSparkline({ data, trend }: { data: number[]; trend: 'up' | 'down' | 'stable' }) {
+    if (!data || data.length === 0) return <div className="h-6 w-24" />;
+
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const range = max - min || 1;
+
+    const width = 96;
+    const height = 24;
+    const padding = 2;
+
+    const points = data.map((value, i) => {
+        const x = (i / (data.length - 1 || 1)) * (width - 2 * padding) + padding;
+        const y = height - padding - ((value - min) / range) * (height - 2 * padding);
+        return `${x},${y}`;
+    }).join(' ');
+
+    const color = trend === 'up' ? '#22c55e' : trend === 'down' ? '#ef4444' : '#6b7280';
+
+    return (
+        <svg width={width} height={height} className="inline-block">
+            <polyline
+                fill="none"
+                stroke={color}
+                strokeWidth="2"
+                points={points}
+            />
+        </svg>
     );
 }
 
@@ -1124,6 +2554,9 @@ function ExpandedDetailsWithAnnual({
     isLoading,
     specificObservations,
     onSpecificObservationChange,
+    score,
+    prediction,
+    rawData,
 }: {
     stat: MatrizStats;
     anomalies: AnomalyDetail[];
@@ -1134,7 +2567,32 @@ function ExpandedDetailsWithAnnual({
     isLoading?: boolean;
     specificObservations: Record<string, string>;
     onSpecificObservationChange: (month: string, text: string) => void;
+    score?: ScoreBreakdown;
+    prediction?: PredictionResult;
+    rawData?: RawProductionData[];
 }) {
+    // Generate suggested actions based on score and anomalies
+    const suggestedActions = useMemo(() => {
+        if (!score) return [];
+        return generateSuggestedActions(stat, anomalies, score);
+    }, [stat, anomalies, score]);
+
+    // State for drilldown tab
+    const [drilldownTab, setDrilldownTab] = useState<'turno' | 'prensa' | 'liga'>('turno');
+
+    // Calculate drilldowns
+    const drilldowns = useMemo(() => {
+        if (!rawData || rawData.length === 0) return null;
+        return {
+            turno: calculateDrilldown(rawData, 'turno', stat.matriz),
+            prensa: calculateDrilldown(rawData, 'prensa', stat.matriz),
+            liga: calculateDrilldown(rawData, 'liga', stat.matriz),
+        };
+    }, [rawData, stat.matriz]);
+
+    const currentDrilldown = drilldowns?.[drilldownTab];
+    const drilldownInsights = currentDrilldown ? generateDrilldownInsights(currentDrilldown) : [];
+
     const [selectedPoint, setSelectedPoint] = useState<{ month: string; value: number; isAnomaly: boolean } | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [tempObservation, setTempObservation] = useState("");
@@ -1190,6 +2648,134 @@ function ExpandedDetailsWithAnnual({
 
     return (
         <div className="space-y-4 p-4">
+            {/* Score and Actions Row */}
+            {score && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Score Card */}
+                    <Card className={`${score.statusBgColor} border-2`}>
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-base flex items-center gap-2">
+                                {getScoreEmoji(score.total)} Saúde da Matriz
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="flex items-center gap-4">
+                                <div className="text-center">
+                                    <div className={`text-4xl font-bold ${score.statusColor}`}>{score.total}</div>
+                                    <div className={`text-sm font-medium ${score.statusColor}`}>{score.statusLabel}</div>
+                                </div>
+                                <div className="flex-1 space-y-1 text-xs">
+                                    <div className="flex justify-between">
+                                        <span>Produtividade</span>
+                                        <span className="font-medium">{score.produtividadeScore.toFixed(1)}/30</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Eficiência</span>
+                                        <span className="font-medium">{score.eficienciaScore.toFixed(1)}/25</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Estabilidade</span>
+                                        <span className="font-medium">{score.estabilidadeScore.toFixed(1)}/20</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Tendência</span>
+                                        <span className="font-medium">{score.tendenciaScore}/15</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Consistência</span>
+                                        <span className="font-medium">{score.consistenciaScore.toFixed(1)}/10</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* Suggested Actions Card */}
+                    <Card className="md:col-span-2 border-blue-200 bg-blue-50/50">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-base flex items-center gap-2 text-blue-800">
+                                🧰 Ações Recomendadas
+                            </CardTitle>
+                            <CardDescription className="text-blue-600">
+                                Sugestões baseadas na análise automática
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {suggestedActions.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                    ✅ Nenhuma ação necessária - matriz com bom desempenho
+                                </p>
+                            ) : (
+                                <ul className="space-y-1.5">
+                                    {suggestedActions.map((action, i) => (
+                                        <li key={i} className="text-sm flex items-start gap-2">
+                                            <span>{action}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* Prediction Card */}
+            {prediction && (
+                <Card className="border-purple-200 bg-gradient-to-r from-purple-50 to-indigo-50">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-base flex items-center gap-2 text-purple-800">
+                            📈 Projeção para os Próximos 3 Meses
+                            <span className={`text-xs px-2 py-0.5 rounded ${getReliabilityBadge(prediction.reliability)}`}>
+                                Confiabilidade: {prediction.reliability === 'high' ? 'Alta' : prediction.reliability === 'medium' ? 'Média' : 'Baixa'}
+                            </span>
+                        </CardTitle>
+                        <CardDescription className="text-purple-600">
+                            {prediction.reliabilityReason}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="text-center p-3 bg-white/50 rounded-lg">
+                                <div className="text-xs text-muted-foreground mb-1">Tendência</div>
+                                <div className={`text-2xl font-bold ${
+                                    prediction.trend === 'up' ? 'text-green-600' : 
+                                    prediction.trend === 'down' ? 'text-red-600' : 'text-amber-600'
+                                }`}>
+                                    {prediction.trend === 'up' ? '↗️ Subindo' : 
+                                     prediction.trend === 'down' ? '↘️ Caindo' : '→ Estável'}
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-1">
+                                    Força: {prediction.trendStrength}%
+                                </div>
+                            </div>
+                            <div className="text-center p-3 bg-white/50 rounded-lg">
+                                <div className="text-xs text-muted-foreground mb-1">Variação Prevista</div>
+                                <div className={`text-2xl font-bold ${
+                                    prediction.predictedChange > 0 ? 'text-green-600' : 
+                                    prediction.predictedChange < 0 ? 'text-red-600' : 'text-gray-600'
+                                }`}>
+                                    {prediction.predictedChange > 0 ? '+' : ''}{prediction.predictedChange.toFixed(1)}%
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-1">em 3 meses</div>
+                            </div>
+                            {prediction.predictions.slice(0, 2).map((pred, i) => (
+                                <div key={i} className="text-center p-3 bg-white/50 rounded-lg">
+                                    <div className="text-xs text-muted-foreground mb-1">
+                                        {pred.month.split('-').reverse().join('/')}
+                                    </div>
+                                    <div className="text-lg font-bold text-purple-700">
+                                        {pred.predictedValue.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+                                    </div>
+                                    <div className="text-[10px] text-muted-foreground mt-1">
+                                        {pred.confidenceLow.toFixed(0)} - {pred.confidenceHigh.toFixed(0)}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Statistics */}
                 <Card>
@@ -1405,6 +2991,102 @@ function ExpandedDetailsWithAnnual({
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Drilldown Analysis */}
+            {drilldowns && currentDrilldown && currentDrilldown.data.length > 0 && (
+                <Card className="border-indigo-200">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-base flex items-center gap-2 text-indigo-800">
+                            🔍 Análise Detalhada (Drilldown)
+                        </CardTitle>
+                        <CardDescription>
+                            Desempenho da matriz "{stat.matriz}" por dimensão
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {/* Tabs */}
+                        <div className="flex gap-2 mb-4">
+                            {(['turno', 'prensa', 'liga'] as const).map((tab) => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setDrilldownTab(tab)}
+                                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                                        drilldownTab === tab 
+                                            ? 'bg-indigo-600 text-white' 
+                                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                                    }`}
+                                >
+                                    Por {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Insights */}
+                        {drilldownInsights.length > 0 && (
+                            <div className="mb-4 p-3 bg-indigo-50 rounded-lg">
+                                <div className="space-y-1">
+                                    {drilldownInsights.map((insight, i) => (
+                                        <p key={i} className="text-sm text-indigo-800">{insight}</p>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Table */}
+                        <div className="overflow-auto max-h-64">
+                            <table className="w-full text-sm">
+                                <thead className="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left font-medium">{currentDrilldown.label}</th>
+                                        <th className="px-3 py-2 text-center font-medium">Registros</th>
+                                        <th className="px-3 py-2 text-right font-medium">Prod. Média</th>
+                                        <th className="px-3 py-2 text-right font-medium">Efic. Média</th>
+                                        <th className="px-3 py-2 text-center font-medium">vs Média</th>
+                                        <th className="px-3 py-2 text-center font-medium">Tendência</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {currentDrilldown.data.map((item, i) => (
+                                        <tr 
+                                            key={item.key} 
+                                            className={`border-b ${getComparisonBgColor(item.comparison)} ${
+                                                i === 0 ? 'ring-2 ring-green-300 ring-inset' : 
+                                                i === currentDrilldown.data.length - 1 ? 'ring-2 ring-red-300 ring-inset' : ''
+                                            }`}
+                                        >
+                                            <td className="px-3 py-2 font-medium">
+                                                {item.label}
+                                                {i === 0 && <span className="ml-2 text-xs">🏆</span>}
+                                            </td>
+                                            <td className="px-3 py-2 text-center text-muted-foreground">
+                                                {item.count} ({item.percentOfTotal.toFixed(0)}%)
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums">
+                                                {item.avgProdutividade.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums">
+                                                {item.avgEficiencia.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                                            </td>
+                                            <td className={`px-3 py-2 text-center font-medium ${getComparisonColor(item.comparison)}`}>
+                                                {item.comparison > 0 ? '+' : ''}{item.comparison.toFixed(1)}%
+                                            </td>
+                                            <td className="px-3 py-2 text-center">
+                                                {getDrilldownTrendIcon(item.trend)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Summary */}
+                        <div className="mt-3 pt-3 border-t flex justify-between text-xs text-muted-foreground">
+                            <span>Total: {currentDrilldown.totalRecords} registros</span>
+                            <span>Média geral: {currentDrilldown.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} kg/h</span>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Dialog for specific observations */}
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
