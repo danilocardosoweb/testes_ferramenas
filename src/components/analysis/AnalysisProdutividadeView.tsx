@@ -88,6 +88,76 @@ type RpcEvolutionData = {
 
 interface AnalysisProdutividadeViewProps { }
 
+// Help Tooltip Component - Simple version for headers
+const HelpTooltip = ({ text }: { text: string }) => (
+    <span className="inline-flex items-center ml-1 cursor-help" title={text}>
+        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
+    </span>
+);
+
+// Enhanced Tooltip Component - For detailed explanations in cards
+const InfoTooltip = ({ 
+    label, 
+    value, 
+    explanation, 
+    calculation,
+    className = ""
+}: { 
+    label: string; 
+    value: string; 
+    explanation: string;
+    calculation?: string;
+    className?: string;
+}) => (
+    <div className={`group relative flex justify-between cursor-help ${className}`}>
+        <span className="flex items-center gap-1">
+            {label}
+            <Info className="h-3 w-3 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity" />
+        </span>
+        <span className="font-medium">{value}</span>
+        <div className="absolute left-0 bottom-full mb-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+            <div className="font-medium mb-1">{label}</div>
+            <p className="text-gray-300 mb-2">{explanation}</p>
+            {calculation && (
+                <div className="pt-2 border-t border-gray-700">
+                    <span className="text-gray-400">Cálculo: </span>
+                    <span className="text-blue-300">{calculation}</span>
+                </div>
+            )}
+            <div className="absolute left-4 bottom-0 transform translate-y-full border-8 border-transparent border-t-gray-900" />
+        </div>
+    </div>
+);
+
+// Projection Tooltip Component
+const ProjectionTooltip = ({ 
+    title, 
+    mainValue, 
+    subValue,
+    explanation,
+    colorClass = "text-purple-700"
+}: { 
+    title: string;
+    mainValue: React.ReactNode;
+    subValue?: string;
+    explanation: string;
+    colorClass?: string;
+}) => (
+    <div className="group relative text-center p-3 bg-white/50 rounded-lg cursor-help">
+        <div className="text-xs text-muted-foreground mb-1 flex items-center justify-center gap-1">
+            {title}
+            <Info className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+        </div>
+        <div className={`text-2xl font-bold ${colorClass}`}>{mainValue}</div>
+        {subValue && <div className="text-xs text-muted-foreground mt-1">{subValue}</div>}
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-56 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+            <div className="font-medium mb-1">{title}</div>
+            <p className="text-gray-300">{explanation}</p>
+            <div className="absolute left-1/2 -translate-x-1/2 bottom-0 transform translate-y-full border-8 border-transparent border-t-gray-900" />
+        </div>
+    </div>
+);
+
 function dateToISO(d: Date): string {
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -861,13 +931,6 @@ export function AnalysisProdutividadeView(_: AnalysisProdutividadeViewProps) {
                 return "text-yellow-600";
         }
     };
-
-    // Help Tooltip Component
-    const HelpTooltip = ({ text }: { text: string }) => (
-        <span className="inline-flex items-center ml-1 cursor-help" title={text}>
-            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
-        </span>
-    );
 
     return (
         <div className="space-y-6">
@@ -2660,31 +2723,52 @@ function ExpandedDetailsWithAnnual({
                         </CardHeader>
                         <CardContent>
                             <div className="flex items-center gap-4">
-                                <div className="text-center">
+                                <div className="text-center group relative cursor-help">
                                     <div className={`text-4xl font-bold ${score.statusColor}`}>{score.total}</div>
                                     <div className={`text-sm font-medium ${score.statusColor}`}>{score.statusLabel}</div>
+                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                                        <div className="font-medium mb-1">Score de Saúde (0-100)</div>
+                                        <p className="text-gray-300">Índice geral que combina 5 métricas para avaliar a performance da matriz. Quanto maior, melhor a saúde.</p>
+                                        <div className="mt-2 pt-2 border-t border-gray-700 text-gray-400">
+                                            <div>🟢 90-100: Excelente</div>
+                                            <div>🟢 70-89: Bom</div>
+                                            <div>🟡 50-69: Regular</div>
+                                            <div>🔴 0-49: Crítico</div>
+                                        </div>
+                                        <div className="absolute left-1/2 -translate-x-1/2 bottom-0 transform translate-y-full border-8 border-transparent border-t-gray-900" />
+                                    </div>
                                 </div>
                                 <div className="flex-1 space-y-1 text-xs">
-                                    <div className="flex justify-between">
-                                        <span>Produtividade</span>
-                                        <span className="font-medium">{score.produtividadeScore.toFixed(1)}/30</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span>Eficiência</span>
-                                        <span className="font-medium">{score.eficienciaScore.toFixed(1)}/25</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span>Estabilidade</span>
-                                        <span className="font-medium">{score.estabilidadeScore.toFixed(1)}/20</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span>Tendência</span>
-                                        <span className="font-medium">{score.tendenciaScore}/15</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span>Consistência</span>
-                                        <span className="font-medium">{score.consistenciaScore.toFixed(1)}/10</span>
-                                    </div>
+                                    <InfoTooltip 
+                                        label="Produtividade" 
+                                        value={`${score.produtividadeScore.toFixed(1)}/30`}
+                                        explanation="Mede a quantidade produzida por hora. Compara com a média geral do período."
+                                        calculation="(Produtividade Média ÷ Meta) × 30 pontos"
+                                    />
+                                    <InfoTooltip 
+                                        label="Eficiência" 
+                                        value={`${score.eficienciaScore.toFixed(1)}/25`}
+                                        explanation="Mede o aproveitamento do tempo de máquina. Eficiência alta = menos paradas e desperdícios."
+                                        calculation="(Eficiência% ÷ 100) × 25 pontos"
+                                    />
+                                    <InfoTooltip 
+                                        label="Estabilidade" 
+                                        value={`${score.estabilidadeScore.toFixed(1)}/20`}
+                                        explanation="Mede a consistência da produção ao longo do tempo. Baixa variação = mais estável e previsível."
+                                        calculation="Baseado no Coeficiente de Variação (CV). Menor CV = mais pontos"
+                                    />
+                                    <InfoTooltip 
+                                        label="Tendência" 
+                                        value={`${score.tendenciaScore}/15`}
+                                        explanation="Indica se a produção está melhorando, piorando ou estável. Subindo = bom, Caindo = atenção."
+                                        calculation="Subindo: 15pts | Estável: 10pts | Caindo: 5pts"
+                                    />
+                                    <InfoTooltip 
+                                        label="Consistência" 
+                                        value={`${score.consistenciaScore.toFixed(1)}/10`}
+                                        explanation="Avalia se há picos ou quedas bruscas na produção. Menos variações extremas = melhor."
+                                        calculation="Baseado na diferença entre máximo e mínimo do período"
+                                    />
                                 </div>
                             </div>
                         </CardContent>
@@ -2735,41 +2819,44 @@ function ExpandedDetailsWithAnnual({
                     </CardHeader>
                     <CardContent>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div className="text-center p-3 bg-white/50 rounded-lg">
-                                <div className="text-xs text-muted-foreground mb-1">Tendência</div>
-                                <div className={`text-2xl font-bold ${
-                                    prediction.trend === 'up' ? 'text-green-600' : 
-                                    prediction.trend === 'down' ? 'text-red-600' : 'text-amber-600'
-                                }`}>
-                                    {prediction.trend === 'up' ? '↗️ Subindo' : 
-                                     prediction.trend === 'down' ? '↘️ Caindo' : '→ Estável'}
-                                </div>
-                                <div className="text-xs text-muted-foreground mt-1">
-                                    Força: {prediction.trendStrength}%
-                                </div>
-                            </div>
-                            <div className="text-center p-3 bg-white/50 rounded-lg">
-                                <div className="text-xs text-muted-foreground mb-1">Variação Prevista</div>
-                                <div className={`text-2xl font-bold ${
-                                    prediction.predictedChange > 0 ? 'text-green-600' : 
-                                    prediction.predictedChange < 0 ? 'text-red-600' : 'text-gray-600'
-                                }`}>
-                                    {prediction.predictedChange > 0 ? '+' : ''}{prediction.predictedChange.toFixed(1)}%
-                                </div>
-                                <div className="text-xs text-muted-foreground mt-1">em 3 meses</div>
-                            </div>
+                            <ProjectionTooltip
+                                title="Tendência"
+                                mainValue={
+                                    <span className={
+                                        prediction.trend === 'up' ? 'text-green-600' : 
+                                        prediction.trend === 'down' ? 'text-red-600' : 'text-amber-600'
+                                    }>
+                                        {prediction.trend === 'up' ? '↗️ Subindo' : 
+                                         prediction.trend === 'down' ? '↘️ Caindo' : '→ Estável'}
+                                    </span>
+                                }
+                                subValue={`Força: ${prediction.trendStrength}%`}
+                                explanation="Direção da produtividade baseada nos últimos meses. A força indica quão consistente é essa direção (0-100%). Força alta = tendência mais confiável."
+                                colorClass=""
+                            />
+                            <ProjectionTooltip
+                                title="Variação Prevista"
+                                mainValue={
+                                    <span className={
+                                        prediction.predictedChange > 0 ? 'text-green-600' : 
+                                        prediction.predictedChange < 0 ? 'text-red-600' : 'text-gray-600'
+                                    }>
+                                        {prediction.predictedChange > 0 ? '+' : ''}{prediction.predictedChange.toFixed(1)}%
+                                    </span>
+                                }
+                                subValue="em 3 meses"
+                                explanation="Quanto a produtividade deve mudar nos próximos 3 meses, comparando a média atual com a projeção futura. Valor positivo = melhoria esperada."
+                                colorClass=""
+                            />
                             {prediction.predictions.slice(0, 2).map((pred, i) => (
-                                <div key={i} className="text-center p-3 bg-white/50 rounded-lg">
-                                    <div className="text-xs text-muted-foreground mb-1">
-                                        {pred.month.split('-').reverse().join('/')}
-                                    </div>
-                                    <div className="text-lg font-bold text-purple-700">
-                                        {pred.predictedValue.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
-                                    </div>
-                                    <div className="text-[10px] text-muted-foreground mt-1">
-                                        {pred.confidenceLow.toFixed(0)} - {pred.confidenceHigh.toFixed(0)}
-                                    </div>
-                                </div>
+                                <ProjectionTooltip
+                                    key={i}
+                                    title={pred.month.split('-').reverse().join('/')}
+                                    mainValue={pred.predictedValue.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+                                    subValue={`${pred.confidenceLow.toFixed(0)} - ${pred.confidenceHigh.toFixed(0)}`}
+                                    explanation={`Produtividade projetada para ${pred.month.split('-').reverse().join('/')}. O intervalo abaixo mostra a faixa de confiança (valores mínimo e máximo esperados).`}
+                                    colorClass="text-purple-700"
+                                />
                             ))}
                         </div>
                     </CardContent>
