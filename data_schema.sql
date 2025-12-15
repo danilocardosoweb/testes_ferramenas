@@ -1004,3 +1004,64 @@ END $$;
 -- Rollback:
 -- REVOKE EXECUTE ON FUNCTION public.get_productivity_stats(integer, text, text, text, text) FROM anon, authenticated;
 -- DROP FUNCTION IF EXISTS public.get_productivity_stats(integer, text, text, text, text);
+
+-- =============================================================
+-- 15/12/2025 - Tabela: llm_config
+-- Objetivo: Armazenar configurações LLM por usuário (provider e API keys)
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS public.llm_config (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+    provider text NOT NULL DEFAULT 'openrouter',
+    openrouter_key text,
+    google_key text,
+    groq_key text,
+    openai_key text,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now(),
+    UNIQUE(user_id)
+);
+
+-- Enable RLS
+ALTER TABLE public.llm_config ENABLE ROW LEVEL SECURITY;
+
+-- Políticas RLS: usuário só acessa suas próprias configurações
+CREATE POLICY "Users can view own config" ON public.llm_config
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own config" ON public.llm_config
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own config" ON public.llm_config
+    FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own config" ON public.llm_config
+    FOR DELETE USING (auth.uid() = user_id);
+
+-- Grant access
+GRANT ALL ON public.llm_config TO authenticated;
+
+-- Trigger para atualizar updated_at
+CREATE OR REPLACE FUNCTION public.update_llm_config_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS llm_config_updated_at ON public.llm_config;
+CREATE TRIGGER llm_config_updated_at
+    BEFORE UPDATE ON public.llm_config
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_llm_config_updated_at();
+
+-- Rollback:
+-- DROP TRIGGER IF EXISTS llm_config_updated_at ON public.llm_config;
+-- DROP FUNCTION IF EXISTS public.update_llm_config_updated_at();
+-- DROP POLICY IF EXISTS "Users can delete own config" ON public.llm_config;
+-- DROP POLICY IF EXISTS "Users can update own config" ON public.llm_config;
+-- DROP POLICY IF EXISTS "Users can insert own config" ON public.llm_config;
+-- DROP POLICY IF EXISTS "Users can view own config" ON public.llm_config;
+-- DROP TABLE IF EXISTS public.llm_config;

@@ -5,6 +5,7 @@ import { AnalysisProducaoView } from "@/components/analysis/AnalysisProducaoView
 import { AnalysisVidaView } from "@/components/analysis/AnalysisVidaView";
 import { AnalysisNecessidadesView } from "@/components/analysis/AnalysisNecessidadesView";
 import { AnalysisProdutividadeView } from "@/components/analysis/AnalysisProdutividadeView";
+import { AnalysisDecisaoReposicaoView } from "@/components/analysis/AnalysisDecisaoReposicaoView";
 import { FerramentaAnalysisDialog } from "@/components/analysis/FerramentaAnalysisDialog";
 import { useState } from "react";
 
@@ -18,6 +19,7 @@ export function AnalysisView(_: AnalysisViewProps) {
     <div className="h-full">
       <Tabs value={tab} onValueChange={setTab} className="h-full">
         <TabsList className="flex w-full items-center gap-2 overflow-x-auto pr-2 flex-nowrap">
+          <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="decisao" title="Decisão de Reposição">Decisão de Reposição</TabsTrigger>
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="carteira" title="Carteira">Carteira</TabsTrigger>
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="producao" title="Produção">Produção</TabsTrigger>
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="produtividade" title="Produtividade">Produtividade</TabsTrigger>
@@ -31,6 +33,9 @@ export function AnalysisView(_: AnalysisViewProps) {
           <TabsTrigger className="h-8 shrink-0 whitespace-nowrap px-2 text-xs" value="necessidades" title="Relatório de Necessidades">Necessidades</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="decisao" className="mt-6">
+          <AnalysisDecisaoReposicaoView />
+        </TabsContent>
         <TabsContent value="carteira" className="mt-6">
           <AnalysisCarteiraView />
         </TabsContent>

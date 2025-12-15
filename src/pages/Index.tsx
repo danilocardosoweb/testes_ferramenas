@@ -44,7 +44,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
 import { getCurrentSession, logout } from "@/services/auth";
-import { LogIn, LogOut, Settings, RefreshCw } from "lucide-react";
+import { LogIn, LogOut, Settings, RefreshCw, Mail } from "lucide-react";
 
 const Index = () => {
   const [matrices, setMatrices] = useState<Matrix[]>([]);
@@ -82,6 +82,121 @@ const Index = () => {
   const [dailyAlertOpen, setDailyAlertOpen] = useState(false);
   const [delayedManufacturing, setDelayedManufacturing] = useState<Array<{ code: string; supplier: string; deliveryDate: string; daysLate: number }>>([]);
   const [stalledTests, setStalledTests] = useState<Array<{ code: string; receivedDate: string; daysInProgress: number; status: string }>>([]);
+
+  const buildDailyAlertEmail = () => {
+    const now = new Date();
+    const todayBR = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(now);
+    const timeBR = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(now);
+    const subject = `Acompanhamento de Matrizes – Status Atual (${todayBR})`;
+
+    const atrasoCritico = delayedManufacturing.filter((x) => x.daysLate > 5);
+    const testeCritico = stalledTests.filter((x) => x.daysInProgress > 20);
+
+    const lines: string[] = [];
+    lines.push('Prezados,');
+    lines.push('');
+    lines.push('Segue acompanhamento das matrizes/ferramentas identificadas como críticas no dia de hoje, com base nas informações exibidas no modal "Alertas do dia" no sistema.');
+    lines.push('');
+    lines.push('Resumo:');
+    lines.push(`- Matrizes com atraso de entrega: ${delayedManufacturing.length} (críticas: ${atrasoCritico.length})`);
+    lines.push(`- Ferramentas em teste paradas: ${stalledTests.length} (críticas: ${testeCritico.length})`);
+    lines.push('');
+
+    lines.push('1) Matrizes com atraso de entrega');
+    lines.push('CÓDIGO | FORNECEDOR | ENTREGA ATUAL | ATRASO | STATUS');
+    if (delayedManufacturing.length === 0) {
+      lines.push('-');
+    } else {
+      delayedManufacturing.forEach((item) => {
+        const status = item.daysLate > 5 ? 'CRÍTICO' : 'ATENÇÃO';
+        const deliveryBR = item.deliveryDate.split('-').reverse().join('/');
+        lines.push(`${item.code} | ${item.supplier} | ${deliveryBR} | ${item.daysLate} dia(s) | ${status}`);
+      });
+    }
+    lines.push('');
+
+    lines.push('2) Ferramentas em teste paradas');
+    lines.push('CÓDIGO | STATUS | RECEBIDA EM | DIAS EM ANDAMENTO | STATUS');
+    if (stalledTests.length === 0) {
+      lines.push('-');
+    } else {
+      stalledTests.forEach((item) => {
+        const status = item.daysInProgress > 20 ? 'CRÍTICO' : 'ATENÇÃO';
+        const receivedBR = item.receivedDate ? item.receivedDate.split('-').reverse().join('/') : '-';
+        lines.push(`${item.code} | ${item.status} | ${receivedBR} | ${item.daysInProgress} dia(s) | ${status}`);
+      });
+    }
+    lines.push('');
+
+    lines.push('Atenção: itens marcados como CRÍTICO demandam ação prioritária (alto risco de ruptura).');
+    lines.push('');
+    lines.push(`Atenciosamente,`);
+    lines.push('Ferramentaria / PCP');
+    lines.push(`Enviado em: ${todayBR} ${timeBR}`);
+
+    const body = lines.join('\n');
+
+    const to = (import.meta as any).env?.VITE_NOTIFY_GROUP_EMAILS as string | undefined;
+    return { to: to || '', subject, body };
+  };
+
+  const downloadDailyAlertEml = (args: { to: string; subject: string; body: string }) => {
+    const { to, subject, body } = args;
+
+    // Formato EML simples (RFC 822) — abre como rascunho no Outlook.
+    const content = [
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      `X-Unsent: 1`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: 8bit`,
+      '',
+      body,
+      '',
+    ].join('\r\n');
+
+    const blob = new Blob([content], { type: 'message/rfc822' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `acompanhamento_matrizes_${new Date().toISOString().slice(0, 10)}.eml`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const sendDailyAlertEmail = async () => {
+    try {
+      const { to, subject, body } = buildDailyAlertEmail();
+      const outlookUrl = `ms-outlook://compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      const mailtoUrl = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+      // Tenta abrir no Outlook (Windows) primeiro.
+      // Observação: alguns navegadores/ambientes podem bloquear protocolos customizados.
+      if (outlookUrl.length <= 32000) {
+        window.location.href = outlookUrl;
+        return;
+      }
+
+      // mailto costuma falhar com corpos muito grandes (limite varia por SO/cliente).
+      if (mailtoUrl.length > 1800) {
+        downloadDailyAlertEml({ to, subject, body });
+        toast({
+          title: 'Rascunho gerado',
+          description: 'Um arquivo .eml foi baixado. Abra-o para abrir o Outlook com o e-mail preenchido.',
+          variant: 'default'
+        });
+        return;
+      }
+
+      window.location.href = mailtoUrl;
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: 'Erro ao gerar e-mail', description: String(err?.message || err), variant: 'destructive' });
+    }
+  };
 
   const DAILY_ALERT_KEY = 'extrudeflow_daily_alert_last_seen';
 
@@ -465,10 +580,25 @@ const Index = () => {
       <Dialog open={dailyAlertOpen} onOpenChange={setDailyAlertOpen}>
         <DialogContent className="sm:max-w-[700px]">
           <DialogHeader>
-            <DialogTitle>Alertas do dia</DialogTitle>
-            <DialogDescription>
-              Itens críticos identificados na Confecção e nos Testes. Revise estas matrizes e ferramentas com prioridade.
-            </DialogDescription>
+            <div className="flex items-start justify-between gap-3 pr-10">
+              <div className="min-w-0">
+                <DialogTitle>Alertas do dia</DialogTitle>
+                <DialogDescription>
+                  Itens críticos identificados na Confecção e nos Testes. Revise estas matrizes e ferramentas com prioridade.
+                </DialogDescription>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="shrink-0"
+                onClick={async () => {
+                  await sendDailyAlertEmail();
+                }}
+              >
+                <Mail className="h-4 w-4 mr-2" />
+                Enviar E-mail
+              </Button>
+            </div>
           </DialogHeader>
           <ScrollArea className="max-h-[60vh] pr-2">
             <div className="space-y-4">
@@ -476,15 +606,6 @@ const Index = () => {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-semibold text-sm">1️⃣ Matrizes com atraso de entrega</h3>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => {
-                      setMainView("manufacturing");
-                      setDailyAlertOpen(false);
-                    }}
-                  >Ir para Confecção</Button>
                 </div>
                 {delayedManufacturing.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Nenhuma matriz em atraso hoje.</p>
@@ -517,15 +638,6 @@ const Index = () => {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-semibold text-sm">2️⃣ Ferramentas em teste paradas</h3>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => {
-                      setMainView("sheet");
-                      setDailyAlertOpen(false);
-                    }}
-                  >Ir para Planilha</Button>
                 </div>
                 {stalledTests.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Nenhuma ferramenta em teste parada acima de 15 dias.</p>

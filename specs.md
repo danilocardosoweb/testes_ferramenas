@@ -1,3 +1,100 @@
+## Iteração 15/12/2025 (Integração LLM - Parecer de Matrizes)
+
+- **Integração LLM para Análise Inteligente**
+  - Tipos: `src/types/llm.ts`
+  - Serviço: `src/services/llm.ts`
+  - Edge Function: `supabase/functions/llm-parecer/index.ts`
+
+- **Funcionalidades**
+  - **Gerar Parecer**: Análise técnica detalhada para matriz selecionada
+  - **Ranking do Dia**: Top 50 matrizes ordenadas por urgência de ação
+
+- **Contrato JSON de Saída (ParecerData)**
+  - `recomendacao`: "Confeccionar" | "Planejar" | "OK"
+  - `resumo_executivo`: Texto com 2-3 frases
+  - `motivos_com_numeros`: Array de motivos com dados quantitativos
+  - `riscos`: Array de riscos identificados
+  - `acoes_recomendadas`: Array de ações sugeridas
+  - `o_que_confirmar`: Array de verificações antes de agir
+  - `confianca_0a100`: Nível de confiança da análise
+  - `limitacoes_dos_dados`: Array de limitações conhecidas
+
+- **Arquitetura de Provedores LLM**
+  - Ordem de prioridade: OpenRouter → Google AI → Groq → OpenAI
+  - Fallback automático entre provedores
+  - Fallback local quando nenhum provider disponível (gerarParecerLocal)
+
+- **UI**
+  - Botão "Ranking do Dia" (roxo): Gera ranking das Top 50 matrizes
+  - Botão "Gerar Parecer" (azul): Gera parecer para matriz selecionada
+  - Modal de Parecer: Cards coloridos com recomendação, motivos, riscos, ações
+  - Modal de Ranking: Lista clicável com posição, score e resumo
+
+- **Deploy da Edge Function**
+  - Requer configuração de secrets no Supabase: `OPENROUTER_API_KEY`, `GOOGLE_AI_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`
+  - Deploy via: `supabase functions deploy llm-parecer`
+
+- **Análise de Produção (6 meses)**
+  - Campo `producao_6m` no contexto LLM com:
+    - `historico_mensal`: Array com mês, avg_produtividade, avg_eficiencia, registros
+    - `observacoes_lote`: Últimas 10 observações de lote não vazias
+    - `ligas_utilizadas`: Ligas usadas no período
+    - `ref_produtividade`: Objetivos (1.000-1.300 kg/h), média geral, % acima objetivo
+  - Busca dados via RPC `get_productivity_stats` e tabela `analysis_producao`
+  - Análise automática:
+    - Produtividade vs referências (baixa < 1.000, excelente ≥ 1.300)
+    - Eficiência (baixa < 70%, excelente ≥ 90%)
+    - Tendência (subindo/estável/caindo)
+    - Observações de lote relevantes (problema, defeito, parada, trinca, desgaste)
+  - Seção visual no modal de parecer com:
+    - KPIs: Média Geral, Objetivo, % Acima Objetivo
+    - Histórico mensal com cores (verde ≥ 1.000, laranja < 1.000)
+    - Ligas utilizadas
+    - Observações de lote recentes
+
+---
+
+## Iteração 15/12/2025 (Decisão de Reposição de Matrizes)
+
+- **Nova sub-aba: "Decisão de Reposição"**
+  - Componente: `src/components/analysis/AnalysisDecisaoReposicaoView.tsx`
+  - Objetivo: Painel decisório inteligente que unifica múltiplas dimensões em um Score Único (0–100)
+  - Responde objetivamente: "Confeccionar Imediatamente" (≥70), "Planejar Reposição" (40–69), ou "Não Necessita Reposição" (<40)
+
+- **Score Único de Decisão (0–100)**
+  - Fórmula: `ScoreTotal = 0,40*RiscoVida + 0,30*PressaoDemanda + 0,20*RiscoDesempenho + 0,10*RiscoOperacional`
+  - **RiscoVida**: Cobertura (50%), EOL (30%), Desgaste (20%)
+  - **PressaoDemanda**: Crescimento 6m vs 12m (60%), Demanda normalizada (40%)
+  - **RiscoDesempenho**: Inverso do Score de Produtividade (100 - score)
+  - **RiscoOperacional**: Single point of failure (50%), Sequências insuficientes (50%)
+
+- **Interface em 2 painéis**
+  - **Painel esquerdo**: Lista de matrizes com status visual (cores), Score e indicadores rápidos (Cobertura, Seq. Ativas, Crescimento)
+  - **Painel direito**: 3 abas
+    - **Decisão**: Hero Card com status + diagnóstico visual (barras por dimensão) + motivos objetivos + timeline (+30/+60/+90/EOL/Data Ideal Pedido com lead time 20 dias) + ações recomendadas
+    - **Sequências**: Análise por sequência (desgaste, cobertura, demanda, EOL)
+    - **Simulador**: Controles "E se…" (aumentar demanda ±20–50%, adicionar sequências +0–3, resetar desgaste) com recálculo em tempo real
+
+- **Integração de dados**
+  - RPC `matrix_lifespan_summary`: Vida útil, capacidade, cobertura, EOL
+  - RPC `matrix_lifespan_by_sequence`: Dados por sequência
+  - RPC `analysis_carteira_flat_agg`: Crescimento de demanda (6m vs 12m)
+  - RPC `get_productivity_stats`: Produtividade e eficiência média
+  - Filtros: Busca por matriz, Status (Todas/Confeccionar/Planejar)
+
+- **Motivos automáticos e auditáveis**
+  - Demanda cresceu X% (6m vs 12m)
+  - Cobertura estimada: X mês(es)
+  - Desgaste acumulado: X%
+  - Apenas X sequência(s) ativa(s)
+  - Sequências insuficientes para demanda
+  - EOL próximo: X dias
+
+- **Ações recomendadas por status**
+  - **Confeccionar**: Confeccionar nova matriz, definir data de pedido, avaliar duplicação de sequência
+  - **Planejar**: Programar reposição em 30–60 dias, monitorar demanda, preparar especificações
+  - **OK**: Reavaliar em 30 dias, manter monitoramento
+
 ## Iteração 28/11/2025 (Análise de Produtividade)
 
 - **Nova aba de Produtividade**
