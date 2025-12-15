@@ -170,27 +170,20 @@ const Index = () => {
   const sendDailyAlertEmail = async () => {
     try {
       const { to, subject, body } = buildDailyAlertEmail();
-      const outlookUrl = `ms-outlook://compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      const mailtoUrl = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      const mailtoUrl = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
-      // Tenta abrir no Outlook (Windows) primeiro.
-      // Observação: alguns navegadores/ambientes podem bloquear protocolos customizados.
-      if (outlookUrl.length <= 32000) {
-        window.location.href = outlookUrl;
-        return;
-      }
-
-      // mailto costuma falhar com corpos muito grandes (limite varia por SO/cliente).
-      if (mailtoUrl.length > 1800) {
+      // Se o corpo for muito grande, gerar arquivo .eml
+      if (mailtoUrl.length > 2000) {
         downloadDailyAlertEml({ to, subject, body });
         toast({
           title: 'Rascunho gerado',
-          description: 'Um arquivo .eml foi baixado. Abra-o para abrir o Outlook com o e-mail preenchido.',
+          description: 'Um arquivo .eml foi baixado. Abra-o para enviar o e-mail pelo Outlook.',
           variant: 'default'
         });
         return;
       }
 
+      // Abre no cliente de e-mail padrão (Outlook, Gmail, etc)
       window.location.href = mailtoUrl;
     } catch (err: any) {
       console.error(err);
