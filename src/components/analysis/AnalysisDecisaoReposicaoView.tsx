@@ -186,10 +186,28 @@ function calcularScoreDemanda(
 }
 
 function calcularScoreDesempenho(produtividadeScore: number, eficienciaMedia: number): number {
-  // Inverter: quanto melhor o desempenho, menor o risco
-  const riscoProdutividade = Math.max(0, 100 - (produtividadeScore || 50));
-  const riscoEficiencia = Math.max(0, 100 - (eficienciaMedia || 50) * 2);
-  return (riscoProdutividade * 0.6 + riscoEficiencia * 0.4) / 2;
+  // Baseado na eficiência real:
+  // >= 86%: extraordinário (risco 0)
+  // >= 85%: bom (risco baixo ~10)
+  // 50-85%: atenção (risco moderado 20-50)
+  // < 50%: crítico (risco alto 60-100)
+  
+  const efic = eficienciaMedia || 0;
+  
+  let riscoEficiencia: number;
+  if (efic >= 86) {
+    riscoEficiencia = 0; // Extraordinário
+  } else if (efic >= 85) {
+    riscoEficiencia = 10; // Bom
+  } else if (efic >= 70) {
+    riscoEficiencia = 20 + (85 - efic) * 1; // 20-35
+  } else if (efic >= 50) {
+    riscoEficiencia = 35 + (70 - efic) * 1.5; // 35-65
+  } else {
+    riscoEficiencia = 65 + (50 - efic) * 0.7; // 65-100
+  }
+  
+  return Math.min(100, Math.max(0, riscoEficiencia));
 }
 
 function calcularScoreOperacional(
@@ -308,7 +326,8 @@ export function AnalysisDecisaoReposicaoView() {
   const [searchMatriz, setSearchMatriz] = useState("");
   const [selectedMatriz, setSelectedMatriz] = useState<string | null>(null);
   const [selectedSeq, setSelectedSeq] = useState<string | null>(null);
-  const [filtroStatus, setFiltroStatus] = useState<"todos" | "confeccionar" | "planejar">("todos");
+  const [filtroStatus, setFiltroStatus] = useState<"todos" | "acompanhamento" | "planejar">("todos");
+  const [matrizesComObservacoes, setMatrizesComObservacoes] = useState<Set<string>>(new Set());
   const [simulador, setSimulador] = useState<SimuladorState>({
     demandaAumento: 0,
     sequenciasAdicionais: 0,
@@ -546,6 +565,31 @@ export function AnalysisDecisaoReposicaoView() {
     };
   }, [selectedMatriz]);
 
+  // Carregar matrizes com observações na Produtividade
+  useEffect(() => {
+    async function loadMatrizesComObs() {
+      try {
+        const { data, error } = await supabase
+          .from('analysis_producao')
+          .select('matriz')
+          .not('observacao_lote', 'is', null)
+          .neq('observacao_lote', '');
+        
+        if (error) throw error;
+        
+        const matrizes = new Set<string>();
+        (data || []).forEach((row: any) => {
+          if (row.matriz) matrizes.add(row.matriz.toUpperCase().trim());
+        });
+        setMatrizesComObservacoes(matrizes);
+        console.log('[Acompanhamento] Matrizes com observações:', matrizes.size);
+      } catch (err) {
+        console.error('[Acompanhamento] Erro ao buscar observações:', err);
+      }
+    }
+    loadMatrizesComObs();
+  }, []);
+
   // Calcular crescimento (6m vs 12m) - integrado com dados de carteira
   const crescimentoMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -569,12 +613,12 @@ export function AnalysisDecisaoReposicaoView() {
         const matchSearch = item.matriz.toLowerCase().includes(searchMatriz.toLowerCase());
         const matchStatus =
           filtroStatus === "todos" ||
-          (filtroStatus === "confeccionar" && item.score.status === "confeccionar") ||
+          (filtroStatus === "acompanhamento" && matrizesComObservacoes.has(item.matriz)) ||
           (filtroStatus === "planejar" && item.score.status === "planejar");
         return matchSearch && matchStatus;
       })
       .sort((a, b) => b.score.scoreTotal - a.score.scoreTotal);
-  }, [rows, searchMatriz, filtroStatus, simulador, crescimentoMap]);
+  }, [rows, searchMatriz, filtroStatus, simulador, crescimentoMap, matrizesComObservacoes]);
 
   // Dados da matriz selecionada
   const selectedMatrizData = useMemo(() => {
@@ -857,12 +901,12 @@ export function AnalysisDecisaoReposicaoView() {
             Todas
           </Button>
           <Button
-            variant={filtroStatus === "confeccionar" ? "default" : "outline"}
+            variant={filtroStatus === "acompanhamento" ? "default" : "outline"}
             size="sm"
-            onClick={() => setFiltroStatus("confeccionar")}
-            className="bg-red-600 hover:bg-red-700"
+            onClick={() => setFiltroStatus("acompanhamento")}
+            className="bg-blue-600 hover:bg-blue-700"
           >
-            Confeccionar
+            📋 Acompanhamento
           </Button>
           <Button
             variant={filtroStatus === "planejar" ? "default" : "outline"}
@@ -1024,7 +1068,7 @@ export function AnalysisDecisaoReposicaoView() {
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h2 className="text-2xl font-bold">{selectedMatriz}</h2>
-                      <p className="text-sm opacity-75 mt-1">Decisão de Reposição</p>
+                      <p className="text-sm opacity-75 mt-1">🤖 Análise com IA</p>
                     </div>
                     <div className="text-right">
                       <TooltipProvider>
@@ -1651,37 +1695,118 @@ export function AnalysisDecisaoReposicaoView() {
               </div>
 
               {/* Dados de Produção (6 meses) */}
-              {llmProducao6m && (llmProducao6m.historico_mensal.length > 0 || llmProducao6m.observacoes_lote.length > 0) && (
+              {llmProducao6m && (llmProducao6m.historico_mensal.length > 0 || llmProducao6m.observacoes_lote.length > 0) && (() => {
+                // Ligas especiais: séries 2xxx, 7xxx, ou ligas específicas como 6082, 6005A
+                const LIGAS_ESPECIAIS = ['2011', '2014', '2017', '2024', '7003', '7020', '7075', '6082', '6005A', '6061'];
+                const temLigaEspecial = llmProducao6m.ligas_utilizadas.some(liga => 
+                  LIGAS_ESPECIAIS.includes(liga) || liga.startsWith('2') || liga.startsWith('7')
+                );
+                const objetivoMin = temLigaEspecial ? 900 : 1300;
+                const tipoLiga = temLigaEspecial ? 'Ligas Especiais' : 'Ligas Normais';
+                const mediaGeral = llmProducao6m.ref_produtividade.media_geral || 0;
+                const acimObjetivo = mediaGeral >= objetivoMin;
+                const pctAcima = llmProducao6m.historico_mensal.filter(h => (h.avg_produtividade || 0) >= objetivoMin).length / 
+                  Math.max(1, llmProducao6m.historico_mensal.length) * 100;
+
+                // Dados para o gráfico
+                const historicoReversed = [...llmProducao6m.historico_mensal].reverse().slice(-6);
+                const maxProd = Math.max(...historicoReversed.map(h => h.avg_produtividade || 0), objetivoMin + 200);
+
+                return (
                 <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
                   <h3 className="font-semibold mb-3 text-purple-900">🏭 Análise de Produção (6 meses)</h3>
                   
-                  {/* Referências de Produtividade */}
+                  {/* Referências de Produtividade - Objetivo Dinâmico */}
                   {llmProducao6m.ref_produtividade.media_geral !== null && (
                     <div className="mb-3 p-2 bg-white rounded border">
                       <div className="grid grid-cols-3 gap-2 text-xs">
                         <div className="text-center">
                           <div className="text-gray-500">Média Geral</div>
-                          <div className="font-bold text-purple-700">
-                            {llmProducao6m.ref_produtividade.media_geral?.toFixed(0)} kg/h
+                          <div className={`font-bold ${acimObjetivo ? 'text-green-600' : 'text-orange-600'}`}>
+                            {mediaGeral.toFixed(0)} kg/h
                           </div>
                         </div>
                         <div className="text-center">
-                          <div className="text-gray-500">Objetivo</div>
-                          <div className="font-bold text-green-600">
-                            {llmProducao6m.ref_produtividade.objetivo_baixo}-{llmProducao6m.ref_produtividade.objetivo_alto} kg/h
+                          <div className="text-gray-500">Objetivo ({tipoLiga})</div>
+                          <div className="font-bold text-blue-600">
+                            ≥ {objetivoMin} kg/h
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-gray-500">% Acima Obj.</div>
-                          <div className={`font-bold ${(llmProducao6m.ref_produtividade.pct_acima_objetivo || 0) >= 70 ? 'text-green-600' : 'text-orange-600'}`}>
-                            {llmProducao6m.ref_produtividade.pct_acima_objetivo?.toFixed(0) || 0}%
+                          <div className={`font-bold ${pctAcima >= 70 ? 'text-green-600' : 'text-orange-600'}`}>
+                            {pctAcima.toFixed(0)}%
                           </div>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* Histórico Mensal */}
+                  {/* Gráfico de Evolução de Produtividade */}
+                  {historicoReversed.length > 1 && (
+                    <div className="mb-3 p-3 bg-white rounded border">
+                      <div className="text-xs font-medium text-purple-800 mb-2">📊 Evolução da Produtividade</div>
+                      <div className="relative" style={{ height: '120px' }}>
+                        {/* Linha do objetivo */}
+                        <div 
+                          className="absolute left-0 right-0 border-t-2 border-dashed border-blue-400 z-10"
+                          style={{ bottom: `${(objetivoMin / maxProd) * 100}%` }}
+                        >
+                          <span className="absolute -top-3 right-0 text-[10px] text-blue-600 bg-white px-1">
+                            Obj: {objetivoMin}
+                          </span>
+                        </div>
+                        
+                        {/* Barras do gráfico */}
+                        <div className="absolute bottom-0 left-0 right-0 flex items-end justify-around" style={{ height: '100%' }}>
+                          {historicoReversed.map((h, i) => {
+                            const prod = h.avg_produtividade || 0;
+                            const alturaPixels = Math.max((prod / maxProd) * 100, 8);
+                            const acima = prod >= objetivoMin;
+                            const tendencia = i > 0 && historicoReversed[i-1]?.avg_produtividade
+                              ? prod - (historicoReversed[i-1].avg_produtividade || 0)
+                              : 0;
+                            
+                            return (
+                              <div key={i} className="flex flex-col items-center" style={{ width: '40px' }}>
+                                <div className="relative flex flex-col items-center justify-end" style={{ height: '100px' }}>
+                                  {/* Indicador de tendência */}
+                                  {tendencia !== 0 && (
+                                    <span className={`absolute -top-3 text-[10px] ${tendencia > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {tendencia > 0 ? '↑' : '↓'}
+                                    </span>
+                                  )}
+                                  {/* Barra */}
+                                  <div 
+                                    className={`w-5 rounded-t ${acima ? 'bg-green-500' : 'bg-orange-500'}`}
+                                    style={{ height: `${alturaPixels}px` }}
+                                    title={`${h.mes}: ${prod.toFixed(0)} kg/h`}
+                                  />
+                                  {/* Valor acima da barra */}
+                                  <span className="absolute text-[8px] text-gray-600 font-medium" style={{ bottom: `${alturaPixels + 2}px` }}>
+                                    {prod.toFixed(0)}
+                                  </span>
+                                </div>
+                                <div className="text-[9px] text-gray-500 mt-1 text-center">
+                                  {h.mes.split('-')[1]}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="flex justify-center gap-4 mt-2 text-[10px] text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <div className="w-3 h-2 bg-green-500 rounded" /> Acima objetivo
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="w-3 h-2 bg-orange-500 rounded" /> Abaixo objetivo
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Histórico Mensal (tabela) */}
                   {llmProducao6m.historico_mensal.length > 0 && (
                     <div className="mb-3">
                       <div className="text-xs font-medium text-purple-800 mb-1">Histórico Mensal:</div>
@@ -1689,7 +1814,7 @@ export function AnalysisDecisaoReposicaoView() {
                         {llmProducao6m.historico_mensal.slice(0, 6).map((h, i) => (
                           <div key={i} className="px-2 py-1 bg-white rounded border text-xs">
                             <span className="text-gray-500">{h.mes}: </span>
-                            <span className={`font-medium ${(h.avg_produtividade || 0) >= 1000 ? 'text-green-600' : 'text-orange-600'}`}>
+                            <span className={`font-medium ${(h.avg_produtividade || 0) >= objetivoMin ? 'text-green-600' : 'text-orange-600'}`}>
                               {h.avg_produtividade?.toFixed(0) || '-'} kg/h
                             </span>
                             <span className="text-gray-400 ml-1">({h.avg_eficiencia?.toFixed(0) || '-'}%)</span>
@@ -1702,10 +1827,18 @@ export function AnalysisDecisaoReposicaoView() {
                   {/* Ligas Utilizadas */}
                   {llmProducao6m.ligas_utilizadas.length > 0 && (
                     <div className="mb-3">
-                      <div className="text-xs font-medium text-purple-800 mb-1">Ligas Utilizadas:</div>
+                      <div className="text-xs font-medium text-purple-800 mb-1">
+                        Ligas Utilizadas: <span className={`ml-1 px-1.5 py-0.5 rounded text-[10px] ${temLigaEspecial ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                          {tipoLiga}
+                        </span>
+                      </div>
                       <div className="flex flex-wrap gap-1">
                         {llmProducao6m.ligas_utilizadas.slice(0, 5).map((liga, i) => (
-                          <span key={i} className="px-2 py-0.5 bg-white rounded border text-xs">{liga}</span>
+                          <span key={i} className={`px-2 py-0.5 rounded border text-xs ${
+                            LIGAS_ESPECIAIS.includes(liga) || liga.startsWith('2') || liga.startsWith('7')
+                              ? 'bg-orange-50 border-orange-300 text-orange-700'
+                              : 'bg-white'
+                          }`}>{liga}</span>
                         ))}
                       </div>
                     </div>
@@ -1725,7 +1858,8 @@ export function AnalysisDecisaoReposicaoView() {
                     </div>
                   )}
                 </div>
-              )}
+              );
+              })()}
 
               {/* Motivos */}
               {llmParecer.motivos_com_numeros.length > 0 && (

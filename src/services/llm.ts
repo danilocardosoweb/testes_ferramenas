@@ -117,14 +117,25 @@ export async function chamarLLMExterna(
 }
 
 function buildPromptFromContext(ctx: MatrizContexto): string {
-  // Determinar status da produtividade
+  // Ligas especiais: séries 2xxx, 7xxx, ou ligas específicas
+  const LIGAS_ESPECIAIS = ['2011', '2014', '2017', '2024', '7003', '7020', '7075', '6082', '6005A', '6061'];
+  const ligasUsadas = ctx.producao_6m?.ligas_utilizadas || [];
+  const temLigaEspecial = ligasUsadas.some(liga => 
+    LIGAS_ESPECIAIS.includes(liga) || liga.startsWith('2') || liga.startsWith('7')
+  );
+  
+  // Objetivo dinâmico: Ligas Normais >= 1300, Ligas Especiais >= 900
+  const objetivoMin = temLigaEspecial ? 900 : 1300;
+  const tipoLiga = temLigaEspecial ? 'Ligas Especiais' : 'Ligas Normais';
+
+  // Determinar status da produtividade baseado no objetivo correto
   const prodReal = ctx.produtividade.media_prod;
   let statusProd = 'sem dados';
   if (prodReal !== null) {
-    if (prodReal >= 1300) statusProd = 'EXCELENTE (acima do objetivo)';
-    else if (prodReal >= 1000) statusProd = 'BOA (dentro do objetivo)';
-    else if (prodReal >= 800) statusProd = 'ATENÇÃO (abaixo do objetivo)';
-    else statusProd = 'CRÍTICA (muito abaixo do objetivo)';
+    if (prodReal >= objetivoMin * 1.1) statusProd = `EXCELENTE (${((prodReal / objetivoMin - 1) * 100).toFixed(0)}% acima do objetivo)`;
+    else if (prodReal >= objetivoMin) statusProd = 'BOA (atingindo objetivo)';
+    else if (prodReal >= objetivoMin * 0.8) statusProd = `ATENÇÃO (${((1 - prodReal / objetivoMin) * 100).toFixed(0)}% abaixo do objetivo)`;
+    else statusProd = `CRÍTICA (${((1 - prodReal / objetivoMin) * 100).toFixed(0)}% abaixo do objetivo)`;
   }
 
   // Histórico mensal formatado
@@ -151,8 +162,9 @@ Analise os dados consolidados abaixo e forneça um parecer técnico estruturado.
 - Tendência de crescimento: ${ctx.demanda.crescimento_pct !== null ? ctx.demanda.crescimento_pct.toFixed(0) + '%' : 'Não calculada'}
 
 ## 3. PRODUTIVIDADE (Fonte: análise de produção - últimos 6 meses)
+- Tipo de Liga: ${tipoLiga} (${ligasUsadas.join(', ') || 'N/D'})
 - Média geral: ${prodReal !== null ? prodReal.toFixed(0) + ' kg/h' : 'Sem dados'}
-- Objetivo da fábrica: 1.000 a 1.300 kg/h
+- Objetivo para ${tipoLiga}: ≥ ${objetivoMin} kg/h
 - Status: ${statusProd}
 - Eficiência média: ${ctx.produtividade.media_efic !== null ? ctx.produtividade.media_efic.toFixed(0) + '%' : 'N/D'}
 - Tendência: ${ctx.produtividade.tendencia || 'Não calculada'}
