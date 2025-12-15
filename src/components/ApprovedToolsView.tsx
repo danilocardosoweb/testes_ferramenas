@@ -19,6 +19,8 @@ type Props = {
   matrices: Matrix[];
   onUpdateMatrix?: (matrix: Matrix) => void;
   onRefresh?: () => void;
+  isAdmin?: boolean;
+  onRestoreToApproval?: (matrixId: string) => Promise<void>;
 };
 
 // Extrai o primeiro evento de aprovação (mais antigo) com data do evento e de apontamento
@@ -54,7 +56,7 @@ type ReportFilters = {
   filterType: 'period' | 'matrix' | 'all';
 };
 
-export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, onRefresh }) => {
+export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, onRefresh, isAdmin = false, onRestoreToApproval }) => {
   // Garantindo que o componente retorne um elemento React
   if (!matrices) return <div>Carregando...</div>;
   
@@ -665,6 +667,8 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
         }}
         matrix={selectedTool}
         onRefresh={onRefresh}
+        isAdmin={isAdmin}
+        onRestoreToApproval={onRestoreToApproval}
       />
     </div>
   );

@@ -8,18 +8,32 @@ import { useToast } from "@/hooks/use-toast";
 import { Matrix, MatrixEvent } from "@/types";
 import { daysSinceLastEvent, getCounts, computeDurations } from "@/utils/metrics";
 import { uploadAttachment, listAttachments, deleteAttachment, renameAttachment, FinalReportAttachments } from "@/services/files";
-import { FileText, Image as ImageIcon, Upload, Trash2, Eye, Pencil } from "lucide-react";
+import { FileText, Image as ImageIcon, Upload, Trash2, Eye, Pencil, RotateCcw, Loader2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface FinalReportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   matrix: Matrix | null;
   onRefresh?: () => void;
+  isAdmin?: boolean;
+  onRestoreToApproval?: (matrixId: string) => Promise<void>;
 }
 
-export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOpenChange, matrix, onRefresh }) => {
+export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOpenChange, matrix, onRefresh, isAdmin = false, onRestoreToApproval }) => {
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [attachments, setAttachments] = useState<FinalReportAttachments>({ docsProjetos: [], rip: [] });
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -117,7 +131,56 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col p-0 overflow-hidden" aria-describedby="final-report-desc">
         <DialogHeader className="px-6 py-4 border-b">
-          <DialogTitle className="text-xl font-bold">Relatório Final – {matrix.code}</DialogTitle>
+          <div className="flex items-center justify-between pr-8">
+            <DialogTitle className="text-xl font-bold">Relatório Final – {matrix.code}</DialogTitle>
+            {isAdmin && onRestoreToApproval && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                    disabled={restoring}
+                  >
+                    {restoring ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RotateCcw className="w-4 h-4 mr-1" />}
+                    Restaurar para Aprovação
+                  </Button>
+                </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Restaurar Ferramenta?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Esta ação irá remover a aprovação da ferramenta <strong>{matrix.code}</strong> e ela voltará ao processo de testes/aprovação.
+                    <br /><br />
+                    <strong>Tem certeza que deseja continuar?</strong>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-orange-600 hover:bg-orange-700"
+                    onClick={async () => {
+                      if (!matrix) return;
+                      setRestoring(true);
+                      try {
+                        await onRestoreToApproval(matrix.id);
+                        toast({ title: "Ferramenta restaurada", description: `${matrix.code} voltou ao processo de aprovação.` });
+                        onOpenChange(false);
+                        if (onRefresh) onRefresh();
+                      } catch (err: any) {
+                        toast({ title: "Erro ao restaurar", description: String(err?.message || err), variant: "destructive" });
+                      } finally {
+                        setRestoring(false);
+                      }
+                    }}
+                  >
+                    Sim, Restaurar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            )}
+          </div>
         </DialogHeader>
 
         <div className="p-6 space-y-6 overflow-y-auto flex-1">

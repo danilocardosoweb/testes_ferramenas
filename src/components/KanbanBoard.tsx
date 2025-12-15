@@ -416,7 +416,7 @@ export default function KanbanBoard({ matrices }: Props) {
   const distinctFolders = useMemo(() => Array.from(new Set(matrices.map((m) => m.folder).filter(Boolean))) as string[], [matrices]);
   const distinctResponsibles = useMemo(() => Array.from(new Set(matrices.map((m) => m.responsible).filter(Boolean))) as string[], [matrices]);
 
-  const matchesFilters = (card: KanbanCard) => {
+  const matchesFilters = (card: KanbanCard, columnId: KanbanColumnId) => {
     if (filterSource !== "all" && card.source !== filterSource) return false;
     if (search.trim()) {
       const t = search.toLowerCase();
@@ -431,7 +431,27 @@ export default function KanbanBoard({ matrices }: Props) {
       const m = matrixById[card.matrixId];
       if (!m || m.responsible !== filterResponsible) return false;
     }
+    // Remover cards de "Concluído" após 24 horas
+    if (columnId === "concluido") {
+      const meta = state.movedAt[card.id];
+      const movedAt = meta?.movedAt ? new Date(meta.movedAt).getTime() : new Date(card.createdAt).getTime();
+      const hoursInColumn = (Date.now() - movedAt) / (1000 * 60 * 60);
+      if (hoursInColumn > 24) return false;
+    }
     return true;
+  };
+
+  // Função para ajustar descrição do card quando está em "Concluído"
+  const getCardDescription = (card: KanbanCard, columnId: KanbanColumnId): string | undefined => {
+    if (!card.description) return undefined;
+    // Se está em Concluído e é automático, alterar texto
+    if (columnId === "concluido" && card.source === "auto") {
+      // Trocar "saiu para correção externa em" por "retornou para a Tecnoperfil em"
+      return card.description
+        .replace(/saiu para correção externa em/gi, "retornou para a Tecnoperfil em")
+        .replace(/Matriz (.+) saiu para/gi, "Ferramenta $1 retornou para a Tecnoperfil em");
+    }
+    return card.description;
   };
 
   const daysInColumn = (cardId: string) => {
@@ -452,10 +472,14 @@ export default function KanbanBoard({ matrices }: Props) {
         {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       <div className="space-y-3">
-        {state.columns[id].map((cid) => {
+        {state.columns[id].filter((cid) => {
+          const c = state.cards[cid];
+          return c && matchesFilters(c, id);
+        }).map((cid) => {
           const c = state.cards[cid];
           if (!c) return null;
           const isEditing = editingId === cid;
+          const displayDescription = getCardDescription(c, id);
           return (
             <Card
               key={cid}
@@ -478,7 +502,7 @@ export default function KanbanBoard({ matrices }: Props) {
                       <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(c.createdAt).toLocaleDateString("pt-BR")}</span>
                     </div>
                     <div className="font-semibold mb-1">{c.title}</div>
-                    {!state.compact && c.description && <div className="text-sm text-muted-foreground whitespace-pre-wrap">{c.description}</div>}
+                    {!state.compact && displayDescription && <div className="text-sm text-muted-foreground whitespace-pre-wrap">{displayDescription}</div>}
                     <div className="mt-2 flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => startEdit(cid)}>
                         <Edit3 className="w-4 h-4 mr-1" /> Editar

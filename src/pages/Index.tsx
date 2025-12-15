@@ -1,4 +1,3 @@
-import { useState, useEffect, useRef, useMemo } from "react";
 import { Matrix, MatrixEvent, AuthSession } from "@/types";
 // Supabase services
 import {
@@ -315,6 +314,36 @@ const Index = () => {
       console.error(err);
       toast({ title: "Erro ao atualizar", description: String(err?.message || err), variant: "destructive" });
     }
+  };
+
+  const handleRestoreToApproval = async (matrixId: string) => {
+    if (!isAdmin) throw new Error("Apenas administradores podem restaurar ferramentas.");
+    
+    const matrix = matrices.find(m => m.id === matrixId);
+    if (!matrix) throw new Error("Matriz não encontrada.");
+    
+    // Encontra o evento de aprovação mais recente
+    const approvalEvents = matrix.events
+      .filter(e => e.type.toLowerCase().includes("aprov"))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    
+    if (approvalEvents.length === 0) {
+      throw new Error("Nenhum evento de aprovação encontrado.");
+    }
+    
+    const lastApproval = approvalEvents[0];
+    
+    // Remove o evento de aprovação
+    await sbDeleteEvent(lastApproval.id);
+    
+    // Atualiza o estado local
+    setMatrices((prev) =>
+      prev.map((m) =>
+        m.id === matrixId
+          ? { ...m, events: m.events.filter((e) => e.id !== lastApproval.id) }
+          : m
+      )
+    );
   };
 
   const handleDeleteEvent = async (matrixId: string, eventId: string) => {
@@ -1150,6 +1179,8 @@ const Index = () => {
                     setMatrices(prev => prev.map(m => m.id === matrix.id ? matrix : m));
                   }}
                   onRefresh={reloadAll}
+                  isAdmin={isAdmin}
+                  onRestoreToApproval={handleRestoreToApproval}
                 />
               </div>
             )}
