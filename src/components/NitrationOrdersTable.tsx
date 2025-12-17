@@ -5,7 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabaseClient";
-import { Trash2, Check, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Trash2, Check, AlertCircle, ChevronDown, ChevronRight, MoreVertical, Edit } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface NitrationOrder {
   id: string;
@@ -456,25 +463,26 @@ export function NitrationOrdersTable() {
             return (
               <div key={date} className="border rounded-lg overflow-hidden">
                 {/* Header do Dia */}
-                <div className="bg-gradient-to-r from-orange-100/50 to-orange-50/30 px-4 py-3 flex items-center justify-between gap-3 border-b">
+                <div className="bg-gradient-to-r from-orange/10 to-orange/5 px-3 md:px-4 py-3 flex items-center justify-between gap-2 md:gap-3 border-b">
                   <button
                     onClick={() => toggleDay(date)}
-                    className="flex items-center gap-3 flex-1 hover:opacity-80 transition-opacity"
+                    className="flex items-center gap-2 md:gap-3 flex-1 hover:opacity-80 transition-opacity min-w-0"
                   >
                     {isExpanded ? (
-                      <ChevronDown className="h-5 w-5 text-orange-600" />
+                      <ChevronDown className="h-4 w-4 md:h-5 md:w-5 text-orange-600 shrink-0" />
                     ) : (
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                      <ChevronRight className="h-4 w-4 md:h-5 md:w-5 text-muted-foreground shrink-0" />
                     )}
-                    <div className="text-left">
-                      <p className="font-semibold text-sm">
+                    <div className="text-left min-w-0">
+                      <p className="font-semibold text-xs md:text-sm">
                         {fmtDateBR(date)}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {dayOrders.length} ferramenta(s) • {dayEmNitretacao} em nitretação • {dayConcluidas} concluída(s)
+                      <p className="text-xs text-muted-foreground truncate">
+                        {dayOrders.length} ferr. • {dayEmNitretacao} nitr. • {dayConcluidas} concl.
                       </p>
                     </div>
                   </button>
+                  {/* Desktop: inputs inline */}
                   <div className="hidden md:flex items-center gap-2">
                     <input
                       type="date"
@@ -502,6 +510,57 @@ export function NitrationOrdersTable() {
                       Aplicar aos selecionados
                     </Button>
                   </div>
+                  {/* Mobile: Sheet e dropdown */}
+                  <div className="flex md:hidden items-center gap-1 shrink-0">
+                    <Sheet>
+                      <SheetTrigger asChild>
+                        <Button size="sm" variant="outline" className="h-8 px-2">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </SheetTrigger>
+                      <SheetContent side="bottom" className="h-[80vh]">
+                        <SheetHeader>
+                          <SheetTitle>Preenchimento em Lote - {fmtDateBR(date)}</SheetTitle>
+                        </SheetHeader>
+                        <div className="space-y-4 mt-4">
+                          <div>
+                            <label className="text-sm font-semibold mb-2 block">Data Entrada Nitretação</label>
+                            <Input
+                              type="date"
+                              value={bulkEntrada[date] || ""}
+                              onChange={(e) => setBulkEntrada((p) => ({ ...p, [date]: e.target.value }))}
+                              className="h-11"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-semibold mb-2 block">Data Saída Nitretação</label>
+                            <Input
+                              type="date"
+                              value={bulkSaida[date] || ""}
+                              onChange={(e) => setBulkSaida((p) => ({ ...p, [date]: e.target.value }))}
+                              className="h-11"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-semibold mb-2 block">Observações</label>
+                            <Input
+                              type="text"
+                              placeholder="Observações..."
+                              value={bulkObs[date] || ""}
+                              onChange={(e) => setBulkObs((p) => ({ ...p, [date]: e.target.value }))}
+                              className="h-11"
+                            />
+                          </div>
+                          <Button
+                            className="w-full h-11"
+                            onClick={() => handleApplyBulkForDay(date, dayOrders)}
+                          >
+                            Aplicar aos Selecionados
+                          </Button>
+                        </div>
+                      </SheetContent>
+                    </Sheet>
+                  </div>
                   <Button
                     onClick={() => handleFinalizeLote(date, dayOrders)}
                     disabled={!isLoteComplete(dayOrders)}
@@ -519,8 +578,10 @@ export function NitrationOrdersTable() {
 
                 {/* Tabela do Dia */}
                 {isExpanded && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <>
+                    {/* Desktop: Tabela */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-sm">
                       <thead className="bg-muted/30 border-b">
                         <tr>
                           <th className="px-4 py-3 text-left">
@@ -682,6 +743,133 @@ export function NitrationOrdersTable() {
                       </tbody>
                     </table>
                   </div>
+                  {/* Mobile: Cards */}
+                  <div className="md:hidden space-y-2 p-3">
+                    {dayOrders.map((order) => (
+                      <Card key={order.id} className={`border-l-4 ${
+                        order.data_saida_nitretacao ? "border-l-green-500 bg-green-50/20" : "border-l-orange-500 bg-orange-50/10"
+                      }`}>
+                        <CardContent className="p-3 space-y-3">
+                          {/* Header do Card */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-start gap-2 min-w-0 flex-1">
+                              <Checkbox
+                                checked={selected.has(order.id)}
+                                onCheckedChange={() => toggleSelect(order.id)}
+                                className="mt-0.5 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <p className="font-bold text-sm">
+                                  {order.ferramenta}
+                                  {order.sequencia && ` / ${order.sequencia}`}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Saída Limpeza: {fmtDateBR(order.data_saida)}
+                                </p>
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                if (!confirm("Deletar este registro?")) return;
+                                try {
+                                  const { error } = await supabase.from("cleaning_orders").delete().eq("id", order.id);
+                                  if (error) throw error;
+                                  toast({ title: "Sucesso", description: "Registro deletado" });
+                                  loadOrders();
+                                } catch (err: any) {
+                                  toast({ title: "Erro", description: err?.message ?? String(err), variant: "destructive" });
+                                }
+                              }}
+                              className="h-8 w-8 p-0 text-red-600 shrink-0"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {/* Informações */}
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-muted-foreground text-xs">Entrada Nitretação:</span>
+                              <span
+                                onClick={() => {
+                                  setEditingId(order.id);
+                                  setEditField("data_entrada_nitretacao");
+                                  setEditValue(order.data_entrada_nitretacao || "");
+                                }}
+                                className="font-medium text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
+                              >
+                                {editingId === order.id && editField === "data_entrada_nitretacao" ? (
+                                  <input
+                                    type="date"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onBlur={() => handleCellEdit(order.id, "data_entrada_nitretacao", editValue)}
+                                    className="w-full px-2 py-1 border rounded text-xs"
+                                    autoFocus
+                                  />
+                                ) : (
+                                  fmtDateBR(order.data_entrada_nitretacao)
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-muted-foreground text-xs">Saída Nitretação:</span>
+                              <span
+                                onClick={() => {
+                                  setEditingId(order.id);
+                                  setEditField("data_saida_nitretacao");
+                                  setEditValue(order.data_saida_nitretacao || "");
+                                }}
+                                className="font-medium text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
+                              >
+                                {editingId === order.id && editField === "data_saida_nitretacao" ? (
+                                  <input
+                                    type="date"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onBlur={() => handleCellEdit(order.id, "data_saida_nitretacao", editValue)}
+                                    className="w-full px-2 py-1 border rounded text-xs"
+                                    autoFocus
+                                  />
+                                ) : (
+                                  fmtDateBR(order.data_saida_nitretacao)
+                                )}
+                              </span>
+                            </div>
+                            {order.observacoes_nitretacao && (
+                              <div className="pt-2 border-t">
+                                <p className="text-xs text-muted-foreground mb-1">Observações:</p>
+                                <p
+                                  onClick={() => {
+                                    setEditingId(order.id);
+                                    setEditField("observacoes_nitretacao");
+                                    setEditValue(order.observacoes_nitretacao || "");
+                                  }}
+                                  className="text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
+                                >
+                                  {editingId === order.id && editField === "observacoes_nitretacao" ? (
+                                    <input
+                                      type="text"
+                                      value={editValue}
+                                      onChange={(e) => setEditValue(e.target.value)}
+                                      onBlur={() => handleCellEdit(order.id, "observacoes_nitretacao", editValue)}
+                                      placeholder="Observações..."
+                                      className="w-full px-2 py-1 border rounded text-xs"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    order.observacoes_nitretacao
+                                  )}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  </>
                 )}
               </div>
             );

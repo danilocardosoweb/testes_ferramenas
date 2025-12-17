@@ -5,7 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabaseClient";
-import { Trash2, Check, AlertCircle, Download, ChevronDown, ChevronRight, Mail } from "lucide-react";
+import { Trash2, Check, AlertCircle, Download, ChevronDown, ChevronRight, Mail, MoreVertical, Edit } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface CleaningOrder {
   id: string;
@@ -480,25 +487,26 @@ export function CleaningOrdersTable() {
             return (
               <div key={date} className="border rounded-lg overflow-hidden">
                 {/* Header do Dia */}
-                <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-4 py-3 flex items-center justify-between gap-3 border-b">
+                <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-3 md:px-4 py-3 flex items-center justify-between gap-2 md:gap-3 border-b">
                   <button
                     onClick={() => toggleDay(date)}
-                    className="flex items-center gap-3 flex-1 hover:opacity-80 transition-opacity"
+                    className="flex items-center gap-2 md:gap-3 flex-1 hover:opacity-80 transition-opacity min-w-0"
                   >
                     {isExpanded ? (
-                      <ChevronDown className="h-5 w-5 text-primary" />
+                      <ChevronDown className="h-4 w-4 md:h-5 md:w-5 text-primary shrink-0" />
                     ) : (
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                      <ChevronRight className="h-4 w-4 md:h-5 md:w-5 text-muted-foreground shrink-0" />
                     )}
-                    <div className="text-left">
-                      <p className="font-semibold text-sm">
+                    <div className="text-left min-w-0">
+                      <p className="font-semibold text-xs md:text-sm">
                         {fmtDateBR(date)}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {dayOrders.length} ferramenta(s) • {dayEmLimpeza} em limpeza • {dayRetornadas} retornada(s)
+                      <p className="text-xs text-muted-foreground truncate">
+                        {dayOrders.length} ferr. • {dayEmLimpeza} limp. • {dayRetornadas} ret.
                       </p>
                     </div>
                   </button>
+                  {/* Desktop: inputs inline */}
                   <div className="hidden md:flex items-center gap-2">
                     <input
                       type="date"
@@ -530,6 +538,65 @@ export function CleaningOrdersTable() {
                       <Mail className="h-4 w-4 mr-1" /> Enviar E-mail
                     </Button>
                   </div>
+                  {/* Mobile: menu dropdown */}
+                  <div className="flex md:hidden items-center gap-1 shrink-0">
+                    <Sheet>
+                      <SheetTrigger asChild>
+                        <Button size="sm" variant="outline" className="h-8 px-2">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </SheetTrigger>
+                      <SheetContent side="bottom" className="h-[80vh]">
+                        <SheetHeader>
+                          <SheetTitle>Preenchimento em Lote - {fmtDateBR(date)}</SheetTitle>
+                        </SheetHeader>
+                        <div className="space-y-4 mt-4">
+                          <div>
+                            <label className="text-sm font-semibold mb-2 block">Data de Retorno</label>
+                            <Input
+                              type="date"
+                              value={bulkReturnDate[date] || ""}
+                              onChange={(e) => setBulkReturnDate((p) => ({ ...p, [date]: e.target.value }))}
+                              className="h-11"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-semibold mb-2 block">NF Retorno</label>
+                            <Input
+                              type="text"
+                              placeholder="Ex: 123456"
+                              value={bulkNF[date] || ""}
+                              onChange={(e) => setBulkNF((p) => ({ ...p, [date]: e.target.value }))}
+                              className="h-11"
+                            />
+                          </div>
+                          <Button
+                            className="w-full h-11"
+                            onClick={() => handleApplyBulkForDay(date, dayOrders)}
+                          >
+                            Aplicar aos Selecionados
+                          </Button>
+                        </div>
+                      </SheetContent>
+                    </Sheet>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline" className="h-8 px-2">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => {
+                            const url = buildMailtoForDay(date, dayOrders, selected);
+                            window.location.href = url;
+                          }}
+                        >
+                          <Mail className="h-4 w-4 mr-2" /> Enviar E-mail
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                   <Button
                     onClick={() => handleFinalizeLote(date, dayOrders)}
                     disabled={!isLoteComplete(dayOrders)}
@@ -547,8 +614,10 @@ export function CleaningOrdersTable() {
 
                 {/* Tabela do Dia */}
                 {isExpanded && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <>
+                    {/* Desktop: Tabela */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-sm">
                       <thead className="bg-muted/30 border-b">
                         <tr>
                           <th className="px-4 py-3 text-left">
@@ -720,6 +789,143 @@ export function CleaningOrdersTable() {
                       </tbody>
                     </table>
                   </div>
+                  {/* Mobile: Cards */}
+                  <div className="md:hidden space-y-2 p-3">
+                    {dayOrders.map((order) => (
+                      <Card key={order.id} className={`border-l-4 ${
+                        order.data_retorno ? "border-l-green-500 bg-green-50/20" : "border-l-blue-500 bg-blue-50/10"
+                      }`}>
+                        <CardContent className="p-3 space-y-3">
+                          {/* Header do Card */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-start gap-2 min-w-0 flex-1">
+                              <Checkbox
+                                checked={selected.has(order.id)}
+                                onCheckedChange={() => toggleSelect(order.id)}
+                                className="mt-0.5 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <p className="font-bold text-sm">
+                                  {order.ferramenta}
+                                  {order.sequencia && ` / ${order.sequencia}`}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Saída: {fmtDateBR(order.data_saida)}
+                                </p>
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                if (!confirm("Deletar este registro?")) return;
+                                try {
+                                  const { error } = await supabase.from("cleaning_orders").delete().eq("id", order.id);
+                                  if (error) throw error;
+                                  toast({ title: "Sucesso", description: "Registro deletado" });
+                                  loadOrders();
+                                } catch (err: any) {
+                                  toast({ title: "Erro", description: err?.message ?? String(err), variant: "destructive" });
+                                }
+                              }}
+                              className="h-8 w-8 p-0 text-red-600 shrink-0"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {/* Informações */}
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-muted-foreground text-xs">Retorno:</span>
+                              <span
+                                onClick={() => {
+                                  setEditingId(order.id);
+                                  setEditField("data_retorno");
+                                  setEditValue(order.data_retorno || "");
+                                }}
+                                className="font-medium text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
+                              >
+                                {editingId === order.id && editField === "data_retorno" ? (
+                                  <input
+                                    type="date"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onBlur={() => handleCellEdit(order.id, "data_retorno", editValue)}
+                                    className="w-full px-2 py-1 border rounded text-xs"
+                                    autoFocus
+                                  />
+                                ) : (
+                                  fmtDateBR(order.data_retorno)
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-muted-foreground text-xs">NF Retorno:</span>
+                              <span
+                                onClick={() => {
+                                  setEditingId(order.id);
+                                  setEditField("nf_retorno");
+                                  setEditValue(order.nf_retorno || "");
+                                }}
+                                className="font-medium text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
+                              >
+                                {editingId === order.id && editField === "nf_retorno" ? (
+                                  <input
+                                    type="text"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onBlur={() => handleCellEdit(order.id, "nf_retorno", editValue)}
+                                    placeholder="NF-..."
+                                    className="w-full px-2 py-1 border rounded text-xs"
+                                    autoFocus
+                                  />
+                                ) : (
+                                  order.nf_retorno || "-"
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-muted-foreground text-xs">Nitretação:</span>
+                              <Checkbox
+                                checked={order.nitretacao}
+                                onCheckedChange={(checked) => {
+                                  handleCellEdit(order.id, "nitretacao", checked);
+                                }}
+                              />
+                            </div>
+                            {order.observacoes && (
+                              <div className="pt-2 border-t">
+                                <p className="text-xs text-muted-foreground mb-1">Observações:</p>
+                                <p
+                                  onClick={() => {
+                                    setEditingId(order.id);
+                                    setEditField("observacoes");
+                                    setEditValue(order.observacoes || "");
+                                  }}
+                                  className="text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
+                                >
+                                  {editingId === order.id && editField === "observacoes" ? (
+                                    <input
+                                      type="text"
+                                      value={editValue}
+                                      onChange={(e) => setEditValue(e.target.value)}
+                                      onBlur={() => handleCellEdit(order.id, "observacoes", editValue)}
+                                      placeholder="Observações..."
+                                      className="w-full px-2 py-1 border rounded text-xs"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    order.observacoes
+                                  )}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  </>
                 )}
               </div>
             );
