@@ -75,20 +75,27 @@ export type FinalReportAttachments = {
 
 async function listRipAttachments(matrixId: string) {
   try {
-    const { data, error } = await supabase
-      .from("event_files")
-      .select("id, url, file_name, mime_type, file_size, events!inner(id)")
-      .eq("events.matrix_id", matrixId)
-      .ilike("events.type", "%Relatório Final%")
-      .order("events.date", { ascending: false });
-    if (error) throw error;
-    return (data || []).map((item: any) => ({
-      event_id: item.events.id,
-      id: item.id,
-      url: item.url,
-      file_name: item.file_name,
-      mime_type: item.mime_type,
-      file_size: item.file_size,
+    // Fallback: buscar eventos de "Relatório Final – Anexo" diretamente
+    const { data: events, error: evError } = await supabase
+      .from("events")
+      .select("id, comment, date")
+      .eq("matrix_id", matrixId)
+      .ilike("type", "%Relatório Final%Anexo%")
+      .order("date", { ascending: false });
+    
+    if (evError) {
+      console.error("Erro ao listar anexos RIP:", evError);
+      return [];
+    }
+    
+    // Retornar eventos como anexos (sem URL, apenas metadados)
+    return (events || []).map((ev: any) => ({
+      event_id: ev.id,
+      id: ev.id,
+      url: "",
+      file_name: ev.comment || "Anexo",
+      mime_type: "application/pdf",
+      file_size: 0,
     }));
   } catch (err) {
     console.error("Erro ao listar anexos RIP:", err);
@@ -155,6 +162,17 @@ export async function renameAttachment(eventFileId: string, newName: string) {
 
 export async function deleteAttachment(eventFileId: string, fileUrl: string) {
   try {
+    // Se não tem URL, é um anexo de evento - deletar o evento
+    if (!fileUrl || fileUrl === "") {
+      const { error: eventError } = await supabase
+        .from("events")
+        .delete()
+        .eq("id", eventFileId);
+      if (eventError) throw eventError;
+      return;
+    }
+
+    // Se tem URL, deletar do storage e da tabela event_files
     const marker = `/storage/v1/object/public/${RIP_BUCKET}/`;
     const path = fileUrl.includes(marker) ? fileUrl.split(marker)[1] : "";
 

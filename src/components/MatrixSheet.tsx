@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, Edit2 } from "lucide-react";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
+import { QuickEventEditModal } from "./QuickEventEditModal";
 import * as XLSX from "xlsx";
 
 // Helper para formatar data sem problema de fuso horário
@@ -63,14 +64,16 @@ interface MatrixSheetProps {
   onSetDate: (matrixId: string, milestone: SheetMilestone, date: string) => Promise<void> | void;
   onSelectMatrix?: (matrix: Matrix) => void;
   onDeleteDate?: (matrixId: string, milestone: SheetMilestone) => Promise<void> | void;
+  onUpdateEvent?: (matrixId: string, eventId: string, updates: Partial<MatrixEvent>) => Promise<void> | void;
 }
 
-export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate }: MatrixSheetProps) {
+export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate, onUpdateEvent }: MatrixSheetProps) {
   const [filter, setFilter] = useState("");
   const [folder, setFolder] = useState<string>("__all__");
   const [showCycles, setShowCycles] = useState(false); // recolher/expandir colunas entre teste e correção ext. entrada
   const [testStage, setTestStage] = useState<string>("__all__");
   const [sortMode, setSortMode] = useState<"oldest" | "latest">("oldest");
+  const [quickEditModal, setQuickEditModal] = useState<{ open: boolean; matrix: Matrix | null; event: MatrixEvent | null }>({ open: false, matrix: null, event: null });
   const sorted = useMemo(() => {
     return [...matrices].sort((a, b) => {
       if (sortMode === "latest") {
@@ -209,8 +212,8 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
             Exportar para Excel
           </Button>
         </div>
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
-          <div className="max-w-sm w-64 min-w-[220px]">
+        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="col-span-1 sm:col-span-2 lg:col-span-1">
             <Input
               placeholder="Filtrar por código (ex.: TP-8215/004)"
               value={filter}
@@ -218,7 +221,7 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
               className="h-8"
             />
           </div>
-          <div className="w-60 min-w-[200px]">
+          <div className="col-span-1">
             <Select value={folder} onValueChange={setFolder}>
               <SelectTrigger className="h-8"><SelectValue placeholder="Pasta" /></SelectTrigger>
               <SelectContent>
@@ -229,7 +232,7 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
               </SelectContent>
             </Select>
           </div>
-          <div className="w-60 min-w-[200px]">
+          <div className="col-span-1">
             <Select value={testStage} onValueChange={setTestStage}>
               <SelectTrigger className="h-8"><SelectValue placeholder="Etapa de teste" /></SelectTrigger>
               <SelectContent>
@@ -242,7 +245,7 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
               </SelectContent>
             </Select>
           </div>
-          <div className="w-56 min-w-[200px]">
+          <div className="col-span-1">
             <Select value={sortMode} onValueChange={(value: "oldest" | "latest") => setSortMode(value)}>
               <SelectTrigger className="h-8"><SelectValue placeholder="Ordenação" /></SelectTrigger>
               <SelectContent>
@@ -253,7 +256,7 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
           </div>
           <button
             type="button"
-            className={`h-8 px-3 rounded border text-sm ${showCycles ? "bg-primary text-primary-foreground border-primary" : "bg-background"}`}
+            className={`h-8 px-3 rounded border text-sm col-span-1 sm:col-span-2 lg:col-span-1 ${showCycles ? "bg-primary text-primary-foreground border-primary" : "bg-background"}`}
             onClick={() => setShowCycles((v) => !v)}
             title={showCycles ? "Recolher colunas de ciclos" : "Expandir colunas de ciclos"}
           >
@@ -261,12 +264,13 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
           </button>
         </div>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="min-w-[1100px] w-max text-xs md:text-sm">
+      <CardContent className="overflow-x-auto w-full">
+        <table className="w-full text-xs md:text-sm border-collapse">
           <thead className="sticky top-0 bg-background border-b">
             <tr className="text-left [&>th]:py-1 [&>th]:px-1 [&>th]:whitespace-nowrap">
               <th>Ferramenta</th>
               <th>Data de recebimento</th>
+              <th className="w-8"></th>
           <th>Dias em andamento</th>
               <th>1º teste</th>
               {showCycles && (
@@ -293,16 +297,25 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate 
           </thead>
           <tbody>
             {filtered.map((m) => (
-              <Row key={m.id} matrix={m} onSetDate={onSetDate} onSelectMatrix={onSelectMatrix} onDeleteDate={onDeleteDate} showCycles={showCycles} />
+              <Row key={m.id} matrix={m} onSetDate={onSetDate} onSelectMatrix={onSelectMatrix} onDeleteDate={onDeleteDate} showCycles={showCycles} onQuickEdit={(matrix, event) => setQuickEditModal({ open: true, matrix, event })} />
             ))}
           </tbody>
         </table>
       </CardContent>
+
+      {/* Modal de edição rápida */}
+      <QuickEventEditModal
+        open={quickEditModal.open}
+        onOpenChange={(open) => setQuickEditModal({ open, matrix: null, event: null })}
+        matrix={quickEditModal.matrix}
+        event={quickEditModal.event}
+        onUpdateEvent={onUpdateEvent || (async () => {})}
+      />
     </Card>
   );
 }
 
-function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = false }: { matrix: Matrix; onSetDate: MatrixSheetProps["onSetDate"]; onSelectMatrix?: MatrixSheetProps["onSelectMatrix"]; onDeleteDate?: MatrixSheetProps["onDeleteDate"]; showCycles?: boolean; }) {
+function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = false, onQuickEdit }: { matrix: Matrix; onSetDate: MatrixSheetProps["onSetDate"]; onSelectMatrix?: MatrixSheetProps["onSelectMatrix"]; onDeleteDate?: MatrixSheetProps["onDeleteDate"]; showCycles?: boolean; onQuickEdit?: (matrix: Matrix, event: MatrixEvent) => void; }) {
   const [extraOpen, setExtraOpen] = useState(false);
   // helpers para extrair ocorrências por tipo
   const byType = (t: string) => matrix.events.filter((e) => e.type === t).sort((a, b) => a.date.localeCompare(b.date));
@@ -360,6 +373,9 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
     : null;
   const highlight = typeof daysSinceReceived === "number" && daysSinceReceived > 30;
 
+  // Obter o primeiro evento de teste para edição rápida
+  const firstTestEvent = tests[0];
+
   return (
     <>
     <tr className={`border-b align-top [&>td]:py-1 [&>td]:px-1 ${highlight ? "bg-red-100/80" : ""}`}>
@@ -378,6 +394,18 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
         )}
       </td>
       <td className="whitespace-nowrap">{formatDateBR(matrix.receivedDate)}</td>
+      <td className="text-center">
+        {firstTestEvent && onQuickEdit && (
+          <button
+            type="button"
+            className="h-5 w-5 inline-flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+            onClick={() => onQuickEdit(matrix, firstTestEvent)}
+            title="Editar Status e Observações"
+          >
+            <Edit2 className="h-4 w-4" />
+          </button>
+        )}
+      </td>
       <td className="text-center font-semibold">{daysSinceReceived ?? "-"}</td>
       {/* 1º teste */}
       <td><DateCell value={test1} onChange={(d) => onSetDate(matrix.id, "test1", d)} /></td>

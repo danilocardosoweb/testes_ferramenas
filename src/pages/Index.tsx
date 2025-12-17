@@ -21,10 +21,15 @@ import { FlowView } from "@/components/FlowView";
 import { MatrixDashboard } from "@/components/MatrixDashboard";
 import { ApprovedToolsView } from "@/components/ApprovedToolsView";
 import { MatrixSheet, SheetMilestone } from "@/components/MatrixSheet";
-import { ChevronRight } from "lucide-react";
 import { MatrixForm } from "@/components/MatrixForm";
 import { EventForm } from "@/components/EventForm";
 import { ImportExport } from "@/components/ImportExport";
+import { RomaneioForm } from "@/components/RomaneioForm";
+import { RomaneioInterface } from "@/components/RomaneioInterface";
+import { CleaningOrdersTable } from "@/components/CleaningOrdersTable";
+import { NitrationOrdersTable } from "@/components/NitrationOrdersTable";
+import { CleaningTrackingDashboard } from "@/components/CleaningTrackingDashboard";
+import { StockInventoryView } from "@/components/StockInventoryView";
 import { EventDetailDialog } from "@/components/EventDetailDialog";
 import { MatrixEditDialog } from "@/components/MatrixEditDialog";
 import { MatrixSummary } from "@/components/MatrixSummary";
@@ -37,6 +42,7 @@ import { LoginDialog } from "@/components/LoginDialog";
 import { ManufacturingView } from "@/components/ManufacturingView";
 import { AnalysisView } from "@/components/AnalysisView";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import NotificationsBell from "@/components/NotificationsBell";
@@ -44,7 +50,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
 import { getCurrentSession, logout } from "@/services/auth";
-import { LogIn, LogOut, Settings, RefreshCw, Mail } from "lucide-react";
+import { LogIn, LogOut, Settings, RefreshCw, Mail, ChevronLeft, ChevronRight } from "lucide-react";
 
 const Index = () => {
   const [matrices, setMatrices] = useState<Matrix[]>([]);
@@ -59,7 +65,7 @@ const Index = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "folders">("flat");
-  const [mainView, setMainView] = useState<"analysis" | "timeline" | "sheet" | "dashboard" | "approved" | "activity" | "kanban" | "testing" | "manufacturing" | "settings">("timeline");
+  const [mainView, setMainView] = useState<"analysis" | "timeline" | "cleaning" | "sheet" | "dashboard" | "approved" | "activity" | "kanban" | "testing" | "manufacturing" | "settings">("timeline");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const STALE_DAYS = 10;
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
@@ -82,6 +88,10 @@ const Index = () => {
   const [dailyAlertOpen, setDailyAlertOpen] = useState(false);
   const [delayedManufacturing, setDelayedManufacturing] = useState<Array<{ code: string; supplier: string; deliveryDate: string; daysLate: number }>>([]);
   const [stalledTests, setStalledTests] = useState<Array<{ code: string; receivedDate: string; daysInProgress: number; status: string }>>([]);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const eventDialogJustClosedRef = useRef(false);
+  const [cleaningSubView, setCleaningSubView] = useState<"romaneio" | "em_limpeza" | "em_nitretacao" | "estoque" | "acompanhamento">("romaneio");
+  const [showModeChooser, setShowModeChooser] = useState(false);
 
   const buildDailyAlertEmail = () => {
     const now = new Date();
@@ -574,6 +584,24 @@ const Index = () => {
     }
   };
 
+  // Fechar painel direito quando o diálogo de evento é aberto, e reabrir quando fecha
+  useEffect(() => {
+    if (eventDetailDialog.open) {
+      // Diálogo abriu: fechar painel direito
+      setRightPanelOpen(false);
+    } else if (!eventDetailDialog.open && eventDetailDialog.event) {
+      // Diálogo fechou: não fazer nada (deixar o usuário controlar)
+      // O painel só abre se o usuário clicar em outra matriz
+    }
+  }, [eventDetailDialog.open]);
+
+  // Abrir painel direito quando uma matriz é selecionada (mas não quando diálogo de evento está aberto)
+  useEffect(() => {
+    if (selectedMatrix && authSession && !eventDetailDialog.open) {
+      setRightPanelOpen(true);
+    }
+  }, [selectedMatrix, authSession, eventDetailDialog.open]);
+
   // Lista base conforme filtros globais (pasta, busca, status, estagnação)
   let baseFiltered = selectedFolder ? matrices.filter((m) => m.folder === selectedFolder) : matrices;
   if (searchTerm.trim()) {
@@ -809,6 +837,10 @@ const Index = () => {
               onClick={() => setMainView("timeline")}
             >Timeline</button>
             <button
+              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "cleaning" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+              onClick={() => setMainView("cleaning")}
+            >Limpeza de Ferr.</button>
+            <button
               className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
               onClick={() => {
                 if (!authSession) {
@@ -939,6 +971,63 @@ const Index = () => {
                   handleMatrixClick(id);
                 }}
               />
+            ) : mainView === "cleaning" ? (
+              <div className="h-full flex flex-col overflow-hidden bg-background">
+                {/* Sub-abas: responsivo para mobile */}
+                <div className="overflow-x-auto border-b bg-muted/30">
+                  <div className="flex gap-1 p-2 md:p-3 min-w-max md:min-w-0">
+                    <button
+                      className={`px-2 md:px-3 py-1 text-xs md:text-sm rounded whitespace-nowrap transition-colors ${cleaningSubView === "romaneio" ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80"}`}
+                      onClick={() => setCleaningSubView("romaneio")}
+                    >
+                      Romaneio
+                    </button>
+                    <button
+                      className={`px-2 md:px-3 py-1 text-xs md:text-sm rounded whitespace-nowrap transition-colors ${cleaningSubView === "em_limpeza" ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80"}`}
+                      onClick={() => setCleaningSubView("em_limpeza")}
+                    >
+                      Em Limpeza
+                    </button>
+                    <button
+                      className={`px-2 md:px-3 py-1 text-xs md:text-sm rounded whitespace-nowrap transition-colors ${cleaningSubView === "em_nitretacao" ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80"}`}
+                      onClick={() => setCleaningSubView("em_nitretacao")}
+                    >
+                      Em Nitretação
+                    </button>
+                    <button
+                      className={`px-2 md:px-3 py-1 text-xs md:text-sm rounded whitespace-nowrap transition-colors ${cleaningSubView === "estoque" ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80"}`}
+                      onClick={() => setCleaningSubView("estoque")}
+                    >
+                      Estoque
+                    </button>
+                    <button
+                      className={`px-2 md:px-3 py-1 text-xs md:text-sm rounded whitespace-nowrap transition-colors ${cleaningSubView === "acompanhamento" ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80"}`}
+                      onClick={() => setCleaningSubView("acompanhamento")}
+                    >
+                      Acompanhamento
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Conteúdo: responsivo para mobile */}
+                <div className="flex-1 overflow-auto p-2 md:p-4" onClick={() => setSelectedMatrix(null)}>
+                  {cleaningSubView === "romaneio" && (
+                    <RomaneioInterface matrices={mainMatrices} />
+                  )}
+                  {cleaningSubView === "em_limpeza" && (
+                    <CleaningOrdersTable />
+                  )}
+                  {cleaningSubView === "em_nitretacao" && (
+                    <NitrationOrdersTable />
+                  )}
+                  {cleaningSubView === "estoque" && (
+                    <StockInventoryView />
+                  )}
+                  {cleaningSubView === "acompanhamento" && (
+                    <CleaningTrackingDashboard />
+                  )}
+                </div>
+              </div>
             ) : mainView === "sheet" ? (
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
                 <MatrixSheet
@@ -1122,6 +1211,7 @@ const Index = () => {
                       });
                     }
                   }}
+                  onUpdateEvent={handleUpdateEvent}
                 />
               </div>
             ) : mainView === "dashboard" ? (
@@ -1187,33 +1277,34 @@ const Index = () => {
             )}
           </div>
         </div>
-        {/* Right Panel - Forms - apenas para usuários logados */}
+        {/* Right Panel - Sheet Drawer - apenas para usuários logados */}
         {selectedMatrix && authSession && (
-          <div
-            className="min-w-[16rem] w-[18rem] md:w-[20rem] lg:w-[22rem] mr-3 md:mr-4 border-l border-border bg-background flex-shrink-0 overflow-y-auto"
-            onDoubleClick={() => setSelectedMatrix(null)}
-            title="Duplo clique para fechar"
-          >
-            <ScrollArea className="h-full">
-              <div className="p-4 space-y-4">
-                <CollapsibleCard title="Resumo da Matriz" defaultOpen={false}>
-                  <MatrixSummary matrix={selectedMatrix} />
-                </CollapsibleCard>
+          <Sheet open={rightPanelOpen} onOpenChange={setRightPanelOpen}>
+              <SheetContent side="right" className="w-full sm:w-[400px] p-0">
+                <SheetHeader className="px-6 py-4 border-b">
+                  <SheetTitle>Painel de Ações</SheetTitle>
+                </SheetHeader>
+                <ScrollArea className="h-[calc(100vh-60px)]">
+                  <div className="p-4 space-y-4">
+                    <CollapsibleCard title="Resumo da Matriz" defaultOpen={false}>
+                      <MatrixSummary matrix={selectedMatrix} />
+                    </CollapsibleCard>
 
-                <CollapsibleCard title="Adicionar Evento" defaultOpen={false}>
-                  <EventForm
-                    onSubmit={handleAddEvent}
-                    defaultDate={selectedMatrix?.events[selectedMatrix.events.length-1]?.date || selectedMatrix?.receivedDate}
-                    minDate={selectedMatrix?.events[selectedMatrix.events.length-1]?.date || selectedMatrix?.receivedDate}
-                  />
-                </CollapsibleCard>
+                    <CollapsibleCard title="Adicionar Evento" defaultOpen={false}>
+                      <EventForm
+                        onSubmit={handleAddEvent}
+                        defaultDate={selectedMatrix?.events[selectedMatrix.events.length-1]?.date || selectedMatrix?.receivedDate}
+                        minDate={selectedMatrix?.events[selectedMatrix.events.length-1]?.date || selectedMatrix?.receivedDate}
+                      />
+                    </CollapsibleCard>
 
-                <CollapsibleCard title="Importar / Exportar" defaultOpen={false}>
-                  <ImportExport matrices={matrices} onImport={handleImport} />
-                </CollapsibleCard>
-              </div>
-            </ScrollArea>
-          </div>
+                    <CollapsibleCard title="Importar / Exportar" defaultOpen={false}>
+                      <ImportExport matrices={matrices} onImport={handleImport} />
+                    </CollapsibleCard>
+                  </div>
+                </ScrollArea>
+              </SheetContent>
+            </Sheet>
         )}
       </div>
 
@@ -1289,8 +1380,42 @@ const Index = () => {
         onLoginSuccess={(session) => {
           setAuthSession(session);
           toast({ title: "Login realizado", description: `Bem-vindo, ${session.user.name}!` });
+          // Abre escolha de modo sem interferir no modal de alertas (que tem estado próprio)
+          setShowModeChooser(true);
         }}
       />
+
+      {/* Modal Pós-Login: Escolha de Modo */}
+      <Dialog open={showModeChooser} onOpenChange={setShowModeChooser}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Como deseja iniciar?</DialogTitle>
+            <DialogDescription>Selecione o modo de trabalho para esta sessão.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Button
+              className="h-20 flex flex-col items-center justify-center gap-2"
+              onClick={() => {
+                setMainView("cleaning");
+                setCleaningSubView("em_limpeza");
+                setShowModeChooser(false);
+              }}
+            >
+              Limpeza de Ferr.
+            </Button>
+            <Button
+              variant="outline"
+              className="h-20 flex flex-col items-center justify-center gap-2"
+              onClick={() => {
+                // Abre app normalmente (mantém mainView atual)
+                setShowModeChooser(false);
+              }}
+            >
+              Controle de Ferramenta
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

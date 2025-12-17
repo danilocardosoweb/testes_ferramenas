@@ -49,7 +49,7 @@ export const EventDetailDialog = ({
     setFiles(Array.isArray(event.files) ? [...event.files] : []);
     setTestStatus(event.testStatus || "");
     setEventDate(event.date || "");
-  }, [open, event?.id]);
+  }, [open, event]);
 
   // Ao fechar, evita que o próximo evento herde valores do anterior
   useEffect(() => {

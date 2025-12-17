@@ -3,10 +3,11 @@ import { Matrix, MatrixEvent } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronRight, Eye, Download, Calendar as CalendarIcon, X, Filter as FilterIcon } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, Download, Calendar as CalendarIcon, X, Filter as FilterIcon, Paperclip } from "lucide-react";
 import { FinalReportDialog } from "./FinalReportDialog";
 import * as XLSX from "xlsx";
 import { useToast } from "@/components/ui/use-toast";
+import { listAttachments } from "@/services/files";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -287,6 +288,28 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
   const [expandedYears, setExpandedYears] = React.useState<Record<string, boolean>>({});
   const [expandedMonths, setExpandedMonths] = React.useState<Record<string, boolean>>({});
   const [selectedTool, setSelectedTool] = React.useState<Matrix | null>(null);
+  const [matrixAttachments, setMatrixAttachments] = React.useState<Record<string, boolean>>({});
+
+  // Carregar informações de anexos para cada matriz
+  React.useEffect(() => {
+    const loadAttachments = async () => {
+      const attachmentMap: Record<string, boolean> = {};
+      for (const matrix of approved) {
+        try {
+          const attachments = await listAttachments(matrix.id);
+          attachmentMap[matrix.id] = (attachments?.docsProjetos?.length ?? 0) > 0 || (attachments?.rip?.length ?? 0) > 0;
+        } catch (err) {
+          console.error(`Erro ao carregar anexos para ${matrix.id}:`, err);
+          attachmentMap[matrix.id] = false;
+        }
+      }
+      setMatrixAttachments(attachmentMap);
+    };
+    
+    if (approved.length > 0) {
+      loadAttachments();
+    }
+  }, [approved]);
   
   // Códigos únicos de matrizes para o dropdown
   const matrixCodes = React.useMemo(() => {
@@ -632,6 +655,11 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
                                   <span>{m.code}</span>
                                   <span className="text-muted-foreground text-sm">{formatted}</span>
                                   {apontado && <span className="text-muted-foreground text-xs">({apontado})</span>}
+                                  {matrixAttachments[m.id] && (
+                                    <div title="Tem anexos">
+                                      <Paperclip className="h-4 w-4 text-blue-600" />
+                                    </div>
+                                  )}
                                 </div>
                                 <Button 
                                   variant="ghost" 
