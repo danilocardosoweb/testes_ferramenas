@@ -44,6 +44,7 @@ async function parseFerramentasWorkbook(file: File) {
       "Box": r["Box"] ?? r["BOX"] ?? r["Box Atual"] ?? r["BoxAtual"] ?? r["Local"] ?? r["Localizacao"] ?? r["Localização"] ?? r["Posição"] ?? r["Posicao"] ?? null,
       // Vida/Necessidade de Nitretação para acompanhamento
       "Vd Nitret": r["Vd Nitret"] ?? r["Vd Nitretação"] ?? r["Vida Nitretação"] ?? r["Vida Nitret"] ?? r["Vd.Nitret"] ?? r["Vd_Nitret"] ?? null,
+      "Diametro": r["Diametro"] ?? r["Diâmetro"] ?? r["Diametro (mm)"] ?? r["Diâmetro (mm)"] ?? r["Diametro mm"] ?? r["Diâmetro mm"] ?? null,
     },
   }));
 }

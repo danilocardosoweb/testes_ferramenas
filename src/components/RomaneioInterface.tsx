@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Matrix } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ interface RomaneioDraftLine {
   stock: boolean;
   box: string;
   dropdownOpen: boolean;
+  highlightedIndex: number;
   imageName: string;
   imageFile: File | null;
 }
@@ -47,8 +48,7 @@ const deriveSequenceFromCode = (code: string) => {
     const lastPart = slashParts[slashParts.length - 1];
     if (lastPart) return lastPart.trim();
   }
-  const match = code.match(/(\d{1,3})$/);
-  return match ? match[1] : "";
+  return "";
 };
 
 const createEmptyLine = (): RomaneioDraftLine => ({
@@ -60,6 +60,7 @@ const createEmptyLine = (): RomaneioDraftLine => ({
   stock: false,
   box: "",
   dropdownOpen: false,
+  highlightedIndex: 0,
   imageName: "",
   imageFile: null,
 });
@@ -68,14 +69,25 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
   const [records, setRecords] = useState<RomaneioRecord[]>([]);
   const [activeTools, setActiveTools] = useState<Array<{ code: string; sequences: string[] }>>([]);
   const [vdNitretMap, setVdNitretMap] = useState<Record<string, string | null>>({}); // chave: CODE|SEQ
+  const [diametroMap, setDiametroMap] = useState<Record<string, string | null>>({}); // chave: CODE|SEQ
   const [loadingTools, setLoadingTools] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
  
   const [batchDate, setBatchDate] = useState(new Date().toISOString().split("T")[0]);
   const [lines, setLines] = useState<RomaneioDraftLine[]>([createEmptyLine()]);
+  const toolInputRef = useRef<HTMLInputElement | null>(null);
+  const [focusToolNext, setFocusToolNext] = useState(false);
   
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!focusToolNext) return;
+    window.requestAnimationFrame(() => {
+      toolInputRef.current?.focus();
+      setFocusToolNext(false);
+    });
+  }, [focusToolNext, lines.length]);
 
   const fmtISODate = (iso: string) => {
     const clean = (iso || "").split("T")[0];
@@ -87,10 +99,38 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
     return iso;
   };
 
+  const formatToolExternal = (toolCode: string, sequence?: string | null) => {
+    const codeClean = (toolCode || "")
+      .toUpperCase()
+      .trim()
+      .replace(/[^A-Z0-9]/g, "");
+    const seqRaw = (sequence ?? "").toString().trim();
+    const seqNum = Number.parseInt(seqRaw, 10);
+    const seq = Number.isFinite(seqNum) ? String(seqNum).padStart(3, "0") : seqRaw ? seqRaw.padStart(3, "0") : "";
+    return seq ? `F-${codeClean}/${seq}` : `F-${codeClean}`;
+  };
+
   const parseVdNitretNumber = (val?: string | null): number | null => {
     if (val == null) return null;
-    const s = String(val).replace(/\./g, '').replace(/,/g, '.');
-    const match = s.match(/-?\d+(?:\.\d+)?/);
+    const raw = String(val).trim();
+
+    const lastComma = raw.lastIndexOf(',');
+    const lastDot = raw.lastIndexOf('.');
+
+    let normalized = raw;
+    if (lastComma !== -1 && lastDot !== -1) {
+      if (lastComma > lastDot) {
+        normalized = raw.replace(/\./g, '').replace(/,/g, '.');
+      } else {
+        normalized = raw.replace(/,/g, '');
+      }
+    } else if (lastComma !== -1) {
+      normalized = raw.replace(/,/g, '.');
+    } else {
+      normalized = raw;
+    }
+
+    const match = normalized.match(/-?\d+(?:\.\d+)?/);
     if (!match) return null;
     const num = Number(match[0]);
     return Number.isFinite(num) ? num : null;
@@ -163,6 +203,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
 
         const toolsMap = new Map<string, Set<string>>();
         const vdMap: Record<string, string | null> = {};
+        const diaMap: Record<string, string | null> = {};
         activeOnly.forEach((row: any) => {
           const codeRaw = (row.ferramenta_code ?? row.payload?.Matriz ?? row.payload?.Ferramenta ?? "").toString();
           const seqRaw = (row.ferramenta_seq ?? row.payload?.Seq ?? "").toString();
@@ -179,6 +220,9 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
           const vd = (row.payload?.["Vd Nitret"] ?? row.payload?.["Vd Nitretação"] ?? row.payload?.["Vida Nitretação"] ?? row.payload?.["Vida Nitret"] ?? row.payload?.["Vd.Nitret"] ?? row.payload?.["Vd_Nitret"]) ?? null;
           const key = `${code.toUpperCase()}|${seq}`;
           if (key) vdMap[key] = vd != null ? String(vd) : null;
+
+          const dia = (row.payload?.["Diametro"] ?? row.payload?.["Diâmetro"] ?? row.payload?.["Diametro (mm)"] ?? row.payload?.["Diâmetro (mm)"] ?? row.payload?.["Ø"] ?? row.payload?.["diametro"]) ?? null;
+          if (key) diaMap[key] = dia != null ? String(dia) : null;
         });
 
         const tools = Array.from(toolsMap.entries()).map(([code, sequences]) => ({
@@ -193,6 +237,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
         console.log(`Carregadas ${tools.length} ferramentas ativas do banco de dados (registros lidos: ${allRows.length})`);
         setActiveTools(tools);
         setVdNitretMap(vdMap);
+        setDiametroMap(diaMap);
       } catch (err) {
         console.error("Erro ao carregar ferramentas ativas:", err);
         setActiveTools([]);
@@ -229,18 +274,19 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
   const getLineToolData = (toolCode: string) => activeTools.find((t) => t.code === toolCode);
 
   const handleSelectTool = (lineId: string, toolCode: string) => {
-    const toolData = getLineToolData(toolCode);
-    const derivedSeq = deriveSequenceFromCode(toolCode) || toolData?.sequences[0] || "1";
-    updateLine(lineId, { toolCode, toolSearch: toolCode, dropdownOpen: false, sequence: derivedSeq });
+    const upperCode = toolCode.toUpperCase();
+    const toolData = getLineToolData(upperCode);
+    const derivedSeq = toolData?.sequences[0] || "1";
+    updateLine(lineId, { toolCode: upperCode, toolSearch: upperCode, dropdownOpen: false, sequence: derivedSeq });
   };
 
   const handleSelectToolSeq = (lineId: string, toolCode: string, seq: string) => {
-    const chosenSeq = seq || deriveSequenceFromCode(toolCode) || "1";
-    updateLine(lineId, { toolCode, toolSearch: toolCode, dropdownOpen: false, sequence: chosenSeq });
+    const upperCode = toolCode.toUpperCase();
+    const chosenSeq = seq || deriveSequenceFromCode(upperCode) || "1";
+    updateLine(lineId, { toolCode: upperCode, toolSearch: upperCode, dropdownOpen: false, sequence: chosenSeq, highlightedIndex: 0 });
   };
 
   const clearBatch = () => {
-    setBatchDate(new Date().toISOString().split("T")[0]);
     setLines([createEmptyLine()]);
   };
 
@@ -280,11 +326,49 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
       }
     }
 
+    const dupCounts = new Map<string, number>();
+    for (const l of validLines) {
+      const code = (l.toolCode || l.toolSearch || "").trim().toUpperCase();
+      const seq = (l.sequence || "1").trim();
+      const key = `${code}|${seq}`;
+      dupCounts.set(key, (dupCounts.get(key) ?? 0) + 1);
+    }
+    const dups = Array.from(dupCounts.entries()).filter(([, count]) => count > 1);
+    if (dups.length > 0) {
+      const txt = dups.map(([k]) => {
+        const [code, seq] = k.split("|");
+        return `${code} / ${seq}`;
+      }).join(", ");
+      toast({ title: "Erro", description: `Lote com ferramentas duplicadas: ${txt}`, variant: "destructive" });
+      return;
+    }
+
+    const existingSet = new Set(
+      records
+        .filter((r) => r.date === batchDate)
+        .map((r) => `${(r.toolCode || "").trim().toUpperCase()}|${(r.sequence || "1").trim()}`)
+    );
+    const alreadyAdded = Array.from(dupCounts.keys()).filter((k) => existingSet.has(k));
+    if (alreadyAdded.length > 0) {
+      const txt = alreadyAdded
+        .map((k) => {
+          const [code, seq] = k.split("|");
+          return `${code} / ${seq}`;
+        })
+        .join(", ");
+      toast({
+        title: "Alerta",
+        description: `Essas ferramentas já foram lançadas hoje e não podem repetir: ${txt}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const newRecords: RomaneioRecord[] = validLines.map((l, idx) => ({
       id: crypto.randomUUID(),
       date: batchDate,
-      toolCode: l.toolCode,
-      sequence: l.sequence || deriveSequenceFromCode(l.toolCode) || "1",
+      toolCode: l.toolCode.toUpperCase(),
+      sequence: l.sequence || "1",
       cleaning: l.cleaning,
       stock: l.stock,
       box: l.box,
@@ -295,6 +379,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
 
     setRecords((prev) => [...newRecords, ...prev]);
     toast({ title: "Sucesso", description: `Registradas ${newRecords.length} linha(s) no romaneio` });
+    setFocusToolNext(true);
     clearBatch();
   };
 
@@ -306,7 +391,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
     const headers = ["Data", "Ferramenta", "Sequência", "Destino", "Box", "Imagem"];
     const lines = rows.map((r) => [
       r.date,
-      r.toolCode,
+      formatToolExternal(r.toolCode, r.sequence),
       r.sequence,
       r.cleaning ? "Limpeza" : r.stock ? "Estoque" : "",
       r.box ?? "",
@@ -334,7 +419,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
       const d = r.date ? new Date(r.date) : null;
       aoa.push([
         d && !isNaN(d.getTime()) ? d : r.date,
-        r.toolCode,
+        formatToolExternal(r.toolCode, r.sequence),
         r.sequence,
         r.cleaning ? "Limpeza" : r.stock ? "Estoque" : "",
         r.box ?? "",
@@ -394,6 +479,11 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
       nf_retorno: null as string | null,
       nitretacao: false,
       observacoes: null as string | null,
+      diametro_mm: (() => {
+        const raw = diametroMap[`${r.toolCode.toUpperCase()}|${r.sequence}`];
+        const n = parseVdNitretNumber(raw);
+        return n == null ? null : n;
+      })(),
     }));
     const { error } = await supabase.from("cleaning_orders").insert(payload);
     if (error) {
@@ -429,18 +519,18 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                   className="h-11 md:h-10 text-sm"
                 />
               </div>
-              <div className="md:col-span-2 flex items-end gap-2">
+              <div className="md:col-span-2 flex flex-col sm:flex-row sm:items-end gap-2">
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 md:h-10"
+                  className="h-11 md:h-10 w-full sm:w-auto"
                   onClick={clearBatch}
                 >
                   Limpar
                 </Button>
                 <Button
                   type="button"
-                  className="h-11 md:h-10"
+                  className="h-11 md:h-10 w-full sm:w-auto"
                   onClick={addLine}
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -457,10 +547,15 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                 <div className="col-span-3">Box</div>
               </div>
               {lines.map((line, idx) => {
-                const search = line.toolSearch.trim().toLowerCase();
+                const search = line.toolSearch.trim().toUpperCase();
                 const filteredTools = search
-                  ? activeTools.filter((t) => t.code.toLowerCase().includes(search))
+                  ? activeTools.filter((t) => t.code.toUpperCase().includes(search))
                   : activeTools;
+
+                const flatOptions = filteredTools.flatMap((tool) => {
+                  const seqs = tool.sequences && tool.sequences.length > 0 ? tool.sequences : ["1"];
+                  return seqs.map((seq) => ({ code: tool.code, seq }));
+                });
 
                 return (
                   <div key={line.id} className="border rounded-lg p-3 md:p-2.5">
@@ -476,16 +571,46 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                         <Input
                           type="text"
                           placeholder="Digitar código..."
+                          ref={idx === 0 ? toolInputRef : undefined}
                           value={line.toolSearch}
                           onChange={(e) =>
                             updateLine(line.id, {
-                              toolSearch: e.target.value,
+                              toolSearch: e.target.value.toUpperCase(),
                               toolCode: "",
                               sequence: "",
                               dropdownOpen: true,
+                              highlightedIndex: 0,
                             })
                           }
-                          onFocus={() => updateLine(line.id, { dropdownOpen: true })}
+                          onFocus={() => updateLine(line.id, { dropdownOpen: true, highlightedIndex: 0 })}
+                          onKeyDown={(e) => {
+                            if (!line.dropdownOpen) return;
+                            if (flatOptions.length === 0) return;
+
+                            if (e.key === "ArrowDown") {
+                              e.preventDefault();
+                              const nextIndex = Math.min(line.highlightedIndex + 1, flatOptions.length - 1);
+                              updateLine(line.id, { highlightedIndex: nextIndex });
+                              window.requestAnimationFrame(() => {
+                                const el = document.getElementById(`opt-${line.id}-${nextIndex}`);
+                                el?.scrollIntoView({ block: "nearest" });
+                              });
+                            }
+                            if (e.key === "ArrowUp") {
+                              e.preventDefault();
+                              const nextIndex = Math.max(line.highlightedIndex - 1, 0);
+                              updateLine(line.id, { highlightedIndex: nextIndex });
+                              window.requestAnimationFrame(() => {
+                                const el = document.getElementById(`opt-${line.id}-${nextIndex}`);
+                                el?.scrollIntoView({ block: "nearest" });
+                              });
+                            }
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const opt = flatOptions[line.highlightedIndex];
+                              if (opt) handleSelectToolSeq(line.id, opt.code, opt.seq);
+                            }
+                          }}
                           onBlur={() => {
                             const typed = line.toolSearch;
                             window.setTimeout(() => {
@@ -493,15 +618,15 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                                 prev.map((l) => {
                                   if (l.id !== line.id) return l;
                                   if (l.toolCode) return { ...l, dropdownOpen: false };
-                                  const term = typed.trim().toLowerCase();
+                                  const term = typed.trim().toUpperCase();
                                   if (!term) return { ...l, dropdownOpen: false };
-                                  const match = activeTools.find((t) => t.code.toLowerCase() === term);
+                                  const match = activeTools.find((t) => t.code.toUpperCase() === term);
                                   if (!match) return { ...l, dropdownOpen: false };
                                   const derivedSeq = deriveSequenceFromCode(match.code) || match.sequences[0] || "1";
                                   return {
                                     ...l,
-                                    toolCode: match.code,
-                                    toolSearch: match.code,
+                                    toolCode: match.code.toUpperCase(),
+                                    toolSearch: match.code.toUpperCase(),
                                     sequence: derivedSeq,
                                     dropdownOpen: false,
                                   };
@@ -523,9 +648,18 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                               return seqs.map((seq) => (
                                 <button
                                   key={`${tool.code}__${seq}`}
+                                  id={`opt-${line.id}-${flatOptions.findIndex((o) => o.code === tool.code && o.seq === seq)}`}
                                   type="button"
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-primary/10 transition-colors border-b last:border-b-0"
+                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-primary/10 transition-colors border-b last:border-b-0 ${
+                                    flatOptions.findIndex((o) => o.code === tool.code && o.seq === seq) === line.highlightedIndex
+                                      ? "bg-primary/10"
+                                      : ""
+                                  }`}
                                   onClick={() => handleSelectToolSeq(line.id, tool.code, seq)}
+                                  onMouseEnter={() => {
+                                    const i = flatOptions.findIndex((o) => o.code === tool.code && o.seq === seq);
+                                    if (i >= 0) updateLine(line.id, { highlightedIndex: i });
+                                  }}
                                 >
                                   <span className="font-semibold">{tool.code}</span>
                                   <span className="text-xs text-muted-foreground ml-2">/ {seq}</span>
@@ -735,10 +869,13 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                         if (!raw) return null;
                         const n = parseVdNitretNumber(raw);
                         const isNeg = n != null && n < 0;
+                        const vdFmt = n == null
+                          ? raw
+                          : new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
                         return (
                           <>
                             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded ${isNeg ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                              Vd Nitret: {raw}
+                              Vd Nitret: {vdFmt}
                             </span>
                             {isNeg && (
                               <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white">

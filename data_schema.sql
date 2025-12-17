@@ -160,6 +160,16 @@ REVOKE EXECUTE ON FUNCTION public.analysis_ferramentas_truncate() FROM anon, aut
 DROP FUNCTION IF EXISTS public.analysis_ferramentas_truncate();
 
 -- =============================================
+-- 17/12/2025 - Migração: Registrar diâmetro da ferramenta em cleaning_orders
+-- Objetivo: Persistir diâmetro (mm) para aplicar regra de SLA (grande > 300mm)
+-- =============================================
+ALTER TABLE public.cleaning_orders
+  ADD COLUMN IF NOT EXISTS diametro_mm numeric;
+
+-- Rollback (diametro_mm)
+-- ALTER TABLE public.cleaning_orders DROP COLUMN IF EXISTS diametro_mm;
+
+-- =============================================
 -- 12/11/2025 - Migração: Campos "package_size" e "hole_count" em manufacturing_records
 -- Objetivo: alinhar formulário da aba Confecção com o schema
 -- =============================================

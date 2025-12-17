@@ -164,6 +164,23 @@ Este documento descreve as entidades e relacionamentos utilizados no Supabase (P
   - `created_at (timestamptz, default now())`
   - Observação: consumida pelo `KeywordsManagerDialog` na área de Análise (Produção/Análise de Ferramenta) para calcular ocorrências e percentuais de causas.
 
+- **cleaning_orders**
+  - `id (uuid, PK)`
+  - `ferramenta (text)`
+  - `sequencia (text, nullable)`
+  - `data_saida (date)`
+  - `data_retorno (date, nullable)`
+  - `nf_saida (text, nullable)`
+  - `nf_retorno (text, nullable)`
+  - `nitretacao (boolean, default false)`
+  - `data_entrada_nitretacao (date, nullable)`
+  - `data_saida_nitretacao (date, nullable)`
+  - `observacoes (text, nullable)`
+  - `observacoes_nitretacao (text, nullable)`
+  - `diametro_mm (numeric, nullable)` — diâmetro em mm (regra: ferramenta grande se > 300mm)
+  - `created_at (timestamptz)`
+  - `updated_at (timestamptz)`
+
 - **manufacturing_records**
   - `id (uuid, PK)`
   - `matrix_id (uuid, FK -> matrices.id, on delete cascade)`

@@ -1,3 +1,52 @@
+## Iteração 17/12/2025 (SLA Limpeza com Dias Úteis e Baixa por NF-e)
+
+- **SLA de Limpeza com Dias Úteis**
+  - Regra diferenciada por tamanho da ferramenta:
+    - **Pequena** (diâmetro ≤ 300 mm): 1 dia útil (segunda-sexta)
+    - **Grande** (diâmetro > 300 mm): 3 dias úteis
+  - Exemplo: Saída sexta-feira → retorno segunda-feira (pequena) ou quinta-feira (grande)
+  - Implementação: `addBusinessDays()`, `businessDaysBetween()`, `isWeekend()`
+  - Ajustado SLA de nitretação para 3 dias (antes 7)
+
+- **Persistência de Diâmetro**
+  - Nova coluna `diametro_mm` (numeric, nullable) em `cleaning_orders`
+  - Captura automática do payload de `analysis_ferramentas` no romaneio
+  - Aliases suportados: Diametro, Diâmetro, Diametro (mm), Diâmetro (mm), Diametro mm, Diâmetro mm
+  - Arquivo: `data_schema.sql` com rollback
+
+- **Formatação de Código Externo**
+  - Padrão: `F-CODE/SEQ` (ex: `F-EXP908/001`)
+  - Aplicado em: Excel, CSV, e-mail de NF
+  - Função: `formatToolExternal(toolCode, sequence)`
+  - Regra: Remove hífen/caracteres especiais, prefixo F-, sequência com 3 dígitos
+
+- **Importação de NF-e para Baixa Automática**
+  - Ícone de upload na aba "Em Limpeza"
+  - Suporte: XML (completo), PDF (placeholder)
+  - Parser robusto para XML com namespace:
+    - Extrai: `nNF`, `serie`, `dhEmi`/`dEmi`, ferramentas de `xProd`/`infAdProd`/`infCpl`
+    - Funções: `getTextByLocalName()`, `getAllTextByLocalName()`
+  - Extração de ferramentas: Regex para padrão `CODE/SEQ` (ex: `TFV011/02`)
+  - Normalização: Remove hífen, sequência vira número (02 → 2)
+  - Modal profissional de preview:
+    - Data em PT-BR (DD/MM/AAAA)
+    - Número da nota (nNF/série)
+    - Total de ferramentas na nota
+    - Lista de encontradas para baixa
+    - Lista de não encontradas
+  - Ação: Confirmar aplica baixa automática:
+    - Atualiza `data_retorno` e `nf_retorno` no banco
+    - Preenche campos de data/NF na UI
+    - Seleciona itens automaticamente
+
+- **Arquivos Modificados**
+  - `data_schema.sql`: Coluna `diametro_mm`
+  - `database_schema.md`: Documentação de `cleaning_orders`
+  - `src/components/RomaneioInterface.tsx`: Captura e persistência de diâmetro, formatação externa
+  - `src/components/CleaningTrackingDashboard.tsx`: Cálculo de dias úteis, SLA diferenciado
+  - `src/components/analysis/AnalysisFerramentasView.tsx`: Inclusão de Diametro no payload
+  - `src/components/CleaningOrdersTable.tsx`: Importação de NF-e, modal de preview, baixa automática
+
 ## Iteração 15/12/2025 (Integração LLM - Parecer de Matrizes)
 
 - **Integração LLM para Análise Inteligente**

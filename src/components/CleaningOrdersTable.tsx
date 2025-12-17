@@ -1,12 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabaseClient";
-import { Trash2, Check, AlertCircle, Download, ChevronDown, ChevronRight, Mail, MoreVertical, Edit } from "lucide-react";
+import { Trash2, Check, AlertCircle, Download, ChevronDown, ChevronRight, Mail, MoreVertical, Edit, Upload } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +45,14 @@ interface FilterState {
   ferramenta: string;
 }
 
+type DevolucaoPreview = {
+  nfLabel: string;
+  dateISO: string;
+  totalFerramentasNota: number;
+  matched: CleaningOrder[];
+  missing: string[];
+};
+
 const fmtDateBR = (iso?: string) => {
   if (!iso) return "-";
   const s = String(iso);
@@ -43,6 +61,17 @@ const fmtDateBR = (iso?: string) => {
   const dd = s.slice(8, 10);
   if (!yyyy || !mm || !dd) return "-";
   return `${dd}/${mm}/${yyyy}`;
+};
+
+const formatToolExternal = (toolCode: string, sequence?: string | null) => {
+  const codeClean = (toolCode || "")
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9]/g, "");
+  const seqRaw = (sequence ?? "").toString().trim();
+  const seqNum = Number.parseInt(seqRaw, 10);
+  const seq = Number.isFinite(seqNum) ? String(seqNum).padStart(3, "0") : seqRaw ? seqRaw.padStart(3, "0") : "";
+  return seq ? `F-${codeClean}/${seq}` : `F-${codeClean}`;
 };
 
 export function CleaningOrdersTable() {
@@ -62,7 +91,10 @@ export function CleaningOrdersTable() {
     dataFim: "",
     ferramenta: "",
   });
+  const [devolucaoPreview, setDevolucaoPreview] = useState<DevolucaoPreview | null>(null);
+  const [applyingDevolucao, setApplyingDevolucao] = useState(false);
   const { toast } = useToast();
+  const fileImportRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadOrders();
@@ -101,6 +133,175 @@ export function CleaningOrdersTable() {
       setOrders([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const normKey = (toolCode: string, seq?: string | null) => {
+    const code = (toolCode || "")
+      .toUpperCase()
+      .trim()
+      .replace(/[^A-Z0-9]/g, "");
+    const seqRaw = (seq ?? "").toString().trim();
+    const seqNum = Number.parseInt(seqRaw, 10);
+    const seqKey = Number.isFinite(seqNum) ? String(seqNum) : "";
+    return `${code}|${seqKey}`;
+  };
+
+  const extractToolsFromText = (text: string) => {
+    const out: Array<{ code: string; seq: string }> = [];
+    const re = /([A-Z0-9-]{3,})\s*\/\s*(\d{1,3})/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const codeRaw = (m[1] ?? "").toString();
+      const seqRaw = (m[2] ?? "").toString();
+      const code = codeRaw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const seqNum = Number.parseInt(seqRaw, 10);
+      const seq = Number.isFinite(seqNum) ? String(seqNum) : seqRaw;
+      if (code && seq) out.push({ code, seq });
+    }
+    return out;
+  };
+
+  const applyDevolucaoBaixa = async (preview: DevolucaoPreview) => {
+    setApplyingDevolucao(true);
+    try {
+      const ids = preview.matched.map((o) => o.id);
+      const { error: upErr } = await supabase
+        .from("cleaning_orders")
+        .update({ data_retorno: preview.dateISO, nf_retorno: preview.nfLabel })
+        .in("id", ids);
+      if (upErr) throw upErr;
+
+      const affectedDates = Array.from(new Set(preview.matched.map((o) => o.data_saida)));
+      setBulkReturnDate((prev) => {
+        const next = { ...prev };
+        affectedDates.forEach((d) => {
+          next[d] = preview.dateISO;
+        });
+        return next;
+      });
+      setBulkNF((prev) => {
+        const next = { ...prev };
+        affectedDates.forEach((d) => {
+          next[d] = preview.nfLabel;
+        });
+        return next;
+      });
+      setSelected(new Set(ids));
+
+      toast({ title: "Baixa aplicada", description: `Baixadas ${preview.matched.length} ferramenta(s) pela NF ${preview.nfLabel}.` });
+      setDevolucaoPreview(null);
+      loadOrders();
+    } catch (err: any) {
+      toast({ title: "Erro", description: err?.message ?? String(err), variant: "destructive" });
+    } finally {
+      setApplyingDevolucao(false);
+    }
+  };
+
+  const handleImportDevolucao = async (file: File) => {
+    const name = (file.name || "").toLowerCase();
+    const isXml = name.endsWith(".xml") || file.type.includes("xml") || file.type === "text/xml";
+    const isPdf = name.endsWith(".pdf") || file.type === "application/pdf";
+
+    if (isPdf) {
+      toast({
+        title: "PDF ainda não suportado",
+        description: "Para teste agora, envie o XML da NF-e. Para PDF será necessário adicionar uma biblioteca de leitura/OCR.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!isXml) {
+      toast({ title: "Arquivo inválido", description: "Envie um XML da NF-e ou um PDF.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const xmlText = await file.text();
+      const doc = new DOMParser().parseFromString(xmlText, "application/xml");
+      const hasParserError = doc.getElementsByTagName("parsererror").length > 0;
+      if (hasParserError) {
+        throw new Error("XML inválido ou não reconhecido");
+      }
+
+      const getTextByLocalName = (localName: string): string => {
+        const direct = doc.getElementsByTagName(localName)?.[0] as Element | undefined;
+        if (direct?.textContent) return direct.textContent.trim();
+        const all = Array.from(doc.getElementsByTagName("*")) as Element[];
+        const hit = all.find((el) => (el as any).localName === localName);
+        return (hit?.textContent ?? "").trim();
+      };
+
+      const getAllTextByLocalName = (localName: string): string[] => {
+        const direct = Array.from(doc.getElementsByTagName(localName) as any) as Element[];
+        if (direct.length > 0) return direct.map((n) => (n.textContent ?? "").toString());
+        const all = Array.from(doc.getElementsByTagName("*")) as Element[];
+        return all
+          .filter((el) => (el as any).localName === localName)
+          .map((el) => (el.textContent ?? "").toString());
+      };
+
+      const nNF = getTextByLocalName("nNF");
+      const serie = getTextByLocalName("serie");
+      const dhEmi = getTextByLocalName("dhEmi") || getTextByLocalName("dEmi");
+      const dateISO = dhEmi ? dhEmi.slice(0, 10) : new Date().toISOString().slice(0, 10);
+      const nfLabel = [nNF || "?", serie || "?"].join("/");
+
+      const xProdList = getAllTextByLocalName("xProd");
+      const infAdProdList = getAllTextByLocalName("infAdProd");
+      const infCplList = getAllTextByLocalName("infCpl");
+      const combined = [
+        ...xProdList,
+        ...infAdProdList,
+        ...infCplList,
+      ].join("\n");
+      const extracted = extractToolsFromText(combined);
+
+      if (!nNF || extracted.length === 0) {
+        toast({
+          title: "Não foi possível extrair",
+          description: "Não encontrei o número da NF e/ou nenhuma ferramenta no XML (campo de descrição do produto).",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const wantedKeys = Array.from(new Set(extracted.map((t) => `${t.code}|${t.seq}`)));
+
+      const openOrders = orders.filter((o) => !o.data_retorno);
+      const byKey = new Map<string, CleaningOrder>();
+      openOrders.forEach((o) => byKey.set(normKey(o.ferramenta, o.sequencia), o));
+
+      const matched: CleaningOrder[] = [];
+      const missing: string[] = [];
+      wantedKeys.forEach((k) => {
+        const [code, seq] = k.split("|");
+        const key = `${code}|${String(Number.parseInt(seq, 10))}`;
+        const hit = byKey.get(key);
+        if (hit) matched.push(hit);
+        else missing.push(`${code}/${seq}`);
+      });
+
+      if (matched.length === 0) {
+        toast({
+          title: "Nenhuma correspondência",
+          description: "Nenhuma ferramenta do XML foi encontrada em 'Em Limpeza' (sem retorno).",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setDevolucaoPreview({
+        nfLabel,
+        dateISO,
+        totalFerramentasNota: wantedKeys.length,
+        matched,
+        missing,
+      });
+    } catch (err: any) {
+      toast({ title: "Erro", description: err?.message ?? String(err), variant: "destructive" });
     }
   };
 
@@ -315,7 +516,7 @@ export function CleaningOrdersTable() {
     for (const o of chosen) {
       const nitre = o.nitretacao ? "Sim" : "Não";
       const obs = o.observacoes ? String(o.observacoes) : "-";
-      lines.push(`${o.ferramenta}${o.sequencia ? ` / ${o.sequencia}` : ""} | ${fmtDateBR(o.data_saida)} | ${nitre} | ${obs}`);
+      lines.push(`${formatToolExternal(o.ferramenta, o.sequencia)} | ${fmtDateBR(o.data_saida)} | ${nitre} | ${obs}`);
     }
     lines.push("");
     lines.push(`Caso necessitem de informação adicional, fico à disposição.`);
@@ -329,6 +530,75 @@ export function CleaningOrdersTable() {
 
   return (
     <div className="w-full max-w-7xl mx-auto p-2 md:p-4 space-y-4">
+      <AlertDialog open={Boolean(devolucaoPreview)} onOpenChange={(open) => !open && setDevolucaoPreview(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Conferência da Nota de Devolução</AlertDialogTitle>
+            <AlertDialogDescription>
+              Revise os dados extraídos antes de aplicar a baixa.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {devolucaoPreview && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                <div className="rounded border p-2">
+                  <div className="text-xs text-muted-foreground">Data da Nota</div>
+                  <div className="font-semibold">{fmtDateBR(devolucaoPreview.dateISO)}</div>
+                </div>
+                <div className="rounded border p-2">
+                  <div className="text-xs text-muted-foreground">Número da Nota</div>
+                  <div className="font-semibold">{devolucaoPreview.nfLabel}</div>
+                </div>
+                <div className="rounded border p-2">
+                  <div className="text-xs text-muted-foreground">Ferramentas na Nota</div>
+                  <div className="font-semibold">{devolucaoPreview.totalFerramentasNota}</div>
+                </div>
+                <div className="rounded border p-2">
+                  <div className="text-xs text-muted-foreground">Encontradas para baixa</div>
+                  <div className="font-semibold">{devolucaoPreview.matched.length}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded border p-3">
+                  <div className="text-sm font-semibold mb-2">Encontradas</div>
+                  <div className="max-h-40 overflow-auto text-xs space-y-1">
+                    {devolucaoPreview.matched.map((o) => (
+                      <div key={o.id}>
+                        {o.ferramenta}{o.sequencia ? ` / ${o.sequencia}` : ""}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded border p-3">
+                  <div className="text-sm font-semibold mb-2">Não encontradas</div>
+                  <div className="max-h-40 overflow-auto text-xs space-y-1">
+                    {devolucaoPreview.missing.length === 0 ? (
+                      <div>-</div>
+                    ) : (
+                      devolucaoPreview.missing.map((x) => <div key={x}>{x}</div>)
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={applyingDevolucao}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!devolucaoPreview) return;
+                applyDevolucaoBaixa(devolucaoPreview);
+              }}
+              disabled={applyingDevolucao || !devolucaoPreview}
+            >
+              Confirmar baixa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {/* Filtros */}
       <Card className="border-2 border-primary/20">
         <CardContent className="p-4">
@@ -390,20 +660,45 @@ export function CleaningOrdersTable() {
               />
             </div>
             <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={() =>
-                  setFilters({
-                    status: "todas",
-                    dataInicio: "",
-                    dataFim: "",
-                    ferramenta: "",
-                  })
-                }
-                className="w-full h-10"
-              >
-                Limpar
-              </Button>
+              <div className="w-full flex items-center gap-2">
+                <input
+                  ref={fileImportRef}
+                  type="file"
+                  accept=".xml,.pdf,application/xml,text/xml,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    handleImportDevolucao(f);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 w-10 p-0"
+                  title="Dar baixa por NF (XML/PDF)"
+                  onClick={() => {
+                    fileImportRef.current?.click();
+                  }}
+                >
+                  <Upload className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    setFilters({
+                      status: "todas",
+                      dataInicio: "",
+                      dataFim: "",
+                      ferramenta: "",
+                    })
+                  }
+                  className="w-full h-10"
+                >
+                  Limpar
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>
