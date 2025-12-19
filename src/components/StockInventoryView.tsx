@@ -214,60 +214,60 @@ export function StockInventoryView() {
   return (
     <div className="w-full max-w-7xl mx-auto p-2 md:p-4 space-y-4">
       <Card>
-        <CardContent className="p-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+        <CardContent className="p-3 md:p-4 space-y-3 md:space-y-0 md:grid md:grid-cols-5 md:gap-3">
           <div>
-            <label className="text-xs text-muted-foreground">Buscar</label>
-            <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <Input value={filters.term} onChange={(e) => setFilters({ ...filters, term: e.target.value })} placeholder="Ex: TSU-041" className="h-9" />
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Buscar</label>
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input value={filters.term} onChange={(e) => setFilters({ ...filters, term: e.target.value })} placeholder="Ex: TSU-041" className="h-10 pl-8" />
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Box</label>
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
-              <Input value={filters.box} onChange={(e) => setFilters({ ...filters, box: e.target.value })} placeholder="Ex: A1, B2" className="h-9" />
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Box</label>
+            <div className="relative">
+              <MapPin className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input value={filters.box} onChange={(e) => setFilters({ ...filters, box: e.target.value })} placeholder="Ex: A1, B2" className="h-10 pl-8" />
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Status</label>
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value as any })}>
-                <option>Todos</option>
-                <option>Divergentes</option>
-                <option>Iguais</option>
-              </select>
-            </div>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Status</label>
+            <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value as any })}>
+              <option>Todos</option>
+              <option>Divergentes</option>
+              <option>Iguais</option>
+            </select>
           </div>
-          <div className="flex items-end">
-            <Button variant="outline" className="w-full" onClick={() => setFilters({ term: "", box: "", status: "Todos", ativa: "Todas" })}>
+          <div className="md:flex md:items-end">
+            <Button variant="outline" className="w-full h-10" onClick={() => setFilters({ term: "", box: "", status: "Todos", ativa: "Sim" })}>
               <RefreshCcw className="h-4 w-4 mr-1" /> Limpar
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">Total</div><div className="text-2xl font-bold">{stats.total}</div></CardContent></Card>
-        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">Divergentes</div><div className="text-2xl font-bold text-amber-600">{stats.diverg}</div></CardContent></Card>
-        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">Iguais</div><div className="text-2xl font-bold text-emerald-600">{stats.iguais}</div></CardContent></Card>
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
+        <Card><CardContent className="p-2 md:p-3"><div className="text-xs text-muted-foreground">Total</div><div className="text-xl md:text-2xl font-bold">{stats.total}</div></CardContent></Card>
+        <Card><CardContent className="p-2 md:p-3"><div className="text-xs text-muted-foreground">Divergentes</div><div className="text-xl md:text-2xl font-bold text-amber-600">{stats.diverg}</div></CardContent></Card>
+        <Card><CardContent className="p-2 md:p-3"><div className="text-xs text-muted-foreground">Iguais</div><div className="text-xl md:text-2xl font-bold text-emerald-600">{stats.iguais}</div></CardContent></Card>
       </div>
 
       <Card className="border-2 border-slate-200">
         <CardContent className="p-3">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 space-y-2">
             <div className="font-semibold text-sm">Localização Atual</div>
-            <div className="flex items-center gap-2 text-xs">
-              <Button size="sm" variant="outline" disabled={selected.size === 0} onClick={() => assumirSistema(Array.from(selected))}>
-                <SplitSquareHorizontal className="h-4 w-4 mr-1" /> Assumir Sistema
-              </Button>
-              <Button size="sm" variant="outline" disabled={selected.size === 0} onClick={() => assumirInformado(Array.from(selected))}>
-                <Check className="h-4 w-4 mr-1" /> Assumir Informado
-              </Button>
-            </div>
+            {selected.size > 0 && (
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => assumirSistema(Array.from(selected))}>
+                  <SplitSquareHorizontal className="h-4 w-4 mr-1" /> Assumir Sistema ({selected.size})
+                </Button>
+                <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => assumirInformado(Array.from(selected))}>
+                  <Check className="h-4 w-4 mr-1" /> Assumir Informado ({selected.size})
+                </Button>
+              </div>
+            )}
           </div>
-          <div className="overflow-x-auto">
+          {/* Desktop: Tabela */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/30">
                 <tr>
@@ -311,6 +311,64 @@ export function StockInventoryView() {
                 )}
               </tbody>
             </table>
+          </div>
+          {/* Mobile: Cards */}
+          <div className="md:hidden space-y-2">
+            {loading ? (
+              <div className="text-center py-8 text-muted-foreground">Carregando…</div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">Nenhum registro</div>
+            ) : (
+              filtered.map((r) => {
+                const isDivergente = (r.boxSistema || "") !== (r.boxInformado || "");
+                return (
+                  <Card key={r.key} className={`border-l-4 ${
+                    isDivergente ? "border-l-amber-500 bg-amber-50/10" : "border-l-emerald-500 bg-emerald-50/10"
+                  }`}>
+                    <CardContent className="p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2 min-w-0 flex-1">
+                          <Checkbox
+                            checked={selected.has(r.key)}
+                            onCheckedChange={() => {
+                              const next = new Set(selected);
+                              next.has(r.key) ? next.delete(r.key) : next.add(r.key);
+                              setSelected(next);
+                            }}
+                            className="mt-0.5 shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <p className="font-bold text-sm">
+                              {r.ferramenta}{r.sequencia ? ` / ${r.sequencia}` : ""}
+                            </p>
+                            {r.informadoEm && (
+                              <p className="text-xs text-muted-foreground">
+                                Atualizado: {r.informadoEm.slice(0,10).split("-").reverse().join("/")}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded shrink-0 ${
+                          isDivergente ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                        }`}>
+                          {isDivergente ? "Divergente" : "OK"}
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground text-xs">Box (Sistema):</span>
+                          <span className="font-medium text-xs">{r.boxSistema || "-"}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground text-xs">Box (Informado):</span>
+                          <span className="font-medium text-xs">{r.boxInformado || "-"}</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )}
           </div>
         </CardContent>
       </Card>
