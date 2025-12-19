@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Download, Edit2, Clock } from "lucide-react";
+import { Download, Edit2, Clock, Trash2 } from "lucide-react";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 import { QuickEventEditModal } from "./QuickEventEditModal";
 import * as XLSX from "xlsx";
@@ -59,6 +59,14 @@ export type SheetMilestone =
   | "clean_return4"
   | "corr_send4"
   | "corr_return4"
+  | "clean_send5"
+  | "clean_return5"
+  | "corr_send5"
+  | "corr_return5"
+  | "clean_send6"
+  | "clean_return6"
+  | "corr_send6"
+  | "corr_return6"
   | "approval";
 
 interface MatrixSheetProps {
@@ -478,81 +486,80 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
       <td>{status}</td>
     </tr>
     <Dialog open={extrasOpen} onOpenChange={setExtrasOpen}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[700px]">
         <DialogHeader>
           <DialogTitle>Testes extras</DialogTitle>
           <DialogDescription>
             Gerencie as datas do 4º, 5º e 6º testes. As alterações salvam automaticamente.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="w-10 text-xs text-muted-foreground">4º</span>
-            <DateCell value={orderedTests[3]?.date || ""} onChange={(d) => onSetDate(matrix.id, "test4", d)} />
-            {onDeleteDate && (
-              <Button type="button" variant="outline" size="sm" className="h-8 px-2" onClick={() => onDeleteDate(matrix.id, "test4")}>
-                Excluir
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-10 text-xs text-muted-foreground">5º</span>
-            <DateCell value={orderedTests[4]?.date || ""} onChange={(d) => onSetDate(matrix.id, "test5", d)} />
-            {onDeleteDate && (
-              <Button type="button" variant="outline" size="sm" className="h-8 px-2" onClick={() => onDeleteDate(matrix.id, "test5")}>
-                Excluir
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-10 text-xs text-muted-foreground">6º</span>
-            <DateCell value={orderedTests[5]?.date || ""} onChange={(d) => onSetDate(matrix.id, "test6", d)} />
-            {onDeleteDate && (
-              <Button type="button" variant="outline" size="sm" className="h-8 px-2" onClick={() => onDeleteDate(matrix.id, "test6")}>
-                Excluir
-              </Button>
-            )}
+        <div className="space-y-4">
+          {/* Testes 4–6 lado a lado */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-md border p-3 bg-muted/30">
+              <div className="text-xs font-medium text-muted-foreground mb-1">4º teste</div>
+              <div className="flex items-center gap-2">
+                <DateCell value={orderedTests[3]?.date || ""} onChange={(d) => onSetDate(matrix.id, "test4", d)} />
+                {onDeleteDate && (
+                  <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => onDeleteDate(matrix.id, "test4")} title="Excluir 4º teste" aria-label="Excluir 4º teste">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div className="rounded-md border p-3 bg-muted/30">
+              <div className="text-xs font-medium text-muted-foreground mb-1">5º teste</div>
+              <div className="flex items-center gap-2">
+                <DateCell value={orderedTests[4]?.date || ""} onChange={(d) => onSetDate(matrix.id, "test5", d)} />
+                {onDeleteDate && (
+                  <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => onDeleteDate(matrix.id, "test5")} title="Excluir 5º teste" aria-label="Excluir 5º teste">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div className="rounded-md border p-3 bg-muted/30">
+              <div className="text-xs font-medium text-muted-foreground mb-1">6º teste</div>
+              <div className="flex items-center gap-2">
+                <DateCell value={orderedTests[5]?.date || ""} onChange={(d) => onSetDate(matrix.id, "test6", d)} />
+                {onDeleteDate && (
+                  <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => onDeleteDate(matrix.id, "test6")} title="Excluir 6º teste" aria-label="Excluir 6º teste">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
           {showCycles && (
-            <div className="mt-2 space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">Ciclos de Limpeza/Correção (3 e 4)</div>
-              {/* Ciclo 3 */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="w-28 text-xs text-muted-foreground">Limpeza Saída (3)</span>
-                  <DateCell value={nthDate(cleanOut, 2)} onChange={(d) => onSetDate(matrix.id, "clean_send3", d)} />
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">Ciclos de Limpeza/Correção (4, 5 e 6)</div>
+              <div className="rounded-md border overflow-hidden">
+                {/* Cabeçalhos */}
+                <div className="grid grid-cols-[56px_repeat(4,1fr)] gap-2 items-center px-3 py-2 bg-muted/40 text-xs text-muted-foreground">
+                  <div>Ciclo</div>
+                  <div>Limpeza Saída</div>
+                  <div>Limpeza Entrada</div>
+                  <div>Corr. Ext. Saída</div>
+                  <div>Corr. Ext. Entrada</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-28 text-xs text-muted-foreground">Limpeza Entrada (3)</span>
-                  <DateCell value={nthDate(cleanIn, 2)} onChange={(d) => onSetDate(matrix.id, "clean_return3", d)} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-28 text-xs text-muted-foreground">Corr. Ext. Saída (3)</span>
-                  <DateCell value={nthDate(corrOut, 2)} onChange={(d) => onSetDate(matrix.id, "corr_send3", d)} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-28 text-xs text-muted-foreground">Corr. Ext. Entrada (3)</span>
-                  <DateCell value={nthDate(corrIn, 2)} onChange={(d) => onSetDate(matrix.id, "corr_return3", d)} />
-                </div>
-              </div>
-              {/* Ciclo 4 */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="w-28 text-xs text-muted-foreground">Limpeza Saída (4)</span>
-                  <DateCell value={nthDate(cleanOut, 3)} onChange={(d) => onSetDate(matrix.id, "clean_send4", d)} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-28 text-xs text-muted-foreground">Limpeza Entrada (4)</span>
-                  <DateCell value={nthDate(cleanIn, 3)} onChange={(d) => onSetDate(matrix.id, "clean_return4", d)} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-28 text-xs text-muted-foreground">Corr. Ext. Saída (4)</span>
-                  <DateCell value={nthDate(corrOut, 3)} onChange={(d) => onSetDate(matrix.id, "corr_send4", d)} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-28 text-xs text-muted-foreground">Corr. Ext. Entrada (4)</span>
-                  <DateCell value={nthDate(corrIn, 3)} onChange={(d) => onSetDate(matrix.id, "corr_return4", d)} />
-                </div>
+                {/* Linhas */}
+                {[4,5,6].map((ciclo) => (
+                  <div key={ciclo} className="grid grid-cols-[56px_repeat(4,1fr)] gap-2 items-center px-3 py-2 border-t text-xs">
+                    <div className="font-medium">{ciclo}</div>
+                    <div>
+                      <DateCell value={nthDate(cleanOut, ciclo-1)} onChange={(d) => onSetDate(matrix.id, `clean_send${ciclo}` as SheetMilestone, d)} />
+                    </div>
+                    <div>
+                      <DateCell value={nthDate(cleanIn, ciclo-1)} onChange={(d) => onSetDate(matrix.id, `clean_return${ciclo}` as SheetMilestone, d)} />
+                    </div>
+                    <div>
+                      <DateCell value={nthDate(corrOut, ciclo-1)} onChange={(d) => onSetDate(matrix.id, `corr_send${ciclo}` as SheetMilestone, d)} />
+                    </div>
+                    <div>
+                      <DateCell value={nthDate(corrIn, ciclo-1)} onChange={(d) => onSetDate(matrix.id, `corr_return${ciclo}` as SheetMilestone, d)} />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

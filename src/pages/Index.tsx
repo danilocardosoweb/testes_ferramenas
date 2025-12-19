@@ -1051,6 +1051,10 @@ const Index = () => {
                           case "clean_return3": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 3)" };
                           case "clean_send4": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 4)" };
                           case "clean_return4": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 4)" };
+                          case "clean_send5": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 5)" };
+                          case "clean_return5": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 5)" };
+                          case "clean_send6": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 6)" };
+                          case "clean_return6": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 6)" };
                           case "corr_send1": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 1)" };
                           case "corr_return1": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 1)" };
                           case "corr_send2": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 2)" };
@@ -1059,6 +1063,10 @@ const Index = () => {
                           case "corr_return3": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 3)" };
                           case "corr_send4": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 4)" };
                           case "corr_return4": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 4)" };
+                          case "corr_send5": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 5)" };
+                          case "corr_return5": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 5)" };
+                          case "corr_send6": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 6)" };
+                          case "corr_return6": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 6)" };
                           case "approval": return { type: "Aprovado", comment: "Aprovação" };
                           default: return { type: "Outro", comment: "" };
                         }
@@ -1138,6 +1146,10 @@ const Index = () => {
                           case "clean_return3": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 3)" };
                           case "clean_send4": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 4)" };
                           case "clean_return4": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 4)" };
+                          case "clean_send5": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 5)" };
+                          case "clean_return5": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 5)" };
+                          case "clean_send6": return { type: "Limpeza Saída", comment: "Enviada para limpeza (ciclo 6)" };
+                          case "clean_return6": return { type: "Limpeza Entrada", comment: "Retornou da limpeza (ciclo 6)" };
                           case "corr_send1": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 1)" };
                           case "corr_return1": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 1)" };
                           case "corr_send2": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 2)" };
@@ -1146,6 +1158,10 @@ const Index = () => {
                           case "corr_return3": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 3)" };
                           case "corr_send4": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 4)" };
                           case "corr_return4": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 4)" };
+                          case "corr_send5": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 5)" };
+                          case "corr_return5": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 5)" };
+                          case "corr_send6": return { type: "Correção Externa Saída", comment: "Enviada para correção (ciclo 6)" };
+                          case "corr_return6": return { type: "Correção Externa Entrada", comment: "Retornou da correção (ciclo 6)" };
                           case "approval": return { type: "Aprovado", comment: "Aprovação" };
                           default: return { type: "", comment: "" };
                         }

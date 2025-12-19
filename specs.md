@@ -1,3 +1,42 @@
+## Iteração 19/12/2025 (Planilha e Timeline – UX)
+
+- **Objetivo**: Tornar a planilha de datas e a linha do tempo mais intuitivas para cenários com >3 testes, reduzir ruído visual e padronizar lançamentos.
+
+- **Testes extras (4º–6º) via Dialog**
+  - Acesso: botão `Testes +` na coluna do `3º teste`.
+  - Edição direta das datas do **4º, 5º e 6º testes**; salva automaticamente.
+  - `Excluir` remove o evento correspondente dessa matriz.
+  - Evita duplicação: se já existir evento com mesmo `type` + `comment`, apenas atualiza a `date`.
+
+- **Mapeamento de marcos (Planilha → Eventos)**
+  - `test1..6` → `type: "Testes"` e `comment`: "Nº teste" (ex.: "4º teste").
+  - `clean_send1..4` → `type: "Limpeza Saída"` e comentário indicando ciclo (1–4).
+  - `clean_return1..4` → `type: "Limpeza Entrada"` e comentário indicando ciclo (1–4).
+  - `corr_send1..4` → `type: "Correção Externa Saída"` e comentário indicando ciclo (1–4).
+  - `corr_return1..4` → `type: "Correção Externa Entrada"` e comentário indicando ciclo (1–4).
+  - Observação: ciclos adicionais exibidos no Dialog atualmente: **4, 5 e 6** (sem alteração de schema).
+
+- **Linha do Tempo (Dialog simplificado)**
+  - Acesso: ícone de relógio na célula do `3º teste`.
+  - Exibe: Recebimento, Testes (1–6), Limpeza (Saída/Entrada 1–4), Correção Externa (Saída/Entrada 1–4), Aprovação.
+  - Cores por tipo via bullet; chips de categoria por item foram removidos para evitar redundância.
+  - Layout em 2 colunas (Data | Conteúdo), com espaçamento maior entre linha/bullet/data.
+  - Resumo superior: "Teste atual", "Último evento" (com data) e "Dias em andamento", além de contadores.
+  - Botão `Copiar`: gera texto simples `DD/MM/AAAA | Rótulo` (sem Δ por item).
+
+- **Indicador do teste atual**
+  - Chip compacto `Tn` ao lado da célula do `3º teste` indicando o último teste da matriz (destaque âmbar quando `n ≥ 4`).
+
+- **Filtros da planilha em uma linha**
+  - Reorganizados para caber em telas médias+ (código, pasta, etapa, ordenação e botão de ciclos).
+
+- **Notas**
+  - Sem alterações estruturais de banco de dados nesta iteração.
+  - Datas sempre em formato PT‑BR na UI; manipulação de ISO apenas para persistência.
+  - Comportamento seguro para edição concorrente: Realtime refaz o fetch com debounce ao detectar mudanças em `events`, `matrices` ou `folders`.
+
+---
+
 ## Iteração 17/12/2025 (SLA Limpeza com Dias Úteis e Baixa por NF-e)
 
 - **SLA de Limpeza com Dias Úteis**
