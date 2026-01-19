@@ -49,6 +49,24 @@ interface FollowUpEntry {
   reason?: string | null;
 }
 
+interface SequenceInfo {
+  seq: string;
+  isActive: boolean;
+  qteProd: number;
+}
+
+interface ToolSuggestion {
+  code: string;
+  sequences: SequenceInfo[];
+  isActive: boolean;       // Se qualquer sequência está ativa
+  status?: string;
+  supplier?: string;       // Corretor/Fornecedor
+  packageSize?: string;    // Medida Pacote (ex.: 250x170 ou 228x130)
+  volumeProduced?: number; // Qte.Prod.
+  holeCount?: number;      // Furos (quando disponível)
+  diameter?: string;       // Diâmetro (texto)
+}
+
 const PACKAGE_OPTIONS: Record<"tubular" | "solido", string[]> = {
   tubular: ["250x170", "300x170", "350x170", "400x170", "350x209", "400x209"],
   solido: ["250x170", "300x170", "350x170", "400x170", "350x209", "400x209", "228x130"],
@@ -106,6 +124,16 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   const [isUploading, setIsUploading] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<ManufacturingRecord | null>(null);
   const [renamingAttachmentId, setRenamingAttachmentId] = useState<string | null>(null);
+
+  // Estados para autocomplete de ferramentas
+  const [allTools, setAllTools] = useState<ToolSuggestion[]>([]);
+  const [toolSuggestions, setToolSuggestions] = useState<ToolSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [loadingTools, setLoadingTools] = useState(false);
+  const codeInputRef = useRef<HTMLInputElement | null>(null);
+  const suggestionsRef = useRef<HTMLDivElement | null>(null);
+  // Controle de exibição de sequências inativas por código
+  const [openInactive, setOpenInactive] = useState<Record<string, boolean>>({});
 
   const suppliers = useMemo(() => ["FEP", "EXXO", "FELJ", "Outro"], []);
   const months = useMemo(() => ([
@@ -217,6 +245,196 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   useEffect(() => {
     loadRecords();
   }, [loadRecords]);
+
+  // Carregar ferramentas para autocomplete
+  const loadAllTools = useCallback(async () => {
+    setLoadingTools(true);
+    try {
+      const pageSize = 1000;
+      let from = 0;
+      const allRows: any[] = [];
+      
+      while (true) {
+        const to = from + pageSize - 1;
+        const { data: page, error: pageErr } = await supabase
+          .from("analysis_ferramentas")
+          .select("ferramenta_code, ferramenta_seq, payload")
+          .order("ferramenta_code", { ascending: true })
+          .range(from, to);
+        
+        if (pageErr) {
+          console.error("Erro ao carregar ferramentas:", pageErr);
+          break;
+        }
+        if (!page || page.length === 0) break;
+        allRows.push(...page);
+        if (page.length < pageSize) break;
+        from += page.length;
+      }
+
+      // Mapear para lista única de códigos com dados agregados
+      const toolsMap = new Map<string, {
+        code: string;
+        sequences: Map<string, { isActive: boolean; qteProd: number }>; // seq -> {isActive, qteProd}
+        isActive: boolean;
+        status: string;
+        supplier: string;
+        packageSize: string;
+        volumeProduced: number;
+        holeCount?: number;
+      }>();
+
+      allRows.forEach((row: any) => {
+        const code = (row.ferramenta_code ?? row.payload?.Matriz ?? row.payload?.Ferramenta ?? "").toString().trim().toUpperCase();
+        if (!code) return;
+        
+        const seq = (row.ferramenta_seq ?? row.payload?.Seq ?? "").toString().trim();
+        const isActive = (row.payload?.Ativa ?? "").toString().trim().toLowerCase() === "sim";
+        const status = row.payload?.["Status da Ferram."] ?? row.payload?.Status ?? "";
+        const supplier = row.payload?.Corretor ?? row.payload?.Fornecedor ?? row.payload?.Fabricante ?? "";
+        const diametro = row.payload?.Diametro ?? row.payload?.["Diâmetro"] ?? "";
+        const medidaPacote = row.payload?.["Medida Pacote"] ?? row.payload?.MedidaPacote ?? row.payload?.Pacote ?? "";
+        const packageSize = diametro && medidaPacote ? `${diametro}x${medidaPacote}` : (medidaPacote || diametro || "");
+        const qteProd = parseFloat(row.payload?.["Qte.Prod."] ?? row.payload?.["Qte Prod"] ?? "0") || 0;
+        const holesRaw = row.payload?.Furos ?? row.payload?.["QTD Furos"] ?? row.payload?.["Qtd Furos"] ?? row.payload?.["Qte.Furos"] ?? null;
+        const holes = holesRaw != null ? Number(String(holesRaw).replace(/[^0-9]/g, '')) : undefined;
+        
+        // Debug: logar primeiro registro para verificar campos
+        if (code === "TSU-001" || code === "VZ-0006") {
+          console.log(`[DEBUG] ${code} payload:`, {
+            Corretor: row.payload?.Corretor,
+            Fornecedor: row.payload?.Fornecedor,
+            "Medida Pacote": row.payload?.["Medida Pacote"],
+            Pacote: row.payload?.Pacote,
+            Furos: row.payload?.Furos,
+            Diametro: row.payload?.Diametro,
+            allKeys: Object.keys(row.payload || {}),
+          });
+        }
+        
+        if (!toolsMap.has(code)) {
+          const seqMap = new Map<string, { isActive: boolean; qteProd: number }>();
+          if (seq) seqMap.set(seq, { isActive, qteProd });
+          toolsMap.set(code, {
+            code,
+            sequences: seqMap,
+            isActive,
+            status,
+            supplier,
+            packageSize,
+            volumeProduced: qteProd,
+            holeCount: holes,
+          });
+        } else {
+          const existing = toolsMap.get(code)!;
+          // Armazenar sequência com seu status e produção
+          if (seq) {
+            const current = existing.sequences.get(seq);
+            if (current) {
+              // Se já existe, manter true se qualquer registro for ativo e somar produção
+              existing.sequences.set(seq, {
+                isActive: current.isActive || isActive,
+                qteProd: current.qteProd + qteProd,
+              });
+            } else {
+              existing.sequences.set(seq, { isActive, qteProd });
+            }
+          }
+          // Priorizar dados de ferramentas ativas
+          if (isActive && !existing.isActive) {
+            existing.isActive = true;
+            existing.status = status;
+            existing.supplier = supplier || existing.supplier;
+            existing.packageSize = packageSize || existing.packageSize;
+          }
+          // Somar volume produzido total
+          existing.volumeProduced += qteProd;
+          // Preencher dados vazios
+          if (!existing.supplier && supplier) existing.supplier = supplier;
+          if (!existing.packageSize && packageSize) existing.packageSize = packageSize;
+          if (existing.holeCount == null && holes != null && Number.isFinite(holes)) existing.holeCount = holes;
+        }
+      });
+
+      const tools: ToolSuggestion[] = Array.from(toolsMap.values())
+        .map(t => {
+          // Converter Map de sequências para array de SequenceInfo
+          const seqArray: SequenceInfo[] = Array.from(t.sequences.entries())
+            .map(([seq, data]) => ({ seq, isActive: data.isActive, qteProd: data.qteProd }))
+            .sort((a, b) => {
+              const numA = parseInt(a.seq, 10);
+              const numB = parseInt(b.seq, 10);
+              return isNaN(numA) || isNaN(numB) ? a.seq.localeCompare(b.seq) : numA - numB;
+            });
+          
+          return {
+            code: t.code,
+            sequences: seqArray,
+            isActive: t.isActive,
+            status: t.status,
+            supplier: t.supplier,
+            packageSize: t.packageSize,
+            volumeProduced: t.volumeProduced,
+            holeCount: t.holeCount,
+          };
+        })
+        .sort((a, b) => a.code.localeCompare(b.code));
+
+      setAllTools(tools);
+      console.log(`Carregadas ${tools.length} ferramentas únicas para autocomplete`);
+    } catch (err) {
+      console.error("Erro ao carregar ferramentas para autocomplete:", err);
+    } finally {
+      setLoadingTools(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAllTools();
+  }, [loadAllTools]);
+
+  // Formatar código padrão: F-<BASE>/<SEQ3>
+  const formatMatrixCode = useCallback((baseCode: string, seq: string | number | undefined) => {
+    const base = String(baseCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const s = seq !== undefined && seq !== null && String(seq).trim() !== ''
+      ? String(seq).padStart(3, '0')
+      : '001';
+    return `F-${base}/${s}`;
+  }, []);
+
+  // Filtrar sugestões conforme usuário digita
+  const filterSuggestions = useCallback((searchText: string) => {
+    if (!searchText || searchText.length < 2) {
+      setToolSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const upper = searchText.toUpperCase();
+    const filtered = allTools
+      .filter(t => t.code.includes(upper))
+      .slice(0, 10); // Limitar a 10 sugestões
+
+    setToolSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+  }, [allTools]);
+
+  // Fechar dropdown ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        suggestionsRef.current &&
+        !suggestionsRef.current.contains(event.target as Node) &&
+        codeInputRef.current &&
+        !codeInputRef.current.contains(event.target as Node)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Função para atualizar a data de entrega
   const handleUpdateDeliveryDate = async () => {
@@ -501,6 +719,380 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         }
         XLSX.utils.book_append_sheet(workbook, worksheet, label);
       });
+
+      // ========== NOVA ABA: Histórico de Produção (somente ferramentas em Necessidade) ==========
+      const needRecords = filtered.filter((r) => r.status === "need");
+      if (needRecords.length > 0) {
+        const needCodes = needRecords.map((r) => r.matrix_code.toUpperCase().split("/")[0].trim());
+        const uniqueCodes = [...new Set(needCodes)];
+
+        // Buscar dados de produção dos últimos 24 meses
+        const today = new Date();
+        const date24mAgo = new Date(today);
+        date24mAgo.setMonth(date24mAgo.getMonth() - 24);
+        const date12mAgo = new Date(today);
+        date12mAgo.setMonth(date12mAgo.getMonth() - 12);
+        const date6mAgo = new Date(today);
+        date6mAgo.setMonth(date6mAgo.getMonth() - 6);
+
+        const toISO = (d: Date) => d.toISOString().split("T")[0];
+
+        // Buscar dados de produção
+        const { data: producaoData } = await supabase
+          .from("analysis_producao")
+          .select("payload, produced_on")
+          .gte("produced_on", toISO(date24mAgo))
+          .limit(100000);
+
+        // Buscar dados de carteira (pedidos/clientes)
+        const { data: carteiraData } = await supabase
+          .from("analysis_carteira_flat")
+          .select("ferramenta, cliente, pedido_kg, data_implant")
+          .limit(100000);
+
+        // Buscar dados de ferramentas (sequências e capacidade)
+        const { data: ferramentasData } = await supabase
+          .from("analysis_ferramentas")
+          .select("payload")
+          .limit(100000);
+
+        // Função para normalizar código para padrão da base (ex: "VZ-0006", "TEF-007")
+        const normalizeCodeForIndex = (code: string): string => {
+          let c = String(code || "").toUpperCase().trim();
+          // Remove prefixo "F-" se existir
+          if (c.startsWith("F-")) {
+            c = c.substring(2);
+          }
+          // Remove sequência após a barra
+          c = c.split("/")[0].trim();
+          // Se não tem hífen entre letras e números, insere (ex: "TEF007" -> "TEF-007")
+          if (c && !/[A-Z]+-\d/.test(c)) {
+            c = c.replace(/^([A-Z]+)(\d+)$/, "$1-$2");
+          }
+          return c;
+        };
+
+        // Processar dados de produção por ferramenta
+        type ProdByTool = {
+          total24m: number;
+          total12m: number;
+          total6m: number;
+          monthlyProd: Record<string, number>; // YYYY-MM -> kg
+        };
+        const prodByTool: Record<string, ProdByTool> = {};
+
+        (producaoData || []).forEach((row: any) => {
+          const payload = row.payload || {};
+          const matrizRaw = payload.Matriz || payload.Ferramenta || payload.ferramenta || "";
+          const matriz = normalizeCodeForIndex(matrizRaw);
+          
+          if (!matriz) return;
+
+          const pesoRaw = payload["Peso Bruto"] || payload["Peso"] || payload["Produção"] || 0;
+          const peso = typeof pesoRaw === "number" ? pesoRaw : parseFloat(String(pesoRaw).replace(/[^\d.,]/g, "").replace(",", ".")) || 0;
+          
+          const prodDate = row.produced_on ? new Date(row.produced_on) : null;
+          if (!prodDate || isNaN(prodDate.getTime())) return;
+
+          if (!prodByTool[matriz]) {
+            prodByTool[matriz] = { total24m: 0, total12m: 0, total6m: 0, monthlyProd: {} };
+          }
+
+          const monthKey = `${prodDate.getFullYear()}-${String(prodDate.getMonth() + 1).padStart(2, "0")}`;
+          prodByTool[matriz].monthlyProd[monthKey] = (prodByTool[matriz].monthlyProd[monthKey] || 0) + peso;
+
+          if (prodDate >= date24mAgo) prodByTool[matriz].total24m += peso;
+          if (prodDate >= date12mAgo) prodByTool[matriz].total12m += peso;
+          if (prodDate >= date6mAgo) prodByTool[matriz].total6m += peso;
+        });
+        
+
+        // Processar dados de carteira por ferramenta
+        type CarteiraByTool = {
+          totalPedido: number;
+          lastOrderDate: string | null;
+          clienteVolumes: Record<string, number>; // cliente -> kg total
+        };
+        const carteiraByTool: Record<string, CarteiraByTool> = {};
+
+        (carteiraData || []).forEach((row: any) => {
+          const ferrRaw = row.ferramenta || "";
+          const ferr = normalizeCodeForIndex(ferrRaw);
+          
+          if (!ferr) return;
+
+          const pedidoKg = typeof row.pedido_kg === "number" ? row.pedido_kg : parseFloat(String(row.pedido_kg || "0").replace(/[^\d.,]/g, "").replace(",", ".")) || 0;
+          const cliente = String(row.cliente || "").trim() || "N/D";
+          const dataImpl = row.data_implant ? String(row.data_implant).slice(0, 10) : null;
+
+          if (!carteiraByTool[ferr]) {
+            carteiraByTool[ferr] = { totalPedido: 0, lastOrderDate: null, clienteVolumes: {} };
+          }
+
+          carteiraByTool[ferr].totalPedido += pedidoKg;
+          carteiraByTool[ferr].clienteVolumes[cliente] = (carteiraByTool[ferr].clienteVolumes[cliente] || 0) + pedidoKg;
+
+          if (dataImpl) {
+            if (!carteiraByTool[ferr].lastOrderDate || dataImpl > carteiraByTool[ferr].lastOrderDate) {
+              carteiraByTool[ferr].lastOrderDate = dataImpl;
+            }
+          }
+        });
+        
+
+        // Processar dados de ferramentas (sequências ativas e capacidade)
+        type FerrByTool = {
+          seqAtivas: number;
+          seqTotal: number;
+          produzidoTotal: number;
+          capacidadeTotal: number;
+        };
+        const ferrByTool: Record<string, FerrByTool> = {};
+        const CAP_POR_SEQ = 30000; // Capacidade padrão por sequência (kg)
+
+        (ferramentasData || []).forEach((row: any) => {
+          const payload = row.payload || {};
+          const matrizRaw = payload.Matriz || payload.matriz || "";
+          const matriz = normalizeCodeForIndex(matrizRaw);
+          if (!matriz) return;
+
+          const ativa = String(payload.Ativa || payload.ativa || "").toUpperCase();
+          const isAtiva = ativa === "SIM" || ativa === "S" || ativa === "1" || ativa === "TRUE";
+          const qteProd = parseFloat(String(payload["Qte.Prod."] || payload["Qte Prod"] || payload["QteProd"] || 0).replace(/[^\d.,]/g, "").replace(",", ".")) || 0;
+
+          if (!ferrByTool[matriz]) {
+            ferrByTool[matriz] = { seqAtivas: 0, seqTotal: 0, produzidoTotal: 0, capacidadeTotal: 0 };
+          }
+
+          ferrByTool[matriz].seqTotal += 1;
+          ferrByTool[matriz].produzidoTotal += qteProd;
+          if (isAtiva) {
+            ferrByTool[matriz].seqAtivas += 1;
+            ferrByTool[matriz].capacidadeTotal += CAP_POR_SEQ;
+          }
+        });
+
+
+        // Montar dados da aba Histórico de Produção
+        const histHeaders = [
+          "Código",
+          "Tipo",
+          "Perfil",
+          "Fornecedor",
+          "Prioridade",
+          "Seq. Ativas",
+          "Seq. Total",
+          "Produzido Total (kg)",
+          "Capacidade Total (kg)",
+          "Capacidade Restante (kg)",
+          "% Desgaste",
+          "Vol. Produzido 12m (kg)",
+          "Média Mensal 6m (kg)",
+          "Média Mensal 12m (kg)",
+          "Média Mensal 24m (kg)",
+          "Tendência",
+          "Meses Cobertura",
+          "Data EOL Estimada",
+          "Total Pedidos Carteira (kg)",
+          "Data Último Pedido",
+          "Principal Comprador",
+          "Vol. Principal (kg)",
+          "2º Comprador",
+          "Vol. 2º (kg)",
+          "3º Comprador",
+          "Vol. 3º (kg)",
+          "Justificativa",
+        ];
+
+        const histRows = needRecords.map((record) => {
+          const codeBase = normalizeCodeForIndex(record.matrix_code);
+          
+          const prod = prodByTool[codeBase] || { total24m: 0, total12m: 0, total6m: 0, monthlyProd: {} };
+          const cart = carteiraByTool[codeBase] || { totalPedido: 0, lastOrderDate: null, clienteVolumes: {} };
+          const ferr = ferrByTool[codeBase] || { seqAtivas: 0, seqTotal: 0, produzidoTotal: 0, capacidadeTotal: 0 };
+
+          // Calcular médias mensais
+          const avg6m = prod.total6m / 6;
+          const avg12m = prod.total12m / 12;
+          const avg24m = prod.total24m / 24;
+
+          // Calcular capacidade e desgaste
+          const capRestante = Math.max(0, ferr.capacidadeTotal - ferr.produzidoTotal);
+          const desgastePerc = ferr.capacidadeTotal > 0 ? (ferr.produzidoTotal / ferr.capacidadeTotal) * 100 : 0;
+
+          // Calcular tendência (média 6m vs média 12m)
+          let tendencia = "-";
+          if (avg12m > 0 && avg6m > 0) {
+            const ratio = avg6m / avg12m;
+            if (ratio >= 1.15) tendencia = "↑ Crescendo";
+            else if (ratio <= 0.85) tendencia = "↓ Caindo";
+            else tendencia = "→ Estável";
+          }
+
+          // Calcular meses de cobertura e data EOL
+          const demandaMensal = avg12m > 0 ? avg12m : avg6m;
+          const mesesCobertura = demandaMensal > 0 ? capRestante / demandaMensal : null;
+          let dataEOL = "-";
+          if (mesesCobertura !== null && mesesCobertura > 0 && mesesCobertura < 120) {
+            const eolDate = new Date();
+            eolDate.setMonth(eolDate.getMonth() + Math.floor(mesesCobertura));
+            dataEOL = `${String(eolDate.getDate()).padStart(2, "0")}/${String(eolDate.getMonth() + 1).padStart(2, "0")}/${eolDate.getFullYear()}`;
+          }
+
+          // Top 3 compradores
+          const sortedClientes = Object.entries(cart.clienteVolumes)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3);
+          const top1 = sortedClientes[0] || ["-", 0];
+          const top2 = sortedClientes[1] || ["-", 0];
+          const top3 = sortedClientes[2] || ["-", 0];
+
+          const formatNum = (n: number) => n > 0 ? n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+          const formatPerc = (n: number) => n > 0 ? `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : "-";
+          const formatInt = (n: number) => n > 0 ? n.toString() : "-";
+          const formatDate = (d: string | null) => {
+            if (!d) return "-";
+            const [y, m, day] = d.split("-");
+            return `${day}/${m}/${y}`;
+          };
+
+          return {
+            "Código": codeBase,
+            "Tipo": record.manufacturing_type === "nova" ? "Nova" : "Reposição",
+            "Perfil": record.profile_type === "tubular" ? "Tubular" : "Sólido",
+            "Fornecedor": record.supplier === "Outro" ? record.custom_supplier : record.supplier,
+            "Prioridade": record.priority === "critical" ? "Crítica" : record.priority === "high" ? "Alta" : record.priority === "medium" ? "Média" : "Baixa",
+            "Seq. Ativas": formatInt(ferr.seqAtivas),
+            "Seq. Total": formatInt(ferr.seqTotal),
+            "Produzido Total (kg)": formatNum(ferr.produzidoTotal),
+            "Capacidade Total (kg)": formatNum(ferr.capacidadeTotal),
+            "Capacidade Restante (kg)": formatNum(capRestante),
+            "% Desgaste": formatPerc(desgastePerc),
+            "Vol. Produzido 12m (kg)": formatNum(prod.total12m),
+            "Média Mensal 6m (kg)": formatNum(avg6m),
+            "Média Mensal 12m (kg)": formatNum(avg12m),
+            "Média Mensal 24m (kg)": formatNum(avg24m),
+            "Tendência": tendencia,
+            "Meses Cobertura": mesesCobertura !== null && mesesCobertura > 0 ? formatNum(mesesCobertura) : "-",
+            "Data EOL Estimada": dataEOL,
+            "Total Pedidos Carteira (kg)": formatNum(cart.totalPedido),
+            "Data Último Pedido": formatDate(cart.lastOrderDate),
+            "Principal Comprador": top1[0],
+            "Vol. Principal (kg)": formatNum(top1[1] as number),
+            "2º Comprador": top2[0],
+            "Vol. 2º (kg)": formatNum(top2[1] as number),
+            "3º Comprador": top3[0],
+            "Vol. 3º (kg)": formatNum(top3[1] as number),
+            "Justificativa": record.justification || "-",
+          };
+        });
+
+        const histWorksheet = XLSX.utils.aoa_to_sheet([histHeaders]);
+        if (histRows.length) {
+          XLSX.utils.sheet_add_json(histWorksheet, histRows, { origin: "A2", skipHeader: true });
+        }
+
+        // Ajustar largura das colunas
+        histWorksheet["!cols"] = histHeaders.map(() => ({ wch: 18 }));
+
+        XLSX.utils.book_append_sheet(workbook, histWorksheet, "Histórico Produção");
+
+        // ========== NOVA ABA: Resumo Executivo ==========
+        const resumoData: any[][] = [
+          ["RESUMO EXECUTIVO - FERRAMENTAS EM NECESSIDADE"],
+          [""],
+          ["Data do Relatório:", new Date().toLocaleDateString("pt-BR")],
+          ["Total de Ferramentas:", needRecords.length],
+          [""],
+          ["DISTRIBUIÇÃO POR TIPO"],
+          ["Novas:", needRecords.filter(r => r.manufacturing_type === "nova").length],
+          ["Reposição:", needRecords.filter(r => r.manufacturing_type === "reposicao").length],
+          [""],
+          ["DISTRIBUIÇÃO POR PRIORIDADE"],
+          ["Crítica:", needRecords.filter(r => r.priority === "critical").length],
+          ["Alta:", needRecords.filter(r => r.priority === "high").length],
+          ["Média:", needRecords.filter(r => r.priority === "medium").length],
+          ["Baixa:", needRecords.filter(r => r.priority === "low").length],
+          [""],
+          ["DISTRIBUIÇÃO POR PERFIL"],
+          ["Tubular:", needRecords.filter(r => r.profile_type === "tubular").length],
+          ["Sólido:", needRecords.filter(r => r.profile_type === "solido").length],
+          [""],
+          ["DISTRIBUIÇÃO POR FORNECEDOR"],
+        ];
+
+        // Contar por fornecedor
+        const fornecedorCount: Record<string, number> = {};
+        needRecords.forEach(r => {
+          const forn = r.supplier === "Outro" ? (r.custom_supplier || "Outro") : r.supplier;
+          fornecedorCount[forn] = (fornecedorCount[forn] || 0) + 1;
+        });
+        Object.entries(fornecedorCount).sort((a, b) => b[1] - a[1]).forEach(([forn, count]) => {
+          resumoData.push([`${forn}:`, count]);
+        });
+
+        resumoData.push([""], ["INDICADORES DE PRODUÇÃO"]);
+
+        // Calcular totais de produção
+        let totalProd12m = 0, totalProd6m = 0, totalCapRestante = 0;
+        histRows.forEach((row: any) => {
+          const p12 = parseFloat(String(row["Vol. Produzido 12m (kg)"] || "0").replace(/\./g, "").replace(",", ".")) || 0;
+          const p6 = parseFloat(String(row["Média Mensal 6m (kg)"] || "0").replace(/\./g, "").replace(",", ".")) || 0;
+          const cap = parseFloat(String(row["Capacidade Restante (kg)"] || "0").replace(/\./g, "").replace(",", ".")) || 0;
+          totalProd12m += p12;
+          totalProd6m += p6;
+          totalCapRestante += cap;
+        });
+
+        resumoData.push(
+          ["Volume Total Produzido 12m (kg):", totalProd12m.toLocaleString("pt-BR", { minimumFractionDigits: 2 })],
+          ["Média Mensal Total 6m (kg):", totalProd6m.toLocaleString("pt-BR", { minimumFractionDigits: 2 })],
+          ["Capacidade Restante Total (kg):", totalCapRestante.toLocaleString("pt-BR", { minimumFractionDigits: 2 })],
+          [""],
+          ["FERRAMENTAS COM MAIOR URGÊNCIA (Top 5 por desgaste)"],
+        );
+
+        // Top 5 por desgaste
+        const topDesgaste = histRows
+          .map((row: any) => ({
+            codigo: row["Código"],
+            desgaste: parseFloat(String(row["% Desgaste"] || "0").replace("%", "").replace(",", ".")) || 0,
+          }))
+          .filter(r => r.desgaste > 0)
+          .sort((a, b) => b.desgaste - a.desgaste)
+          .slice(0, 5);
+
+        topDesgaste.forEach((item, i) => {
+          resumoData.push([`${i + 1}. ${item.codigo}`, `${item.desgaste.toFixed(1)}%`]);
+        });
+
+        resumoData.push([""], ["FERRAMENTAS COM DEMANDA CRESCENTE"]);
+        
+        // Ferramentas com tendência crescente
+        const crescentes = histRows.filter((row: any) => String(row["Tendência"] || "").includes("Crescendo"));
+        if (crescentes.length > 0) {
+          crescentes.slice(0, 5).forEach((row: any) => {
+            resumoData.push([row["Código"], row["Média Mensal 6m (kg)"]]);
+          });
+        } else {
+          resumoData.push(["Nenhuma ferramenta com demanda crescente identificada"]);
+        }
+
+        const resumoWorksheet = XLSX.utils.aoa_to_sheet(resumoData);
+        resumoWorksheet["!cols"] = [{ wch: 45 }, { wch: 25 }];
+
+        // Inserir aba de Resumo como primeira aba
+        XLSX.utils.book_append_sheet(workbook, resumoWorksheet, "Resumo Executivo");
+
+        // Reordenar abas para colocar Resumo primeiro
+        const sheetNames = workbook.SheetNames;
+        const resumoIdx = sheetNames.indexOf("Resumo Executivo");
+        if (resumoIdx > 0) {
+          sheetNames.splice(resumoIdx, 1);
+          sheetNames.unshift("Resumo Executivo");
+          workbook.SheetNames = sheetNames;
+        }
+      }
 
       XLSX.writeFile(workbook, `matrizes_confecao_${new Date().toISOString().split("T")[0]}.xlsx`);
 
@@ -946,20 +1538,246 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
-                    placeholder="TMP-001/25"
-                    value={formData.matrixCode}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        matrixCode: e.target.value.toUpperCase(),
-                        accessoryCode: "",
-                        accessoryType: "",
-                      })
-                    }
-                    className="h-7 text-xs"
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      ref={codeInputRef}
+                      placeholder="Digite o código (ex: TR-0100)"
+                      value={formData.matrixCode}
+                      onChange={(e) => {
+                        const value = e.target.value.toUpperCase();
+                        setFormData({
+                          ...formData,
+                          matrixCode: value,
+                          accessoryCode: "",
+                          accessoryType: "",
+                        });
+                        filterSuggestions(value);
+                      }}
+                      onFocus={() => {
+                        if (formData.matrixCode.length >= 2) {
+                          filterSuggestions(formData.matrixCode);
+                        }
+                      }}
+                      className="h-7 text-xs"
+                      required
+                      autoComplete="off"
+                    />
+                    {showSuggestions && toolSuggestions.length > 0 && (
+                      <div
+                        ref={suggestionsRef}
+                        className="absolute z-50 w-80 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-72 overflow-y-auto"
+                      >
+                        {toolSuggestions.map((tool) => {
+                          // Mapear fornecedor para opção do select
+                          const mapSupplierToOption = (supplier: string | undefined): string => {
+                            if (!supplier) return "";
+                            const upper = supplier.toUpperCase().trim();
+                            if (upper === "FEP" || upper.includes("FEP")) return "FEP";
+                            if (upper === "EXXO" || upper.includes("EXXO")) return "EXXO";
+                            if (upper === "FELJ" || upper.includes("FELJ")) return "FELJ";
+                            return "Outro";
+                          };
+
+                          // Mapear pacote para opção válida
+                          const mapPackageToOption = (pkg: string | number | undefined): string => {
+                            if (pkg === null || pkg === undefined || pkg === "") return "";
+                            const pkgStr = String(pkg).trim();
+                            if (!pkgStr) return "";
+                            const allOptions = [...PACKAGE_OPTIONS.tubular, ...PACKAGE_OPTIONS.solido];
+                            const normalized = pkgStr.replace(/\s/g, "").toLowerCase();
+                            const found = allOptions.find(opt => opt.replace(/\s/g, "").toLowerCase() === normalized);
+                            return found || "";
+                          };
+
+                          const mappedSupplier = mapSupplierToOption(tool.supplier);
+                          const mappedPackage = mapPackageToOption(tool.packageSize);
+
+                          return (
+                            <div
+                              key={tool.code}
+                              className="px-3 py-2.5 hover:bg-blue-50 cursor-pointer text-xs border-b border-gray-100 last:border-b-0"
+                              onClick={() => {
+                                // Se for MATRIZ, aplicar máscara F-<BASE>/<SEQ> usando a 1ª ativa
+                                const firstActive = tool.sequences.find(s => s.isActive)?.seq;
+                                const masked = formData.itemCategory === 'matriz'
+                                  ? formatMatrixCode(tool.code, firstActive)
+                                  : tool.code;
+                                const activeCount = tool.sequences.filter(s => s.isActive).length;
+                                setFormData({
+                                  ...formData,
+                                  matrixCode: masked,
+                                  accessoryCode: "",
+                                  accessoryType: "",
+                                  supplier: mappedSupplier,
+                                  customSupplier: mappedSupplier === "Outro" ? (tool.supplier || "") : "",
+                                  packageSize: mappedPackage,
+                                  volumeProduced: tool.volumeProduced ? Math.round(tool.volumeProduced).toString() : "",
+                                  holeCount: tool.holeCount != null ? String(tool.holeCount) : formData.holeCount,
+                                  technicalNotes: activeCount > 0 ? `Sequências ativas: ${activeCount}` : formData.technicalNotes,
+                                });
+                                setShowSuggestions(false);
+                              }}
+                            >
+                              {/* Linha 1: Código + Badge */}
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-bold text-sm text-gray-800">{tool.code}</span>
+                                <Badge
+                                  variant={tool.isActive ? "default" : "secondary"}
+                                  className={`text-[10px] px-2 py-0.5 ${tool.isActive ? "bg-green-500 hover:bg-green-600" : "bg-gray-400"}`}
+                                >
+                                  {tool.isActive ? "Ativa" : "Inativa"}
+                                </Badge>
+                              </div>
+                              
+                              {/* Linha 2: Sequências ATIVAS com produção */}
+                              {(() => {
+                                const activeSeqs = tool.sequences.filter(s => s.isActive);
+                                const inactiveSeqs = tool.sequences.filter(s => !s.isActive);
+                                const inactiveCount = inactiveSeqs.length;
+                                
+                                return activeSeqs.length > 0 ? (
+                                  <div className="mb-2">
+                                    <span className="text-[11px] font-medium text-gray-700">
+                                      Sequências Ativas ({activeSeqs.length}):
+                                    </span>
+                                    <div className="flex flex-col gap-1 mt-1">
+                                      {activeSeqs.slice(0, 6).map((seqInfo) => (
+                                        <div
+                                          key={seqInfo.seq}
+                                          className="flex items-center justify-between bg-green-50 rounded px-2 py-1 border border-green-200 hover:bg-green-100 cursor-pointer"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const masked = formData.itemCategory === 'matriz'
+                                              ? formatMatrixCode(tool.code, seqInfo.seq)
+                                              : tool.code;
+                                            const activeCount = tool.sequences.filter(s => s.isActive).length;
+                                            setFormData({
+                                              ...formData,
+                                              matrixCode: masked,
+                                              accessoryCode: "",
+                                              accessoryType: "",
+                                              supplier: mappedSupplier,
+                                              customSupplier: mappedSupplier === 'Outro' ? (tool.supplier || '') : '',
+                                              packageSize: mappedPackage,
+                                              volumeProduced: tool.volumeProduced ? Math.round(tool.volumeProduced).toString() : '',
+                                              holeCount: tool.holeCount != null ? String(tool.holeCount) : formData.holeCount,
+                                              technicalNotes: activeCount > 0 ? `Sequências ativas: ${activeCount}` : formData.technicalNotes,
+                                            });
+                                            setShowSuggestions(false);
+                                          }}
+                                        >
+                                          <span className="text-[11px] font-semibold text-green-700">
+                                            Seq {seqInfo.seq}
+                                          </span>
+                                          <span className="text-[10px] text-green-600">
+                                            {seqInfo.qteProd > 0 
+                                              ? `${seqInfo.qteProd.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} kg`
+                                              : "-"
+                                            }
+                                          </span>
+                                        </div>
+                                      ))}
+                                      {activeSeqs.length > 6 && (
+                                        <span className="text-[10px] text-green-600 pl-2">
+                                          +{activeSeqs.length - 6} mais sequências ativas
+                                        </span>
+                                      )}
+                                    </div>
+                                    {inactiveCount > 0 && (
+                                      <div className="mt-1">
+                                        <button
+                                          type="button"
+                                          className="text-[10px] text-blue-600 hover:underline"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenInactive((prev) => ({ ...prev, [tool.code]: !prev[tool.code] }));
+                                          }}
+                                        >
+                                          {openInactive[tool.code] ? "Ocultar" : "Mostrar"} {inactiveCount} inativa{inactiveCount > 1 ? "s" : ""}
+                                        </button>
+                                        {openInactive[tool.code] && (
+                                          <div className="flex flex-col gap-1 mt-1">
+                                            {(() => {
+                                              // Ordena numericamente e mantém apenas as 5 maiores sequências
+                                              const sorted = [...inactiveSeqs].sort((a, b) => {
+                                                const na = parseInt(a.seq, 10);
+                                                const nb = parseInt(b.seq, 10);
+                                                if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                                                return a.seq.localeCompare(b.seq);
+                                              });
+                                              const start = Math.max(0, sorted.length - 5);
+                                              const last5 = sorted.slice(start);
+                                              return last5.map((seqInfo) => (
+                                              <div
+                                                key={`ina-${seqInfo.seq}`}
+                                                className="flex items-center justify-between bg-gray-50 rounded px-2 py-1 border border-gray-200 hover:bg-gray-100 cursor-pointer"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const masked = formData.itemCategory === 'matriz'
+                                                    ? formatMatrixCode(tool.code, seqInfo.seq)
+                                                    : tool.code;
+                                                  const activeCount = tool.sequences.filter(s => s.isActive).length;
+                                                  setFormData({
+                                                    ...formData,
+                                                    matrixCode: masked,
+                                                    accessoryCode: "",
+                                                    accessoryType: "",
+                                                    supplier: mappedSupplier,
+                                                    customSupplier: mappedSupplier === 'Outro' ? (tool.supplier || '') : '',
+                                                    packageSize: mappedPackage,
+                                                    volumeProduced: tool.volumeProduced ? Math.round(tool.volumeProduced).toString() : '',
+                                                    holeCount: tool.holeCount != null ? String(tool.holeCount) : formData.holeCount,
+                                                    technicalNotes: activeCount > 0 ? `Sequências ativas: ${activeCount}` : formData.technicalNotes,
+                                                  });
+                                                  setShowSuggestions(false);
+                                                }}
+                                              >
+                                                <span className="text-[11px] font-semibold text-gray-700">Seq {seqInfo.seq}</span>
+                                                <span className="text-[10px] text-gray-600">
+                                                  {seqInfo.qteProd > 0 ? `${seqInfo.qteProd.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg` : '-'}
+                                                </span>
+                                              </div>
+                                              ));
+                                            })()}
+                                            {inactiveSeqs.length > 5 && (
+                                              <span className="text-[10px] text-gray-600 pl-2">+{inactiveSeqs.length - 5} mais sequências inativas</span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : tool.sequences.length > 0 ? (
+                                  <div className="mb-2">
+                                    <span className="text-[11px] text-gray-500">
+                                      {tool.sequences.length} sequência{tool.sequences.length > 1 ? "s" : ""} (todas inativas)
+                                    </span>
+                                  </div>
+                                ) : null;
+                              })()}
+                              
+                              {/* Linha 3: Dados que serão preenchidos */}
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-1 pt-1 border-t border-gray-100">
+                                <div>
+                                  <span className="text-gray-500">Fornecedor:</span>{" "}
+                                  <span className="font-medium text-gray-700">{tool.supplier || "-"}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Pacote:</span>{" "}
+                                  <span className="font-medium text-gray-700">{tool.packageSize || "-"}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {loadingTools && formData.matrixCode.length >= 2 && (
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                        <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               {formData.itemCategory === "acessorio" && (

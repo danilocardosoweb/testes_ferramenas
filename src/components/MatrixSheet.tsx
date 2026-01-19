@@ -156,12 +156,17 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate,
 
     // Preparar os dados para exportação
     const data = filtered.map(matrix => {
-      const eventsByType: Record<string, string> = {};
+      // Filtrar e ordenar eventos de teste por data
+      const testEvents = (matrix.events || [])
+        .filter(e => e.type === "Testes" || /Teste/i.test(e.type))
+        .sort((a, b) => a.date.localeCompare(b.date));
       
-      // Agrupar eventos por tipo
-      (matrix.events || []).forEach(event => {
-        eventsByType[event.type] = formatDateBR(event.date);
-      });
+      // Extrair datas de testes (até 6)
+      const testDates = testEvents.map(e => formatDateBR(e.date));
+      
+      // Encontrar data de aprovação
+      const approvalEvent = (matrix.events || []).find(e => e.type === "Aprovado" || /Aprovação/i.test(e.type));
+      const approvalDate = approvalEvent ? formatDateBR(approvalEvent.date) : '';
       
       // Calcular dias em andamento (desde o recebimento)
       const diasEmAndamento = calculateDaysSinceReceived(matrix.receivedDate);
@@ -171,11 +176,14 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate,
         'Pasta': matrix.folder || '(Sem pasta)',
         'Data de Recebimento': formatDateBR(matrix.receivedDate || ''),
         'Dias em Andamento': diasEmAndamento,
-        '1º Teste': eventsByType['1º Teste'] || '',
-        '2º Teste': eventsByType['2º Teste'] || '',
-        '3º Teste': eventsByType['3º Teste'] || '',
-        'Aprovação': eventsByType['Aprovação'] || '',
-        'Dias sem Evento': daysSinceLastEvent(matrix), // Mantendo a informação de dias sem evento
+        '1º Teste': testDates[0] || '',
+        '2º Teste': testDates[1] || '',
+        '3º Teste': testDates[2] || '',
+        '4º Teste': testDates[3] || '',
+        '5º Teste': testDates[4] || '',
+        '6º Teste': testDates[5] || '',
+        'Aprovação': approvalDate,
+        'Dias sem Evento': daysSinceLastEvent(matrix),
         'Status': getStatusFromLastEvent(matrix)
       };
     });
@@ -192,6 +200,9 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate,
       { wch: 15 }, // 1º Teste
       { wch: 15 }, // 2º Teste
       { wch: 15 }, // 3º Teste
+      { wch: 15 }, // 4º Teste
+      { wch: 15 }, // 5º Teste
+      { wch: 15 }, // 6º Teste
       { wch: 15 }, // Aprovação
       { wch: 15 }, // Dias sem Evento
       { wch: 20 }  // Status
@@ -530,9 +541,9 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
               </div>
             </div>
           </div>
-          {showCycles && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">Ciclos de Limpeza/Correção (4, 5 e 6)</div>
+          {/* Sempre mostrar ciclos no modal, independente do estado showCycles da tabela */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-muted-foreground">Ciclos de Limpeza/Correção (3, 4, 5 e 6)</div>
               <div className="rounded-md border overflow-hidden">
                 {/* Cabeçalhos */}
                 <div className="grid grid-cols-[56px_repeat(4,1fr)] gap-2 items-center px-3 py-2 bg-muted/40 text-xs text-muted-foreground">
@@ -543,7 +554,7 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
                   <div>Corr. Ext. Entrada</div>
                 </div>
                 {/* Linhas */}
-                {[4,5,6].map((ciclo) => (
+                {[3,4,5,6].map((ciclo) => (
                   <div key={ciclo} className="grid grid-cols-[56px_repeat(4,1fr)] gap-2 items-center px-3 py-2 border-t text-xs">
                     <div className="font-medium">{ciclo}</div>
                     <div>
@@ -561,8 +572,7 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+          </div>
         </div>
         <div className="flex justify-end">
           <Button type="button" onClick={() => setExtrasOpen(false)}>Fechar</Button>

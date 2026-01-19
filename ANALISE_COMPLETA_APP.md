@@ -1,4 +1,4 @@
-# Análise Completa do App - Controle de Matrizes
+![alt text](image.png)# Análise Completa do App - Controle de Matrizes
 
 **Data:** 19/12/2025  
 **Versão:** 1.0  
