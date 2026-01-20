@@ -69,18 +69,31 @@ npm run dev
 ```
 
 ## Supabase — Banco de Dados
-- Migrations estão em `data_schema.sql` (DDL cumulativa com blocos e rollback).
-- Documentação do esquema em `database_schema.md`.
-- Migrações incrementais ficam em `migrations/` para execução pontual (ex.: `20241023_add_observations_and_attachments.sql`).
+- **Schema principal:** `data_schema.sql` (DDL cumulativa com blocos e rollback).
+- **Documentação:** `database_schema.md` (referência completa do schema).
+- **Migrações incrementais:** `migrations/` (organizadas por data, ex.: `20251217_add_nf_fields_nitration.sql`).
 
 ### Aplicar migrações
-Use o console SQL do Supabase ou CLI para aplicar o conteúdo relevante de `data_schema.sql`.
+**Opção 1 (Recomendado para novo setup):**
+Use o console SQL do Supabase ou CLI para aplicar o conteúdo completo de `data_schema.sql`:
+```bash
+psql -h <host> -U postgres -d <database> -f data_schema.sql
+```
 
-Migrações recentes relevantes:
+**Opção 2 (Para migrações pontuais):**
+Aplicar migrações específicas de `migrations/` em ordem cronológica:
+```bash
+psql -h <host> -U postgres -d <database> -f migrations/20251103_fix_status.sql
+psql -h <host> -U postgres -d <database> -f migrations/20251104_fix_email_groups_migration.sql
+# ... continuar em ordem
+```
+
+### Migrações recentes (20/01/2026)
 - `events.test_status` (Aprovado/Reprovado) — status para eventos do tipo `Testes`.
-- `notifications_sent.category` inclui "Reprovado".
-- Workflow de confecção: campos `status` (`need`/`pending`/`approved`/`received`), prioridades e timestamps (`moved_to_*`) em `manufacturing_records`.
-- `manufacturing_records.observacoes` (texto) e `manufacturing_records.anexos` (JSONB) para detalhes adicionais e arquivos.
+- `notifications_sent.category` inclui "Reprovado" e "Recebidas".
+- `cleaning_orders` — campos `nf_saida`, `nf_retorno`, `diametro_mm` para controle de limpeza/nitretação.
+- `manufacturing_records` — campos `status` (`need`/`pending`/`approved`/`received`), prioridades, timestamps e anexos.
+- `analysis_producao`, `analysis_carteira`, `analysis_ferramentas` — tabelas de análise com triggers e índices.
 
 ### Realtime
 Habilitar Realtime na tabela `public.notifications_sent`:

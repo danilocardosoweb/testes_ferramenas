@@ -620,7 +620,7 @@ export function CleaningOrdersTable() {
                 Status
               </label>
               <select
-                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                className="h-11 md:h-10 w-full rounded-md border bg-background px-3 text-sm"
                 value={filters.status}
                 onChange={(e) =>
                   setFilters({ ...filters, status: e.target.value as any })
@@ -641,7 +641,7 @@ export function CleaningOrdersTable() {
                 onChange={(e) =>
                   setFilters({ ...filters, dataInicio: e.target.value })
                 }
-                className="h-10 text-sm"
+                className="h-11 md:h-10 text-sm"
               />
             </div>
             <div>
@@ -654,7 +654,7 @@ export function CleaningOrdersTable() {
                 onChange={(e) =>
                   setFilters({ ...filters, dataFim: e.target.value })
                 }
-                className="h-10 text-sm"
+                className="h-11 md:h-10 text-sm"
               />
             </div>
             <div>
@@ -668,7 +668,7 @@ export function CleaningOrdersTable() {
                 onChange={(e) =>
                   setFilters({ ...filters, ferramenta: e.target.value })
                 }
-                className="h-10 text-sm"
+                className="h-11 md:h-10 text-sm"
               />
             </div>
             <div className="flex items-end">
@@ -688,7 +688,7 @@ export function CleaningOrdersTable() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-10 w-10 p-0"
+                  className="h-11 w-11 md:h-10 md:w-10 p-0"
                   title="Dar baixa por NF (XML/PDF)"
                   onClick={() => {
                     fileImportRef.current?.click();
@@ -707,7 +707,7 @@ export function CleaningOrdersTable() {
                       nfSaida: "",
                     })
                   }
-                  className="w-full h-10"
+                  className="w-full h-11 md:h-10"
                 >
                   Limpar
                 </Button>
@@ -749,11 +749,11 @@ export function CleaningOrdersTable() {
       {selected.size > 0 && (
         <Card className="border-2 border-blue-500 bg-blue-50/30">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <span className="font-semibold text-sm">
                 {selected.size} ferramenta(s) selecionada(s)
               </span>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Button
                   size="sm"
                   onClick={handleBatchReturn}
@@ -795,7 +795,7 @@ export function CleaningOrdersTable() {
             return (
               <div key={date} className="border rounded-lg overflow-hidden">
                 {/* Header do Dia */}
-                <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-3 md:px-4 py-3 flex items-center justify-between gap-2 md:gap-3 border-b">
+                <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-3 md:px-4 py-3 flex items-start md:items-center justify-between gap-2 md:gap-3 border-b">
                   <button
                     onClick={() => toggleDay(date)}
                     className="flex items-center gap-2 md:gap-3 flex-1 hover:opacity-80 transition-opacity min-w-0"
@@ -858,7 +858,7 @@ export function CleaningOrdersTable() {
                   <div className="flex md:hidden items-center gap-1 shrink-0">
                     <Sheet>
                       <SheetTrigger asChild>
-                        <Button size="sm" variant="outline" className="h-8 px-2">
+                        <Button size="sm" variant="outline" className="h-11 px-3">
                           <Edit className="h-4 w-4" />
                         </Button>
                       </SheetTrigger>
@@ -907,7 +907,7 @@ export function CleaningOrdersTable() {
                     </Sheet>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="outline" className="h-8 px-2">
+                        <Button size="sm" variant="outline" className="h-11 px-3">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>

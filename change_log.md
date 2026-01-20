@@ -85,6 +85,8 @@
 
 [11/11/2025 15:10] - db - Notificações: criação/alinhamento de `public.notifications_sent` (colunas: `sent_at`, `emitter_id`, `user_agent`, `platform`, `language`; categorias incluem "Recebidas"; índices `ux_notifications_sent_event_cat` e `idx_notifications_sent_event`; RLS liberal; Realtime habilitado na publicação `supabase_realtime`) via MCP - Cascade
 
+[20/01/2026 15:30] - Consolidação de Documentação: Deletados 9 arquivos obsoletos/duplicados (ANALISE_MOBILE_LIMPEZA.md, ANALISE_MOBILE_FIRST.md, RESUMO_MOBILE_FIRST.md, INDICE_MOBILE_FIRST.md, CHECKLIST_MOBILE_FIRST.md, specsversão 01.md, change_log versão 01.md, SUMARIO_ANALISE_MOBILE_FIRST.txt, migration_keywords_simple.sql); Mesclado EXEMPLOS_MOBILE_FIRST.md em MOBILE_FIRST_PLAN.md (seção 10 com padrões de código); Consolidação de progresso.md em change_log.md; Reorganização de migrações SQL em data_schema.sql - Cascade
+
 [11/11/2025 15:12] - docs - Documentação atualizada com estado do banco e do app: `database_schema.md` (notifications_sent alinhada), `README.md` (Backup/Snapshot e checklist de notificações), `specs.md` (Iteração 11/11/2025 - Persistência reativada). Criado snapshot em `docs/snapshots/2025-11-11_supabase_snapshot.md` - Cascade
 
 [12/11/2025 11:12] - db - Criado RPC `public.analysis_producao_truncate()` (SECURITY DEFINER) e integrado no frontend da aba Análise/Produção para sobrescrita total antes de novo upload; documentado `produced_on` + trigger + índice em `database_schema.md` e specs atualizadas - Cascade

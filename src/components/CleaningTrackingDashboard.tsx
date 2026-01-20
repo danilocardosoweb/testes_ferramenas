@@ -174,11 +174,11 @@ export function CleaningTrackingDashboard() {
           <div className="grid grid-cols-2 gap-3 md:contents">
             <div>
               <label className="text-xs font-semibold text-muted-foreground block mb-1">SLA Limpeza (dias)</label>
-              <Input type="number" min={1} value={slaLimpeza} onChange={(e) => setSlaLimpeza(Number(e.target.value) || 1)} className="h-10 w-full md:w-28" />
+              <Input type="number" min={1} value={slaLimpeza} onChange={(e) => setSlaLimpeza(Number(e.target.value) || 1)} className="h-11 md:h-10 w-full md:w-28" />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground block mb-1">SLA Nitretação (dias)</label>
-              <Input type="number" min={1} value={slaNitre} onChange={(e) => setSlaNitre(Number(e.target.value) || 1)} className="h-10 w-full md:w-28" />
+              <Input type="number" min={1} value={slaNitre} onChange={(e) => setSlaNitre(Number(e.target.value) || 1)} className="h-11 md:h-10 w-full md:w-28" />
             </div>
           </div>
           <div className="md:ml-auto flex items-center gap-2 text-xs text-muted-foreground">
@@ -201,7 +201,7 @@ export function CleaningTrackingDashboard() {
             <div className="mb-3 space-y-2">
               <div className="font-semibold text-sm">Atenção: Em Limpeza sem retorno (top 20)</div>
               {selLimpeza.size > 0 && (
-                <Button size="sm" variant="outline" className="w-full md:w-auto" onClick={() => marcarRetornoHoje(Array.from(selLimpeza))}>
+                <Button size="sm" variant="outline" className="w-full md:w-auto h-11 md:h-10" onClick={() => marcarRetornoHoje(Array.from(selLimpeza))}>
                   <Check className="h-4 w-4 mr-1" /> Baixar hoje ({selLimpeza.size})
                 </Button>
               )}
@@ -285,7 +285,7 @@ export function CleaningTrackingDashboard() {
             <div className="mb-3 space-y-2">
               <div className="font-semibold text-sm">Atenção: Em Nitretação sem saída (top 20)</div>
               {selNitre.size > 0 && (
-                <Button size="sm" variant="outline" className="w-full md:w-auto" onClick={() => marcarSaidaNitreHoje(Array.from(selNitre))}>
+                <Button size="sm" variant="outline" className="w-full md:w-auto h-11 md:h-10" onClick={() => marcarSaidaNitreHoje(Array.from(selNitre))}>
                   <Check className="h-4 w-4 mr-1" /> Concluir hoje ({selNitre.size})
                 </Button>
               )}

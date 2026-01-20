@@ -17,6 +17,7 @@ interface RomaneioRecord {
   sequence: string;
   cleaning: boolean;
   stock: boolean;
+  nitracao: boolean;
   box: string;
   timestamp: number;
   imageName?: string;
@@ -30,6 +31,7 @@ interface RomaneioDraftLine {
   sequence: string;
   cleaning: boolean;
   stock: boolean;
+  nitracao: boolean;
   box: string;
   dropdownOpen: boolean;
   highlightedIndex: number;
@@ -58,6 +60,7 @@ const createEmptyLine = (): RomaneioDraftLine => ({
   sequence: "",
   cleaning: false,
   stock: false,
+  nitracao: false,
   box: "",
   dropdownOpen: false,
   highlightedIndex: 0,
@@ -304,7 +307,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
     }
 
     const now = Date.now();
-    const validLines = lines.filter((l) => l.toolCode.trim() || l.toolSearch.trim() || l.box.trim() || l.cleaning || l.stock);
+    const validLines = lines.filter((l) => l.toolCode.trim() || l.toolSearch.trim() || l.box.trim() || l.cleaning || l.stock || l.nitracao);
 
     if (validLines.length === 0) {
       toast({ title: "Erro", description: "Adicione ao menos uma linha", variant: "destructive" });
@@ -316,8 +319,8 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
         toast({ title: "Erro", description: "Preencha a Ferramenta em todas as linhas", variant: "destructive" });
         return;
       }
-      if (!l.cleaning && !l.stock) {
-        toast({ title: "Erro", description: "Selecione Limpeza ou Estoque em todas as linhas", variant: "destructive" });
+      if (!l.cleaning && !l.stock && !l.nitracao) {
+        toast({ title: "Erro", description: "Selecione Limpeza, Estoque ou Nitretação em todas as linhas", variant: "destructive" });
         return;
       }
       if (l.stock && !l.box) {
@@ -371,6 +374,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
       sequence: l.sequence || "1",
       cleaning: l.cleaning,
       stock: l.stock,
+      nitracao: l.nitracao,
       box: l.box,
       timestamp: now + idx,
       imageName: l.imageName || undefined,
@@ -408,6 +412,129 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
     a.download = name;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const generateSolicitacaoFaturamento = async (rows: RomaneioRecord[]) => {
+    try {
+      // Busca o arquivo template da pasta public
+      const templatePath = '/MODELO SOLICITAÇAO DA NITREX.xlsx';
+      const response = await fetch(templatePath);
+      
+      if (!response.ok) {
+        toast({ title: "Erro", description: "Arquivo template não encontrado", variant: "destructive" });
+        return;
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      const wb = XLSX.read(arrayBuffer, { type: 'array', cellStyles: true, cellFormula: true, cellNF: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+
+      // Atualiza a data (célula I4)
+      const today = new Date();
+      const todayBR = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getFullYear()).slice(-2)}`;
+      ws['I4'] = { ...(ws['I4'] as any), v: todayBR, t: 's' };
+
+      const decoded = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: { r: 0, c: 0 }, e: { r: 200, c: 20 } };
+
+      const getCellAddr = (r0: number, c0: number) => XLSX.utils.encode_cell({ r: r0, c: c0 });
+      const getCell = (r0: number, c0: number) => (ws as any)[getCellAddr(r0, c0)] as any | undefined;
+
+      // Localiza a linha inicial dos dados.
+      // Em alguns templates, o cabeçalho "Ferramentas" pode estar mesclado ou não existir como texto em A5.
+      // Estratégia:
+      // 1) procurar "Ferramentas" em qualquer coluna
+      // 2) fallback: procurar a primeira ferramenta existente em coluna A (ex: "f-...") e assumir que a linha anterior é o cabeçalho
+      let headerRow0: number | null = null;
+      for (let r0 = decoded.s.r; r0 <= decoded.e.r; r0++) {
+        for (let c0 = decoded.s.c; c0 <= decoded.e.c; c0++) {
+          const v = getCell(r0, c0)?.v;
+          if (typeof v === 'string' && v.trim().toLowerCase() === 'ferramentas') {
+            headerRow0 = r0;
+            break;
+          }
+        }
+        if (headerRow0 != null) break;
+      }
+
+      if (headerRow0 == null) {
+        let firstToolRow0: number | null = null;
+        for (let r0 = decoded.s.r; r0 <= decoded.e.r; r0++) {
+          const v = getCell(r0, 0)?.v;
+          const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+          if (s.startsWith('f-')) {
+            firstToolRow0 = r0;
+            break;
+          }
+        }
+        if (firstToolRow0 == null) {
+          toast({ title: "Erro", description: "Não consegui localizar a tabela do template (nem 'Ferramentas' nem uma ferramenta na coluna A).", variant: "destructive" });
+          return;
+        }
+        headerRow0 = Math.max(firstToolRow0 - 1, 0);
+      }
+
+      const startRow0 = headerRow0 + 1; // primeira linha de dados (modelo)
+
+      // Descobre até qual coluna existem dados na linha modelo (para copiar fórmulas/estilos)
+      let lastCol0 = 0;
+      for (let c0 = decoded.e.c; c0 >= 0; c0--) {
+        const cell = getCell(startRow0, c0);
+        if (cell && (cell.v !== undefined || cell.f !== undefined || cell.s !== undefined)) {
+          lastCol0 = c0;
+          break;
+        }
+      }
+
+      // Função para copiar uma célula (mantém estilo e fórmula quando existir)
+      const copyCell = (fromR0: number, fromC0: number, toR0: number, toC0: number) => {
+        const fromAddr = getCellAddr(fromR0, fromC0);
+        const toAddr = getCellAddr(toR0, toC0);
+        const fromCell = (ws as any)[fromAddr];
+        if (!fromCell) {
+          delete (ws as any)[toAddr];
+          return;
+        }
+        (ws as any)[toAddr] = { ...fromCell };
+      };
+
+      // Limpa linhas antigas (a partir da startRow0). Mantém a linha modelo (startRow0) para copiar.
+      // Remove tudo abaixo da linha modelo (inclusive duplicatas antigas)
+      for (let r0 = startRow0 + 1; r0 <= decoded.e.r; r0++) {
+        for (let c0 = 0; c0 <= lastCol0; c0++) {
+          const addr = getCellAddr(r0, c0);
+          if ((ws as any)[addr]) delete (ws as any)[addr];
+        }
+      }
+
+      // Preenche a coluna A e replica o modelo nas demais colunas para cada ferramenta
+      const tools = rows.map((r) => formatToolExternal(r.toolCode, r.sequence));
+      for (let i = 0; i < tools.length; i++) {
+        const targetRow0 = startRow0 + i;
+
+        // Garante que, para linhas além da primeira, copiamos a linha modelo inteira (A..lastCol0)
+        if (i > 0) {
+          for (let c0 = 0; c0 <= lastCol0; c0++) {
+            copyCell(startRow0, c0, targetRow0, c0);
+          }
+        }
+
+        // Coluna A (Ferramentas)
+        const aAddr = getCellAddr(targetRow0, 0);
+        (ws as any)[aAddr] = { ...(ws as any)[aAddr], v: tools[i], t: 's' };
+      }
+
+      // Ajusta !ref para incluir até a última linha preenchida
+      const finalRow0 = startRow0 + Math.max(tools.length - 1, 0);
+      const nextRange = { ...decoded, e: { r: Math.max(decoded.e.r, finalRow0), c: Math.max(decoded.e.c, lastCol0) } };
+      ws['!ref'] = XLSX.utils.encode_range(nextRange);
+
+      // Salva o arquivo preenchido (baseado no template)
+      XLSX.writeFile(wb, `solicitacao_faturamento_${batchDate}.xlsx`);
+      toast({ title: "Sucesso", description: "Solicitação de Faturamento gerada com sucesso", variant: "default" });
+    } catch (err) {
+      console.error("Erro ao gerar solicitação:", err);
+      toast({ title: "Erro", description: "Erro ao gerar solicitação de faturamento", variant: "destructive" });
+    }
   };
 
   const downloadExcel = (name: string, rows: RomaneioRecord[]) => {
@@ -477,7 +604,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
       data_retorno: null as string | null,
       nf_saida: null as string | null,
       nf_retorno: null as string | null,
-      nitretacao: false,
+      nitretacao: r.nitracao ?? false,
       observacoes: null as string | null,
       diametro_mm: (() => {
         const raw = diametroMap[`${r.toolCode.toUpperCase()}|${r.sequence}`];
@@ -849,6 +976,25 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                           />
                         )}
                         <button
+                          onClick={() => {
+                            setRecords((prev) =>
+                              prev.map((r) =>
+                                r.id === record.id
+                                  ? { ...r, nitracao: !r.nitracao, cleaning: !r.nitracao ? false : r.cleaning, stock: !r.nitracao ? false : r.stock }
+                                  : r
+                              )
+                            );
+                          }}
+                          className={`p-1 rounded transition-colors ${
+                            record.nitracao
+                              ? "text-orange-600 hover:text-orange-700 bg-orange-50"
+                              : "text-gray-400 hover:text-orange-600"
+                          }`}
+                          title={record.nitracao ? "Remover de Nitretação" : "Marcar para Nitretação"}
+                        >
+                          <span className="text-lg">🔥</span>
+                        </button>
+                        <button
                           onClick={() => handleDeleteRecord(record.id)}
                           className="text-red-500 hover:text-red-700 p-1"
                         >
@@ -904,6 +1050,11 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                           📦 Estoque
                         </span>
                       )}
+                      {record.nitracao && (
+                        <span className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded">
+                          🔥 Nitretação
+                        </span>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -919,8 +1070,22 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
             <div className="p-4 border-b">
               <h4 className="text-lg font-semibold">Resumo do Romaneio</h4>
               <p className="text-xs text-muted-foreground">Data: {fmtISODate(batchDate)}</p>
+              <div className="flex gap-4 mt-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Limpeza:</span>
+                  <span className="font-semibold text-blue-600">{records.filter(r => r.cleaning).length}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Estoque:</span>
+                  <span className="font-semibold text-green-600">{records.filter(r => r.stock).length}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Nitretação:</span>
+                  <span className="font-semibold text-orange-600">{records.filter(r => r.nitracao).length}</span>
+                </div>
+              </div>
             </div>
-            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="border rounded-md p-3">
                 <h5 className="font-semibold mb-2">Para Limpeza</h5>
                 {records.filter(r => r.cleaning).length === 0 ? (
@@ -977,25 +1142,63 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                   </Button>
                 </div>
               </div>
+              <div className="border rounded-md p-3">
+                <h5 className="font-semibold mb-2">Para Nitretação</h5>
+                {records.filter(r => r.nitracao).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhum item</p>
+                ) : (
+                  <ul className="space-y-1 text-sm max-h-56 overflow-auto">
+                    {records.filter(r => r.nitracao).map((r) => (
+                      <li key={r.id} className="flex justify-between gap-2">
+                        <span className="truncate">{r.toolCode}{r.sequence ? ` / ${r.sequence}` : ''}</span>
+                        <span className="text-muted-foreground">{fmtISODate(r.date)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const nitracao = records.filter(r => r.nitracao);
+                      downloadExcel(`romaneio_nitracao_${batchDate}.xlsx`, nitracao);
+                    }}
+                    disabled={records.filter(r => r.nitracao).length === 0}
+                  >
+                    Baixar Excel (Nitretação)
+                  </Button>
+                </div>
+              </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setShowSummary(false)}>Fechar</Button>
-              <Button
-                type="button"
-                onClick={async () => {
-                  const limpeza = records.filter(r => r.cleaning);
-                  const { ok } = await saveCleaningRecords(limpeza);
-                  if (!ok) {
-                    toast({ title: "Erro ao registrar limpeza", description: "Não foi possível salvar as ferramentas em limpeza", variant: "destructive" });
-                    return;
-                  }
-                  setRecords([]);
-                  setShowSummary(false);
-                  toast({ title: "Romaneio finalizado", description: "Registros salvos em Limpeza e lista limpa" });
-                }}
+            <div className="p-4 border-t flex justify-between gap-2 flex-wrap">
+              <Button 
+                type="button" 
+                variant="outline"
+                onClick={() => generateSolicitacaoFaturamento(records)}
+                disabled={records.length === 0}
               >
-                Concluir e Limpar
+                📋 Gerar Solicitação de Faturamento
               </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setShowSummary(false)}>Fechar</Button>
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    const allRecords = records;
+                    const { ok } = await saveCleaningRecords(allRecords);
+                    if (!ok) {
+                      toast({ title: "Erro ao registrar", description: "Não foi possível salvar os registros", variant: "destructive" });
+                      return;
+                    }
+                    setRecords([]);
+                    setShowSummary(false);
+                    toast({ title: "Romaneio finalizado", description: "Todos os registros foram salvos com sucesso" });
+                  }}
+                >
+                  Concluir e Limpar
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -219,26 +219,26 @@ export function StockInventoryView() {
             <label className="text-xs font-semibold text-muted-foreground block mb-1">Buscar</label>
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input value={filters.term} onChange={(e) => setFilters({ ...filters, term: e.target.value })} placeholder="Ex: TSU-041" className="h-10 pl-8" />
+              <Input value={filters.term} onChange={(e) => setFilters({ ...filters, term: e.target.value })} placeholder="Ex: TSU-041" className="h-11 md:h-10 pl-8" />
             </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-muted-foreground block mb-1">Box</label>
             <div className="relative">
               <MapPin className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input value={filters.box} onChange={(e) => setFilters({ ...filters, box: e.target.value })} placeholder="Ex: A1, B2" className="h-10 pl-8" />
+              <Input value={filters.box} onChange={(e) => setFilters({ ...filters, box: e.target.value })} placeholder="Ex: A1, B2" className="h-11 md:h-10 pl-8" />
             </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-muted-foreground block mb-1">Status</label>
-            <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value as any })}>
+            <select className="h-11 md:h-10 w-full rounded-md border bg-background px-3 text-sm" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value as any })}>
               <option>Todos</option>
               <option>Divergentes</option>
               <option>Iguais</option>
             </select>
           </div>
           <div className="md:flex md:items-end">
-            <Button variant="outline" className="w-full h-10" onClick={() => setFilters({ term: "", box: "", status: "Todos", ativa: "Sim" })}>
+            <Button variant="outline" className="w-full h-11 md:h-10" onClick={() => setFilters({ term: "", box: "", status: "Todos", ativa: "Sim" })}>
               <RefreshCcw className="h-4 w-4 mr-1" /> Limpar
             </Button>
           </div>
@@ -257,10 +257,10 @@ export function StockInventoryView() {
             <div className="font-semibold text-sm">Localização Atual</div>
             {selected.size > 0 && (
               <div className="flex flex-col sm:flex-row gap-2">
-                <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => assumirSistema(Array.from(selected))}>
+                <Button size="sm" variant="outline" className="w-full sm:w-auto h-11 md:h-10" onClick={() => assumirSistema(Array.from(selected))}>
                   <SplitSquareHorizontal className="h-4 w-4 mr-1" /> Assumir Sistema ({selected.size})
                 </Button>
-                <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => assumirInformado(Array.from(selected))}>
+                <Button size="sm" variant="outline" className="w-full sm:w-auto h-11 md:h-10" onClick={() => assumirInformado(Array.from(selected))}>
                   <Check className="h-4 w-4 mr-1" /> Assumir Informado ({selected.size})
                 </Button>
               </div>
