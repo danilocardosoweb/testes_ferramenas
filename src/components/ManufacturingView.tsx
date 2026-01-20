@@ -1569,8 +1569,8 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                       >
                         {toolSuggestions.map((tool) => {
                           // Mapear fornecedor para opção do select
-                          const mapSupplierToOption = (supplier: string | undefined): string => {
-                            if (!supplier) return "";
+                          const mapSupplierToOption = (supplier: string | undefined | null): string => {
+                            if (!supplier || typeof supplier !== "string") return "";
                             const upper = supplier.toUpperCase().trim();
                             if (upper === "FEP" || upper.includes("FEP")) return "FEP";
                             if (upper === "EXXO" || upper.includes("EXXO")) return "EXXO";
