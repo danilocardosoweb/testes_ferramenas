@@ -471,7 +471,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
   const saveCleaningRecords = async (rows: RomaneioRecord[]) => {
     if (!rows || rows.length === 0) return { ok: true } as const;
     const payload = rows.map((r) => ({
-      ferramenta: r.toolCode,
+      ferramenta: formatToolExternal(r.toolCode, r.sequence),
       sequencia: r.sequence,
       data_saida: r.date,
       data_retorno: null as string | null,

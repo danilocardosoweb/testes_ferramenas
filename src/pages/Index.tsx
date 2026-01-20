@@ -87,7 +87,7 @@ const Index = () => {
   const isAdmin = authSession?.user?.role === 'admin';
   const [dailyAlertOpen, setDailyAlertOpen] = useState(false);
   const [delayedManufacturing, setDelayedManufacturing] = useState<Array<{ code: string; supplier: string; deliveryDate: string; daysLate: number }>>([]);
-  const [stalledTests, setStalledTests] = useState<Array<{ code: string; receivedDate: string; daysInProgress: number; status: string }>>([]);
+  const [stalledTests, setStalledTests] = useState<Array<{ code: string; receivedDate: string; daysInProgress: number; status: string; testCount: number; rejectionNotes: string[] }>>([]);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const eventDialogJustClosedRef = useRef(false);
   const [cleaningSubView, setCleaningSubView] = useState<"romaneio" | "em_limpeza" | "em_nitretacao" | "estoque" | "acompanhamento">("romaneio");
@@ -109,7 +109,7 @@ const Index = () => {
     lines.push('');
     lines.push('Resumo:');
     lines.push(`- Matrizes com atraso de entrega: ${delayedManufacturing.length} (críticas: ${atrasoCritico.length})`);
-    lines.push(`- Ferramentas em teste paradas: ${stalledTests.length} (críticas: ${testeCritico.length})`);
+    lines.push(`- Ferramentas que ainda não foram aprovadas: ${stalledTests.length} (críticas: ${testeCritico.length})`);
     lines.push('');
 
     lines.push('1) Matrizes com atraso de entrega');
@@ -125,15 +125,23 @@ const Index = () => {
     }
     lines.push('');
 
-    lines.push('2) Ferramentas em teste paradas');
-    lines.push('CÓDIGO | STATUS | RECEBIDA EM | DIAS EM ANDAMENTO | STATUS');
+    lines.push('2) Ferramentas que ainda não foram aprovadas');
+    lines.push('CÓDIGO | TESTES | REPROVAÇÕES | RECEBIDA EM | DIAS | STATUS');
     if (stalledTests.length === 0) {
       lines.push('-');
     } else {
       stalledTests.forEach((item) => {
         const status = item.daysInProgress > 20 ? 'CRÍTICO' : 'ATENÇÃO';
         const receivedBR = item.receivedDate ? item.receivedDate.split('-').reverse().join('/') : '-';
-        lines.push(`${item.code} | ${item.status} | ${receivedBR} | ${item.daysInProgress} dia(s) | ${status}`);
+        const rejectionInfo = item.rejectionNotes.length > 0 ? `Sim (${item.rejectionNotes.length})` : 'Não';
+        lines.push(`${item.code} | ${item.testCount} | ${rejectionInfo} | ${receivedBR} | ${item.daysInProgress} dia(s) | ${status}`);
+        
+        // Adicionar observações de reprovação se houver
+        if (item.rejectionNotes.length > 0) {
+          item.rejectionNotes.forEach((note) => {
+            lines.push(`  → ${note}`);
+          });
+        }
       });
     }
     lines.push('');
@@ -276,18 +284,31 @@ const Index = () => {
           }
         });
 
-        const stalled: Array<{ code: string; receivedDate: string; daysInProgress: number; status: string }> = [];
+        const stalled: Array<{ code: string; receivedDate: string; daysInProgress: number; status: string; testCount: number; rejectionNotes: string[] }> = [];
         matrices.forEach((m) => {
           if (hasApproval(m)) return;
           const status = getStatusFromLastEvent(m);
           if (!status || !/teste/i.test(status)) return;
           const days = calculateDaysBetween(m.receivedDate, today);
           if (days !== null && days > 15) {
+            // Contar testes e coletar observações de reprovação
+            const testEvents = m.events.filter((e) => e.type === 'Testes');
+            const testCount = testEvents.length;
+            const rejectionNotes: string[] = [];
+            
+            testEvents.forEach((event) => {
+              if (event.testStatus === 'Reprovado' && event.comment) {
+                rejectionNotes.push(event.comment);
+              }
+            });
+            
             stalled.push({
               code: m.code,
               receivedDate: m.receivedDate || '',
               daysInProgress: days,
               status,
+              testCount,
+              rejectionNotes,
             });
           }
         });
@@ -685,25 +706,25 @@ const Index = () => {
                 )}
               </div>
 
-              {/* Ferramentas em teste paradas */}
+              {/* Ferramentas que ainda não foram aprovadas */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-sm">2️⃣ Ferramentas em teste paradas</h3>
+                  <h3 className="font-semibold text-sm">2️⃣ Ferramentas que ainda não foram aprovadas</h3>
                 </div>
                 {stalledTests.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Nenhuma ferramenta em teste parada acima de 15 dias.</p>
+                  <p className="text-xs text-muted-foreground">Nenhuma ferramenta pendente de aprovação acima de 15 dias.</p>
                 ) : (
                   <div className="border rounded-md divide-y">
                     {stalledTests.map((item) => (
                       <div
                         key={`${item.code}-${item.receivedDate}`}
-                        className={`flex items-center justify-between px-3 py-2 text-xs ${
+                        className={`px-3 py-2 text-xs ${
                           item.daysInProgress > 20
                             ? "bg-red-100 text-red-900"
                             : "bg-amber-50 text-amber-900"
                         }`}
                       >
-                        <div className="space-y-0.5">
+                        <div className="space-y-1">
                           <div className="font-semibold">
                             {item.code}
                             <span className="ml-2 text-[11px] font-normal">Status: {item.status}</span>
@@ -715,6 +736,18 @@ const Index = () => {
                               <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold">
                                 CRÍTICO &gt; 20 dias
                               </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] space-y-0.5">
+                            <div><strong>Testes realizados:</strong> {item.testCount}</div>
+                            <div><strong>Reprovações:</strong> {item.rejectionNotes.length > 0 ? `Sim (${item.rejectionNotes.length})` : 'Não'}</div>
+                            {item.rejectionNotes.length > 0 && (
+                              <div className="mt-1 pl-2 border-l-2 border-current space-y-0.5">
+                                <div className="font-semibold">Observações de reprovação:</div>
+                                {item.rejectionNotes.map((note, idx) => (
+                                  <div key={idx} className="text-[10px]">• {note}</div>
+                                ))}
+                              </div>
                             )}
                           </div>
                         </div>
