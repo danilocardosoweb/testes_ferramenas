@@ -45,6 +45,10 @@ async function parseFerramentasWorkbook(file: File) {
       // Vida/Necessidade de Nitretação para acompanhamento
       "Vd Nitret": r["Vd Nitret"] ?? r["Vd Nitretação"] ?? r["Vida Nitretação"] ?? r["Vida Nitret"] ?? r["Vd.Nitret"] ?? r["Vd_Nitret"] ?? null,
       "Diametro": r["Diametro"] ?? r["Diâmetro"] ?? r["Diametro (mm)"] ?? r["Diâmetro (mm)"] ?? r["Diametro mm"] ?? r["Diâmetro mm"] ?? null,
+      // Campos para preenchimento automático em Confecção
+      "Corretor": r["Corretor"] ?? r["Fornecedor"] ?? r["Fabricante"] ?? null,
+      "Medida Pacote": r["Medida Pacote"] ?? r["MedidaPacote"] ?? r["Pacote"] ?? r["Medida"] ?? null,
+      "Furos": r["Furos"] ?? r["QTD Furos"] ?? r["Qtd Furos"] ?? r["Qte.Furos"] ?? r["Nº Furos"] ?? r["N Furos"] ?? null,
     },
   }));
 }

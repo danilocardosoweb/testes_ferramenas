@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Matrix } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,6 @@ interface RomaneioRecord {
   sequence: string;
   cleaning: boolean;
   stock: boolean;
-  nitracao: boolean;
   box: string;
   timestamp: number;
   imageName?: string;
@@ -31,10 +30,8 @@ interface RomaneioDraftLine {
   sequence: string;
   cleaning: boolean;
   stock: boolean;
-  nitracao: boolean;
   box: string;
   dropdownOpen: boolean;
-  highlightedIndex: number;
   imageName: string;
   imageFile: File | null;
 }
@@ -50,7 +47,8 @@ const deriveSequenceFromCode = (code: string) => {
     const lastPart = slashParts[slashParts.length - 1];
     if (lastPart) return lastPart.trim();
   }
-  return "";
+  const match = code.match(/(\d{1,3})$/);
+  return match ? match[1] : "";
 };
 
 const createEmptyLine = (): RomaneioDraftLine => ({
@@ -60,10 +58,8 @@ const createEmptyLine = (): RomaneioDraftLine => ({
   sequence: "",
   cleaning: false,
   stock: false,
-  nitracao: false,
   box: "",
   dropdownOpen: false,
-  highlightedIndex: 0,
   imageName: "",
   imageFile: null,
 });
@@ -72,25 +68,14 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
   const [records, setRecords] = useState<RomaneioRecord[]>([]);
   const [activeTools, setActiveTools] = useState<Array<{ code: string; sequences: string[] }>>([]);
   const [vdNitretMap, setVdNitretMap] = useState<Record<string, string | null>>({}); // chave: CODE|SEQ
-  const [diametroMap, setDiametroMap] = useState<Record<string, string | null>>({}); // chave: CODE|SEQ
   const [loadingTools, setLoadingTools] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
  
   const [batchDate, setBatchDate] = useState(new Date().toISOString().split("T")[0]);
   const [lines, setLines] = useState<RomaneioDraftLine[]>([createEmptyLine()]);
-  const toolInputRef = useRef<HTMLInputElement | null>(null);
-  const [focusToolNext, setFocusToolNext] = useState(false);
   
   const { toast } = useToast();
-
-  useEffect(() => {
-    if (!focusToolNext) return;
-    window.requestAnimationFrame(() => {
-      toolInputRef.current?.focus();
-      setFocusToolNext(false);
-    });
-  }, [focusToolNext, lines.length]);
 
   const fmtISODate = (iso: string) => {
     const clean = (iso || "").split("T")[0];
@@ -102,38 +87,10 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
     return iso;
   };
 
-  const formatToolExternal = (toolCode: string, sequence?: string | null) => {
-    const codeClean = (toolCode || "")
-      .toUpperCase()
-      .trim()
-      .replace(/[^A-Z0-9]/g, "");
-    const seqRaw = (sequence ?? "").toString().trim();
-    const seqNum = Number.parseInt(seqRaw, 10);
-    const seq = Number.isFinite(seqNum) ? String(seqNum).padStart(3, "0") : seqRaw ? seqRaw.padStart(3, "0") : "";
-    return seq ? `F-${codeClean}/${seq}` : `F-${codeClean}`;
-  };
-
   const parseVdNitretNumber = (val?: string | null): number | null => {
     if (val == null) return null;
-    const raw = String(val).trim();
-
-    const lastComma = raw.lastIndexOf(',');
-    const lastDot = raw.lastIndexOf('.');
-
-    let normalized = raw;
-    if (lastComma !== -1 && lastDot !== -1) {
-      if (lastComma > lastDot) {
-        normalized = raw.replace(/\./g, '').replace(/,/g, '.');
-      } else {
-        normalized = raw.replace(/,/g, '');
-      }
-    } else if (lastComma !== -1) {
-      normalized = raw.replace(/,/g, '.');
-    } else {
-      normalized = raw;
-    }
-
-    const match = normalized.match(/-?\d+(?:\.\d+)?/);
+    const s = String(val).replace(/\./g, '').replace(/,/g, '.');
+    const match = s.match(/-?\d+(?:\.\d+)?/);
     if (!match) return null;
     const num = Number(match[0]);
     return Number.isFinite(num) ? num : null;
@@ -206,7 +163,6 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
 
         const toolsMap = new Map<string, Set<string>>();
         const vdMap: Record<string, string | null> = {};
-        const diaMap: Record<string, string | null> = {};
         activeOnly.forEach((row: any) => {
           const codeRaw = (row.ferramenta_code ?? row.payload?.Matriz ?? row.payload?.Ferramenta ?? "").toString();
           const seqRaw = (row.ferramenta_seq ?? row.payload?.Seq ?? "").toString();
@@ -223,9 +179,6 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
           const vd = (row.payload?.["Vd Nitret"] ?? row.payload?.["Vd Nitretação"] ?? row.payload?.["Vida Nitretação"] ?? row.payload?.["Vida Nitret"] ?? row.payload?.["Vd.Nitret"] ?? row.payload?.["Vd_Nitret"]) ?? null;
           const key = `${code.toUpperCase()}|${seq}`;
           if (key) vdMap[key] = vd != null ? String(vd) : null;
-
-          const dia = (row.payload?.["Diametro"] ?? row.payload?.["Diâmetro"] ?? row.payload?.["Diametro (mm)"] ?? row.payload?.["Diâmetro (mm)"] ?? row.payload?.["Ø"] ?? row.payload?.["diametro"]) ?? null;
-          if (key) diaMap[key] = dia != null ? String(dia) : null;
         });
 
         const tools = Array.from(toolsMap.entries()).map(([code, sequences]) => ({
@@ -240,7 +193,6 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
         console.log(`Carregadas ${tools.length} ferramentas ativas do banco de dados (registros lidos: ${allRows.length})`);
         setActiveTools(tools);
         setVdNitretMap(vdMap);
-        setDiametroMap(diaMap);
       } catch (err) {
         console.error("Erro ao carregar ferramentas ativas:", err);
         setActiveTools([]);
@@ -277,19 +229,18 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
   const getLineToolData = (toolCode: string) => activeTools.find((t) => t.code === toolCode);
 
   const handleSelectTool = (lineId: string, toolCode: string) => {
-    const upperCode = toolCode.toUpperCase();
-    const toolData = getLineToolData(upperCode);
-    const derivedSeq = toolData?.sequences[0] || "1";
-    updateLine(lineId, { toolCode: upperCode, toolSearch: upperCode, dropdownOpen: false, sequence: derivedSeq });
+    const toolData = getLineToolData(toolCode);
+    const derivedSeq = deriveSequenceFromCode(toolCode) || toolData?.sequences[0] || "1";
+    updateLine(lineId, { toolCode, toolSearch: toolCode, dropdownOpen: false, sequence: derivedSeq });
   };
 
   const handleSelectToolSeq = (lineId: string, toolCode: string, seq: string) => {
-    const upperCode = toolCode.toUpperCase();
-    const chosenSeq = seq || deriveSequenceFromCode(upperCode) || "1";
-    updateLine(lineId, { toolCode: upperCode, toolSearch: upperCode, dropdownOpen: false, sequence: chosenSeq, highlightedIndex: 0 });
+    const chosenSeq = seq || deriveSequenceFromCode(toolCode) || "1";
+    updateLine(lineId, { toolCode, toolSearch: toolCode, dropdownOpen: false, sequence: chosenSeq });
   };
 
   const clearBatch = () => {
+    setBatchDate(new Date().toISOString().split("T")[0]);
     setLines([createEmptyLine()]);
   };
 
@@ -307,7 +258,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
     }
 
     const now = Date.now();
-    const validLines = lines.filter((l) => l.toolCode.trim() || l.toolSearch.trim() || l.box.trim() || l.cleaning || l.stock || l.nitracao);
+    const validLines = lines.filter((l) => l.toolCode.trim() || l.toolSearch.trim() || l.box.trim() || l.cleaning || l.stock);
 
     if (validLines.length === 0) {
       toast({ title: "Erro", description: "Adicione ao menos uma linha", variant: "destructive" });
@@ -319,8 +270,8 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
         toast({ title: "Erro", description: "Preencha a Ferramenta em todas as linhas", variant: "destructive" });
         return;
       }
-      if (!l.cleaning && !l.stock && !l.nitracao) {
-        toast({ title: "Erro", description: "Selecione Limpeza, Estoque ou Nitretação em todas as linhas", variant: "destructive" });
+      if (!l.cleaning && !l.stock) {
+        toast({ title: "Erro", description: "Selecione Limpeza ou Estoque em todas as linhas", variant: "destructive" });
         return;
       }
       if (l.stock && !l.box) {
@@ -329,52 +280,13 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
       }
     }
 
-    const dupCounts = new Map<string, number>();
-    for (const l of validLines) {
-      const code = (l.toolCode || l.toolSearch || "").trim().toUpperCase();
-      const seq = (l.sequence || "1").trim();
-      const key = `${code}|${seq}`;
-      dupCounts.set(key, (dupCounts.get(key) ?? 0) + 1);
-    }
-    const dups = Array.from(dupCounts.entries()).filter(([, count]) => count > 1);
-    if (dups.length > 0) {
-      const txt = dups.map(([k]) => {
-        const [code, seq] = k.split("|");
-        return `${code} / ${seq}`;
-      }).join(", ");
-      toast({ title: "Erro", description: `Lote com ferramentas duplicadas: ${txt}`, variant: "destructive" });
-      return;
-    }
-
-    const existingSet = new Set(
-      records
-        .filter((r) => r.date === batchDate)
-        .map((r) => `${(r.toolCode || "").trim().toUpperCase()}|${(r.sequence || "1").trim()}`)
-    );
-    const alreadyAdded = Array.from(dupCounts.keys()).filter((k) => existingSet.has(k));
-    if (alreadyAdded.length > 0) {
-      const txt = alreadyAdded
-        .map((k) => {
-          const [code, seq] = k.split("|");
-          return `${code} / ${seq}`;
-        })
-        .join(", ");
-      toast({
-        title: "Alerta",
-        description: `Essas ferramentas já foram lançadas hoje e não podem repetir: ${txt}`,
-        variant: "destructive",
-      });
-      return;
-    }
-
     const newRecords: RomaneioRecord[] = validLines.map((l, idx) => ({
       id: crypto.randomUUID(),
       date: batchDate,
-      toolCode: l.toolCode.toUpperCase(),
-      sequence: l.sequence || "1",
+      toolCode: l.toolCode,
+      sequence: l.sequence || deriveSequenceFromCode(l.toolCode) || "1",
       cleaning: l.cleaning,
       stock: l.stock,
-      nitracao: l.nitracao,
       box: l.box,
       timestamp: now + idx,
       imageName: l.imageName || undefined,
@@ -383,7 +295,6 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
 
     setRecords((prev) => [...newRecords, ...prev]);
     toast({ title: "Sucesso", description: `Registradas ${newRecords.length} linha(s) no romaneio` });
-    setFocusToolNext(true);
     clearBatch();
   };
 
@@ -395,7 +306,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
     const headers = ["Data", "Ferramenta", "Sequência", "Destino", "Box", "Imagem"];
     const lines = rows.map((r) => [
       r.date,
-      formatToolExternal(r.toolCode, r.sequence),
+      r.toolCode,
       r.sequence,
       r.cleaning ? "Limpeza" : r.stock ? "Estoque" : "",
       r.box ?? "",
@@ -414,129 +325,6 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
     URL.revokeObjectURL(url);
   };
 
-  const generateSolicitacaoFaturamento = async (rows: RomaneioRecord[]) => {
-    try {
-      // Busca o arquivo template da pasta public
-      const templatePath = '/MODELO SOLICITAÇAO DA NITREX.xlsx';
-      const response = await fetch(templatePath);
-      
-      if (!response.ok) {
-        toast({ title: "Erro", description: "Arquivo template não encontrado", variant: "destructive" });
-        return;
-      }
-      
-      const arrayBuffer = await response.arrayBuffer();
-      const wb = XLSX.read(arrayBuffer, { type: 'array', cellStyles: true, cellFormula: true, cellNF: true });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-
-      // Atualiza a data (célula I4)
-      const today = new Date();
-      const todayBR = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getFullYear()).slice(-2)}`;
-      ws['I4'] = { ...(ws['I4'] as any), v: todayBR, t: 's' };
-
-      const decoded = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: { r: 0, c: 0 }, e: { r: 200, c: 20 } };
-
-      const getCellAddr = (r0: number, c0: number) => XLSX.utils.encode_cell({ r: r0, c: c0 });
-      const getCell = (r0: number, c0: number) => (ws as any)[getCellAddr(r0, c0)] as any | undefined;
-
-      // Localiza a linha inicial dos dados.
-      // Em alguns templates, o cabeçalho "Ferramentas" pode estar mesclado ou não existir como texto em A5.
-      // Estratégia:
-      // 1) procurar "Ferramentas" em qualquer coluna
-      // 2) fallback: procurar a primeira ferramenta existente em coluna A (ex: "f-...") e assumir que a linha anterior é o cabeçalho
-      let headerRow0: number | null = null;
-      for (let r0 = decoded.s.r; r0 <= decoded.e.r; r0++) {
-        for (let c0 = decoded.s.c; c0 <= decoded.e.c; c0++) {
-          const v = getCell(r0, c0)?.v;
-          if (typeof v === 'string' && v.trim().toLowerCase() === 'ferramentas') {
-            headerRow0 = r0;
-            break;
-          }
-        }
-        if (headerRow0 != null) break;
-      }
-
-      if (headerRow0 == null) {
-        let firstToolRow0: number | null = null;
-        for (let r0 = decoded.s.r; r0 <= decoded.e.r; r0++) {
-          const v = getCell(r0, 0)?.v;
-          const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
-          if (s.startsWith('f-')) {
-            firstToolRow0 = r0;
-            break;
-          }
-        }
-        if (firstToolRow0 == null) {
-          toast({ title: "Erro", description: "Não consegui localizar a tabela do template (nem 'Ferramentas' nem uma ferramenta na coluna A).", variant: "destructive" });
-          return;
-        }
-        headerRow0 = Math.max(firstToolRow0 - 1, 0);
-      }
-
-      const startRow0 = headerRow0 + 1; // primeira linha de dados (modelo)
-
-      // Descobre até qual coluna existem dados na linha modelo (para copiar fórmulas/estilos)
-      let lastCol0 = 0;
-      for (let c0 = decoded.e.c; c0 >= 0; c0--) {
-        const cell = getCell(startRow0, c0);
-        if (cell && (cell.v !== undefined || cell.f !== undefined || cell.s !== undefined)) {
-          lastCol0 = c0;
-          break;
-        }
-      }
-
-      // Função para copiar uma célula (mantém estilo e fórmula quando existir)
-      const copyCell = (fromR0: number, fromC0: number, toR0: number, toC0: number) => {
-        const fromAddr = getCellAddr(fromR0, fromC0);
-        const toAddr = getCellAddr(toR0, toC0);
-        const fromCell = (ws as any)[fromAddr];
-        if (!fromCell) {
-          delete (ws as any)[toAddr];
-          return;
-        }
-        (ws as any)[toAddr] = { ...fromCell };
-      };
-
-      // Limpa linhas antigas (a partir da startRow0). Mantém a linha modelo (startRow0) para copiar.
-      // Remove tudo abaixo da linha modelo (inclusive duplicatas antigas)
-      for (let r0 = startRow0 + 1; r0 <= decoded.e.r; r0++) {
-        for (let c0 = 0; c0 <= lastCol0; c0++) {
-          const addr = getCellAddr(r0, c0);
-          if ((ws as any)[addr]) delete (ws as any)[addr];
-        }
-      }
-
-      // Preenche a coluna A e replica o modelo nas demais colunas para cada ferramenta
-      const tools = rows.map((r) => formatToolExternal(r.toolCode, r.sequence));
-      for (let i = 0; i < tools.length; i++) {
-        const targetRow0 = startRow0 + i;
-
-        // Garante que, para linhas além da primeira, copiamos a linha modelo inteira (A..lastCol0)
-        if (i > 0) {
-          for (let c0 = 0; c0 <= lastCol0; c0++) {
-            copyCell(startRow0, c0, targetRow0, c0);
-          }
-        }
-
-        // Coluna A (Ferramentas)
-        const aAddr = getCellAddr(targetRow0, 0);
-        (ws as any)[aAddr] = { ...(ws as any)[aAddr], v: tools[i], t: 's' };
-      }
-
-      // Ajusta !ref para incluir até a última linha preenchida
-      const finalRow0 = startRow0 + Math.max(tools.length - 1, 0);
-      const nextRange = { ...decoded, e: { r: Math.max(decoded.e.r, finalRow0), c: Math.max(decoded.e.c, lastCol0) } };
-      ws['!ref'] = XLSX.utils.encode_range(nextRange);
-
-      // Salva o arquivo preenchido (baseado no template)
-      XLSX.writeFile(wb, `solicitacao_faturamento_${batchDate}.xlsx`);
-      toast({ title: "Sucesso", description: "Solicitação de Faturamento gerada com sucesso", variant: "default" });
-    } catch (err) {
-      console.error("Erro ao gerar solicitação:", err);
-      toast({ title: "Erro", description: "Erro ao gerar solicitação de faturamento", variant: "destructive" });
-    }
-  };
-
   const downloadExcel = (name: string, rows: RomaneioRecord[]) => {
     // Monta AOA (array de arrays) com cabeçalho
     const aoa: any[][] = [
@@ -546,7 +334,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
       const d = r.date ? new Date(r.date) : null;
       aoa.push([
         d && !isNaN(d.getTime()) ? d : r.date,
-        formatToolExternal(r.toolCode, r.sequence),
+        r.toolCode,
         r.sequence,
         r.cleaning ? "Limpeza" : r.stock ? "Estoque" : "",
         r.box ?? "",
@@ -598,19 +386,14 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
   const saveCleaningRecords = async (rows: RomaneioRecord[]) => {
     if (!rows || rows.length === 0) return { ok: true } as const;
     const payload = rows.map((r) => ({
-      ferramenta: formatToolExternal(r.toolCode, r.sequence),
+      ferramenta: r.toolCode,
       sequencia: r.sequence,
       data_saida: r.date,
       data_retorno: null as string | null,
       nf_saida: null as string | null,
       nf_retorno: null as string | null,
-      nitretacao: r.nitracao ?? false,
+      nitretacao: false,
       observacoes: null as string | null,
-      diametro_mm: (() => {
-        const raw = diametroMap[`${r.toolCode.toUpperCase()}|${r.sequence}`];
-        const n = parseVdNitretNumber(raw);
-        return n == null ? null : n;
-      })(),
     }));
     const { error } = await supabase.from("cleaning_orders").insert(payload);
     if (error) {
@@ -621,7 +404,7 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto p-2 md:p-4 space-y-4">
+    <div className="w-full p-2 md:p-4 space-y-4">
       {/* Seção de Entrada - Card Principal */}
       <Card className="border-2 border-primary/20 shadow-lg">
         <CardContent className="p-4 md:p-6">
@@ -666,183 +449,337 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
               </div>
             </div>
 
-            <div className="space-y-3 md:space-y-2">
-              <div className="hidden md:grid md:grid-cols-12 gap-3 px-1 text-xs font-semibold text-muted-foreground">
-                <div className="col-span-5">Ferramenta</div>
-                <div className="col-span-1">Imagem</div>
-                <div className="col-span-3">Destino</div>
-                <div className="col-span-3">Box</div>
-              </div>
+            <div className="space-y-3">
               {lines.map((line, idx) => {
-                const search = line.toolSearch.trim().toUpperCase();
+                const search = line.toolSearch.trim().toLowerCase();
                 const filteredTools = search
-                  ? activeTools.filter((t) => t.code.toUpperCase().includes(search))
+                  ? activeTools.filter((t) => t.code.toLowerCase().includes(search))
                   : activeTools;
 
-                const flatOptions = filteredTools.flatMap((tool) => {
-                  const seqs = tool.sequences && tool.sequences.length > 0 ? tool.sequences : ["1"];
-                  return seqs.map((seq) => ({ code: tool.code, seq }));
-                });
-
                 return (
-                  <div key={line.id} className="border rounded-lg p-3 md:p-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="text-xs text-muted-foreground font-semibold md:hidden">Linha {idx + 1}</div>
-                    </div>
+              <div key={line.id} className="border rounded-lg p-3 bg-muted/5">
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="text-xs text-muted-foreground font-semibold">Linha {idx + 1}</div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeLine(line.id)}
+                    className="h-7 w-7 p-0"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mt-2 md:mt-0">
-                      <div className="md:col-span-5 relative">
-                        <label className="text-xs md:text-sm font-semibold text-muted-foreground block mb-2 md:sr-only">
-                          🔧 Ferramenta
-                        </label>
-                        <Input
-                          type="text"
-                          placeholder="Digitar código..."
-                          ref={idx === 0 ? toolInputRef : undefined}
-                          value={line.toolSearch}
-                          onChange={(e) =>
-                            updateLine(line.id, {
-                              toolSearch: e.target.value.toUpperCase(),
-                              toolCode: "",
-                              sequence: "",
-                              dropdownOpen: true,
-                              highlightedIndex: 0,
+                <div className="space-y-3">
+                  <div className="relative">
+                    <label className="text-xs font-semibold text-muted-foreground block mb-2">
+                      🔧 Ferramenta
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="Digitar código..."
+                      value={line.toolSearch}
+                      onChange={(e) =>
+                        updateLine(line.id, {
+                          toolSearch: e.target.value,
+                          toolCode: "",
+                          sequence: "",
+                          dropdownOpen: true,
+                        })
+                      }
+                      onFocus={() => updateLine(line.id, { dropdownOpen: true })}
+                      onBlur={() => {
+                        const typed = line.toolSearch;
+                        window.setTimeout(() => {
+                          setLines((prev) =>
+                            prev.map((l) => {
+                              if (l.id !== line.id) return l;
+                              if (l.toolCode) return { ...l, dropdownOpen: false };
+                              const term = typed.trim().toLowerCase();
+                              if (!term) return { ...l, dropdownOpen: false };
+                              const match = activeTools.find((t) => t.code.toLowerCase() === term);
+                              if (!match) return { ...l, dropdownOpen: false };
+                              const derivedSeq = deriveSequenceFromCode(match.code) || match.sequences[0] || "1";
+                              return {
+                                ...l,
+                                toolCode: match.code,
+                                toolSearch: match.code,
+                                sequence: derivedSeq,
+                                dropdownOpen: false,
+                              };
                             })
-                          }
-                          onFocus={() => updateLine(line.id, { dropdownOpen: true, highlightedIndex: 0 })}
-                          onKeyDown={(e) => {
-                            if (!line.dropdownOpen) return;
-                            if (flatOptions.length === 0) return;
-
-                            if (e.key === "ArrowDown") {
-                              e.preventDefault();
-                              const nextIndex = Math.min(line.highlightedIndex + 1, flatOptions.length - 1);
-                              updateLine(line.id, { highlightedIndex: nextIndex });
-                              window.requestAnimationFrame(() => {
-                                const el = document.getElementById(`opt-${line.id}-${nextIndex}`);
-                                el?.scrollIntoView({ block: "nearest" });
-                              });
-                            }
-                            if (e.key === "ArrowUp") {
-                              e.preventDefault();
-                              const nextIndex = Math.max(line.highlightedIndex - 1, 0);
-                              updateLine(line.id, { highlightedIndex: nextIndex });
-                              window.requestAnimationFrame(() => {
-                                const el = document.getElementById(`opt-${line.id}-${nextIndex}`);
-                                el?.scrollIntoView({ block: "nearest" });
-                              });
-                            }
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              const opt = flatOptions[line.highlightedIndex];
-                              if (opt) handleSelectToolSeq(line.id, opt.code, opt.seq);
-                            }
-                          }}
-                          onBlur={() => {
-                            const typed = line.toolSearch;
-                            window.setTimeout(() => {
-                              setLines((prev) =>
-                                prev.map((l) => {
-                                  if (l.id !== line.id) return l;
-                                  if (l.toolCode) return { ...l, dropdownOpen: false };
-                                  const term = typed.trim().toUpperCase();
-                                  if (!term) return { ...l, dropdownOpen: false };
-                                  const match = activeTools.find((t) => t.code.toUpperCase() === term);
-                                  if (!match) return { ...l, dropdownOpen: false };
-                                  const derivedSeq = deriveSequenceFromCode(match.code) || match.sequences[0] || "1";
-                                  return {
-                                    ...l,
-                                    toolCode: match.code.toUpperCase(),
-                                    toolSearch: match.code.toUpperCase(),
-                                    sequence: derivedSeq,
-                                    dropdownOpen: false,
-                                  };
-                                })
-                              );
-                            }, 120);
-                          }}
-                          className={`h-11 md:h-10 text-sm ${line.sequence ? 'pr-16' : ''}`}
-                        />
-                        {line.sequence && (
-                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground bg-muted/60 px-2 py-0.5 rounded">
-                            / {line.sequence}
-                          </span>
-                        )}
-                        {line.dropdownOpen && filteredTools.length > 0 && (
-                          <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 rounded-lg shadow-xl z-50 max-h-44 overflow-y-auto">
-                            {filteredTools.flatMap((tool) => {
-                              const seqs = tool.sequences && tool.sequences.length > 0 ? tool.sequences : ["1"];
-                              return seqs.map((seq) => (
-                                <button
-                                  key={`${tool.code}__${seq}`}
-                                  id={`opt-${line.id}-${flatOptions.findIndex((o) => o.code === tool.code && o.seq === seq)}`}
-                                  type="button"
-                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-primary/10 transition-colors border-b last:border-b-0 ${
-                                    flatOptions.findIndex((o) => o.code === tool.code && o.seq === seq) === line.highlightedIndex
-                                      ? "bg-primary/10"
-                                      : ""
-                                  }`}
-                                  onClick={() => handleSelectToolSeq(line.id, tool.code, seq)}
-                                  onMouseEnter={() => {
-                                    const i = flatOptions.findIndex((o) => o.code === tool.code && o.seq === seq);
-                                    if (i >= 0) updateLine(line.id, { highlightedIndex: i });
-                                  }}
-                                >
-                                  <span className="font-semibold">{tool.code}</span>
-                                  <span className="text-xs text-muted-foreground ml-2">/ {seq}</span>
-                                </button>
-                              ));
-                            })}
-                          </div>
-                        )}
+                          );
+                        }, 120);
+                      }}
+                      className={`h-11 md:h-10 text-sm ${line.sequence ? 'pr-16' : ''}`}
+                    />
+                    {line.sequence && (
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground bg-muted/60 px-2 py-0.5 rounded">
+                        / {line.sequence}
+                      </span>
+                    )}
+                    {line.dropdownOpen && filteredTools.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 rounded-lg shadow-xl z-50 max-h-44 overflow-y-auto">
+                        {filteredTools.flatMap((tool) => {
+                          const seqs = tool.sequences && tool.sequences.length > 0 ? tool.sequences : ["1"];
+                          return seqs.map((seq) => (
+                            <button
+                              key={`${tool.code}__${seq}`}
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-primary/10 transition-colors border-b last:border-b-0"
+                              onClick={() => handleSelectToolSeq(line.id, tool.code, seq)}
+                            >
+                              <span className="font-semibold">{tool.code}</span>
+                              <span className="text-xs text-muted-foreground ml-2">/ {seq}</span>
+                            </button>
+                          ));
+                        })}
                       </div>
+                    )}
+                  </div>
 
-                      <div className="md:col-span-1">
-                        <label className="text-xs md:text-sm font-semibold text-muted-foreground block mb-2 md:sr-only">
-                          🖼️ Imagem
-                        </label>
+                  <div>
+                    <label className="text-xs md:text-sm font-semibold text-muted-foreground block mb-2 md:sr-only">
+                      🖼️ Imagem
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id={`img-${line.id}`}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleImageChange(line.id, e.target.files?.[0] ?? null)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-11 md:h-10 px-2"
+                        onClick={() => {
+                          const el = document.getElementById(`img-${line.id}`) as HTMLInputElement | null;
+                          el?.click();
+                        }}
+                        title={line.imageName ? `Imagem: ${line.imageName}` : "Anexar imagem"}
+                        aria-label="Anexar imagem"
+                      >
+                        <ImageDown className="h-4 w-4" />
+                      </Button>
+                      {line.imageFile && (
+                        <img
+                          src={URL.createObjectURL(line.imageFile)}
+                          alt={line.imageName || "Pré-visualização"}
+                          className="h-9 w-9 rounded object-cover border"
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-2">
+                      🎯 Destino
+                    </label>
+                    <div className="flex flex-col gap-3">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          const next = !line.cleaning;
+                          updateLine(line.id, { cleaning: next, stock: next ? false : line.stock, box: next ? "" : line.box });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            const next = !line.cleaning;
+                            updateLine(line.id, { cleaning: next, stock: next ? false : line.stock, box: next ? "" : line.box });
+                          }
+                        }}
+                        className={`p-2 rounded-lg border-2 transition-all cursor-pointer select-none ${
+                          line.cleaning
+                            ? "border-blue-500 bg-blue-50"
+                            : "border-gray-200 bg-white hover:border-blue-300"
+                        }`}
+                      >
                         <div className="flex items-center gap-2">
-                          <input
-                            id={`img-${line.id}`}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => handleImageChange(line.id, e.target.files?.[0] ?? null)}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-11 md:h-10 px-2"
-                            onClick={() => {
-                              const el = document.getElementById(`img-${line.id}`) as HTMLInputElement | null;
-                              el?.click();
-                            }}
-                            title={line.imageName ? `Imagem: ${line.imageName}` : "Anexar imagem"}
-                            aria-label="Anexar imagem"
-                          >
-                            <ImageDown className="h-4 w-4" />
-                          </Button>
-                          {line.imageFile && (
-                            <img
-                              src={URL.createObjectURL(line.imageFile)}
-                              alt={line.imageName || "Pré-visualização"}
-                              className="h-9 w-9 rounded object-cover border"
-                            />
-                          )}
+                          <Checkbox checked={line.cleaning} className="h-5 w-5 md:h-4 md:w-4 pointer-events-none" tabIndex={-1} />
+                          <span className="font-semibold text-sm md:text-xs">Limpeza</span>
                         </div>
                       </div>
 
-                      <div className="md:col-span-3">
-                        <label className="text-xs md:text-sm font-semibold text-muted-foreground block mb-2 md:sr-only">
-                          🎯 Destino
-                        </label>
-                        <div className="grid grid-cols-2 gap-2 md:gap-1">
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => {
-                              const next = !line.cleaning;
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          const next = !line.stock;
+                          updateLine(line.id, { stock: next, cleaning: next ? false : line.cleaning, box: next ? line.box : "" });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            const next = !line.stock;
+                            updateLine(line.id, { stock: next, cleaning: next ? false : line.cleaning, box: next ? line.box : "" });
+                          }
+                        }}
+                        className={`p-2 rounded-lg border-2 transition-all cursor-pointer select-none ${
+                          line.stock
+                            ? "border-green-500 bg-green-50"
+                            : "border-gray-200 bg-white hover:border-green-300"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Checkbox checked={line.stock} className="h-5 w-5 md:h-4 md:w-4 pointer-events-none" tabIndex={-1} />
+                          <span className="font-semibold text-sm md:text-xs">Estoque</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-2">
+                      📦 Box (Localização)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="text"
+                        placeholder="Ex: A1, B2..."
+                        value={line.box}
+                        onChange={(e) => updateLine(line.id, { box: e.target.value })}
+                        disabled={!line.stock}
+                        className="h-11 md:h-10 text-sm"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-11 md:h-10 px-2 text-red-600 hover:text-red-700"
+                        onClick={() => removeLine(line.id)}
+                        title="Remover linha"
+                        aria-label="Remover linha"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-col md:flex-row gap-2">
+          <Button
+            type="button"
+            onClick={handleRegisterBatch}
+            className="w-full md:flex-1 h-12 md:h-12 text-base font-semibold bg-primary hover:bg-primary/90 transition-all"
+          >
+            <Plus className="h-5 w-5 mr-2" />
+            Registrar Lote
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onFinalize}
+            disabled={records.length === 0}
+            className="w-full md:w-56 h-12 md:h-12 text-base font-semibold"
+            title={records.length === 0 ? "Adicione registros antes de finalizar" : "Finalizar Romaneio"}
+          >
+            Finalizar Romaneio
+          </Button>
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+
+  {/* Histórico - Cards de Registros */}
+  {records.length > 0 && (
+    <div>
+      <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+        <Check className="h-5 w-5 text-green-500" />
+        Registros do Dia ({records.length})
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {records.map((record) => (
+          <Card key={record.id} className="border-l-4 border-l-primary hover:shadow-md transition-shadow">
+            <CardContent className="p-3 md:p-4">
+              <div className="space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm md:text-base">{record.toolCode}{record.sequence ? ` / ${record.sequence}` : ''}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {fmtISODate(record.date)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {record.imageUrl && (
+                      <img
+                        src={record.imageUrl}
+                        alt={record.imageName || "Imagem"}
+                        className="h-12 w-12 rounded object-cover border"
+                      />
+                    )}
+                    <button
+                      onClick={() => handleDeleteRecord(record.id)}
+                      className="text-red-500 hover:text-red-700 p-1"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 text-xs">
+                  {record.box && (
+                    <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                      Box: {record.box}
+                    </span>
+                  )}
+                  {/* Vd Nitret badge e alerta de Nitretação quando negativo */}
+                  {(() => {
+                    const raw = vdNitretMap[`${record.toolCode.toUpperCase()}|${record.sequence}`];
+                    if (!raw) return null;
+                    const n = parseVdNitretNumber(raw);
+                    const isNeg = n != null && n < 0;
+                    return (
+                      <>
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded ${isNeg ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                          Vd Nitret: {raw}
+                        </span>
+                        {isNeg && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white">
+                            Nitretação
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                  {record.imageName && (
+                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-1 rounded">
+                      <ImageDown className="h-3.5 w-3.5" />
+                      {record.imageName}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  {record.cleaning && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                      🧹 Limpeza
+                    </span>
+                  )}
+                  {record.stock && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-1 rounded">
+                      📦 Estoque
+                    </span>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )}
+
+  {showSummary && (
                               updateLine(line.id, { cleaning: next, stock: next ? false : line.stock, box: next ? "" : line.box });
                             }}
                             onKeyDown={(e) => {
@@ -892,8 +829,8 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                         </div>
                       </div>
 
-                      <div className="md:col-span-3">
-                        <label className="text-xs md:text-sm font-semibold text-muted-foreground block mb-2 md:sr-only">
+                      <div>
+                        <label className="text-xs font-semibold text-muted-foreground block mb-2">
                           📦 Box (Localização)
                         </label>
                         <div className="flex items-center gap-2">
@@ -976,25 +913,6 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                           />
                         )}
                         <button
-                          onClick={() => {
-                            setRecords((prev) =>
-                              prev.map((r) =>
-                                r.id === record.id
-                                  ? { ...r, nitracao: !r.nitracao, cleaning: !r.nitracao ? false : r.cleaning, stock: !r.nitracao ? false : r.stock }
-                                  : r
-                              )
-                            );
-                          }}
-                          className={`p-1 rounded transition-colors ${
-                            record.nitracao
-                              ? "text-orange-600 hover:text-orange-700 bg-orange-50"
-                              : "text-gray-400 hover:text-orange-600"
-                          }`}
-                          title={record.nitracao ? "Remover de Nitretação" : "Marcar para Nitretação"}
-                        >
-                          <span className="text-lg">🔥</span>
-                        </button>
-                        <button
                           onClick={() => handleDeleteRecord(record.id)}
                           className="text-red-500 hover:text-red-700 p-1"
                         >
@@ -1015,13 +933,10 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                         if (!raw) return null;
                         const n = parseVdNitretNumber(raw);
                         const isNeg = n != null && n < 0;
-                        const vdFmt = n == null
-                          ? raw
-                          : new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
                         return (
                           <>
                             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded ${isNeg ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                              Vd Nitret: {vdFmt}
+                              Vd Nitret: {raw}
                             </span>
                             {isNeg && (
                               <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white">
@@ -1050,11 +965,6 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                           📦 Estoque
                         </span>
                       )}
-                      {record.nitracao && (
-                        <span className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded">
-                          🔥 Nitretação
-                        </span>
-                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -1066,26 +976,12 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
 
       {showSummary && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg w-full max-w-3xl shadow-xl">
+          <div className="bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
             <div className="p-4 border-b">
               <h4 className="text-lg font-semibold">Resumo do Romaneio</h4>
               <p className="text-xs text-muted-foreground">Data: {fmtISODate(batchDate)}</p>
-              <div className="flex gap-4 mt-3 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Limpeza:</span>
-                  <span className="font-semibold text-blue-600">{records.filter(r => r.cleaning).length}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Estoque:</span>
-                  <span className="font-semibold text-green-600">{records.filter(r => r.stock).length}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Nitretação:</span>
-                  <span className="font-semibold text-orange-600">{records.filter(r => r.nitracao).length}</span>
-                </div>
-              </div>
             </div>
-            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="border rounded-md p-3">
                 <h5 className="font-semibold mb-2">Para Limpeza</h5>
                 {records.filter(r => r.cleaning).length === 0 ? (
@@ -1142,63 +1038,25 @@ export const RomaneioInterface = ({ matrices }: RomaneioInterfaceProps) => {
                   </Button>
                 </div>
               </div>
-              <div className="border rounded-md p-3">
-                <h5 className="font-semibold mb-2">Para Nitretação</h5>
-                {records.filter(r => r.nitracao).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nenhum item</p>
-                ) : (
-                  <ul className="space-y-1 text-sm max-h-56 overflow-auto">
-                    {records.filter(r => r.nitracao).map((r) => (
-                      <li key={r.id} className="flex justify-between gap-2">
-                        <span className="truncate">{r.toolCode}{r.sequence ? ` / ${r.sequence}` : ''}</span>
-                        <span className="text-muted-foreground">{fmtISODate(r.date)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      const nitracao = records.filter(r => r.nitracao);
-                      downloadExcel(`romaneio_nitracao_${batchDate}.xlsx`, nitracao);
-                    }}
-                    disabled={records.filter(r => r.nitracao).length === 0}
-                  >
-                    Baixar Excel (Nitretação)
-                  </Button>
-                </div>
-              </div>
             </div>
-            <div className="p-4 border-t flex justify-between gap-2 flex-wrap">
-              <Button 
-                type="button" 
-                variant="outline"
-                onClick={() => generateSolicitacaoFaturamento(records)}
-                disabled={records.length === 0}
+            <div className="p-4 border-t flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setShowSummary(false)}>Fechar</Button>
+              <Button
+                type="button"
+                onClick={async () => {
+                  const limpeza = records.filter(r => r.cleaning);
+                  const { ok } = await saveCleaningRecords(limpeza);
+                  if (!ok) {
+                    toast({ title: "Erro ao registrar limpeza", description: "Não foi possível salvar as ferramentas em limpeza", variant: "destructive" });
+                    return;
+                  }
+                  setRecords([]);
+                  setShowSummary(false);
+                  toast({ title: "Romaneio finalizado", description: "Registros salvos em Limpeza e lista limpa" });
+                }}
               >
-                📋 Gerar Solicitação de Faturamento
+                Concluir e Limpar
               </Button>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setShowSummary(false)}>Fechar</Button>
-                <Button
-                  type="button"
-                  onClick={async () => {
-                    const allRecords = records;
-                    const { ok } = await saveCleaningRecords(allRecords);
-                    if (!ok) {
-                      toast({ title: "Erro ao registrar", description: "Não foi possível salvar os registros", variant: "destructive" });
-                      return;
-                    }
-                    setRecords([]);
-                    setShowSummary(false);
-                    toast({ title: "Romaneio finalizado", description: "Todos os registros foram salvos com sucesso" });
-                  }}
-                >
-                  Concluir e Limpar
-                </Button>
-              </div>
             </div>
           </div>
         </div>

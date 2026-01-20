@@ -11,6 +11,38 @@ Aplicação React (Vite + TypeScript + Tailwind + shadcn-ui) integrada ao Supaba
 - Área de Análise com abas de Carteira, Produção, Ferramentas, Vida, Necessidades e **Produtividade**, além da aba dedicada de **Análise de Ferramenta** com gráficos de produtividade e de entradas de pedido em 12 meses, linhas de objetivo fixas e análise de causas por palavras‑chave.
 - **Planejamento Mobile First** em andamento para tornar o aplicativo totalmente responsivo em dispositivos móveis.
 
+## Planilha e Timeline – melhorias de 19/12/2025
+
+- **Testes extras (4º–6º) via Dialog**
+  - Na coluna do `3º teste`, use o botão `Testes +` para abrir o diálogo "Testes extras".
+  - Edite as datas do **4º, 5º e 6º testes**. As alterações salvam automaticamente.
+  - `Excluir` remove o evento correspondente.
+  - Quando a opção "Mostrar ciclos" está ativa, o diálogo exibe também os ciclos **4, 5 e 6** de Limpeza/Correção (Saída/Entrada).
+  - Mapeamento de eventos:
+    - `test4|5|6` → `type: "Testes"` + `comment: "Nº teste"`.
+    - `clean_send4|5|6` → `type: "Limpeza Saída"` + comentário indicando ciclo.
+    - `clean_return4|5|6` → `type: "Limpeza Entrada"` + comentário indicando ciclo.
+    - `corr_send4|5|6` → `type: "Correção Externa Saída"` + comentário indicando ciclo.
+    - `corr_return4|5|6` → `type: "Correção Externa Entrada"` + comentário indicando ciclo.
+
+- **Linha do Tempo (dialog simplificado)**
+  - Ícone de relógio ao lado do `3º teste` abre a Linha do Tempo por ferramenta.
+  - Exibe eventos em ordem cronológica com bullets coloridos por tipo.
+  - Sem colunas redundantes: removido o campo Δ por item; chips de categoria ocultos (o rótulo já indica o tipo).
+  - Resumo superior: Teste atual, Último evento (com data) e Dias em andamento, além de contadores.
+  - Botão `Copiar` gera texto simples (data | evento) para colar em e-mail/WhatsApp.
+
+- **Indicador do teste atual**
+  - Chip compacto `Tn` ao lado do `3º teste` indica o número do último teste registrado.
+  - Destaque visual (âmbar) quando `n ≥ 4`.
+
+- **Filtros em uma única linha**
+  - Na Planilha, os filtros foram reorganizados (código, pasta, etapa, ordenação e botão de ciclos) para caberem em 1 linha em telas médias+.
+
+- **Observações**
+  - Todas as melhorias acima são de **frontend**. Não há mudanças de schema no banco.
+  - A criação/edição de eventos evita duplicação: se já existir evento com mesmo `type` + `comment`, apenas atualiza a `date`.
+
 ## Stack
 - Vite + React + TypeScript
 - Tailwind CSS + shadcn-ui
@@ -37,18 +69,31 @@ npm run dev
 ```
 
 ## Supabase — Banco de Dados
-- Migrations estão em `data_schema.sql` (DDL cumulativa com blocos e rollback).
-- Documentação do esquema em `database_schema.md`.
-- Migrações incrementais ficam em `migrations/` para execução pontual (ex.: `20241023_add_observations_and_attachments.sql`).
+- **Schema principal:** `data_schema.sql` (DDL cumulativa com blocos e rollback).
+- **Documentação:** `database_schema.md` (referência completa do schema).
+- **Migrações incrementais:** `migrations/` (organizadas por data, ex.: `20251217_add_nf_fields_nitration.sql`).
 
 ### Aplicar migrações
-Use o console SQL do Supabase ou CLI para aplicar o conteúdo relevante de `data_schema.sql`.
+**Opção 1 (Recomendado para novo setup):**
+Use o console SQL do Supabase ou CLI para aplicar o conteúdo completo de `data_schema.sql`:
+```bash
+psql -h <host> -U postgres -d <database> -f data_schema.sql
+```
 
-Migrações recentes relevantes:
+**Opção 2 (Para migrações pontuais):**
+Aplicar migrações específicas de `migrations/` em ordem cronológica:
+```bash
+psql -h <host> -U postgres -d <database> -f migrations/20251103_fix_status.sql
+psql -h <host> -U postgres -d <database> -f migrations/20251104_fix_email_groups_migration.sql
+# ... continuar em ordem
+```
+
+### Migrações recentes (20/01/2026)
 - `events.test_status` (Aprovado/Reprovado) — status para eventos do tipo `Testes`.
-- `notifications_sent.category` inclui "Reprovado".
-- Workflow de confecção: campos `status` (`need`/`pending`/`approved`/`received`), prioridades e timestamps (`moved_to_*`) em `manufacturing_records`.
-- `manufacturing_records.observacoes` (texto) e `manufacturing_records.anexos` (JSONB) para detalhes adicionais e arquivos.
+- `notifications_sent.category` inclui "Reprovado" e "Recebidas".
+- `cleaning_orders` — campos `nf_saida`, `nf_retorno`, `diametro_mm` para controle de limpeza/nitretação.
+- `manufacturing_records` — campos `status` (`need`/`pending`/`approved`/`received`), prioridades, timestamps e anexos.
+- `analysis_producao`, `analysis_carteira`, `analysis_ferramentas` — tabelas de análise com triggers e índices.
 
 ### Realtime
 Habilitar Realtime na tabela `public.notifications_sent`:

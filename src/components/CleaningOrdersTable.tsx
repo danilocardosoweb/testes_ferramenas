@@ -43,6 +43,7 @@ interface FilterState {
   dataInicio: string;
   dataFim: string;
   ferramenta: string;
+  nfSaida: string;
 }
 
 type DevolucaoPreview = {
@@ -85,11 +86,13 @@ export function CleaningOrdersTable() {
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [bulkReturnDate, setBulkReturnDate] = useState<Record<string, string>>({});
   const [bulkNF, setBulkNF] = useState<Record<string, string>>({});
+  const [bulkNFSaida, setBulkNFSaida] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<FilterState>({
     status: "todas",
     dataInicio: "",
     dataFim: "",
     ferramenta: "",
+    nfSaida: "",
   });
   const [devolucaoPreview, setDevolucaoPreview] = useState<DevolucaoPreview | null>(null);
   const [applyingDevolucao, setApplyingDevolucao] = useState(false);
@@ -121,6 +124,10 @@ export function CleaningOrdersTable() {
 
       if (filters.ferramenta.trim()) {
         query = query.ilike("ferramenta", `%${filters.ferramenta.trim()}%`);
+      }
+
+      if (filters.nfSaida.trim()) {
+        query = query.ilike("nf_saida", `%${filters.nfSaida.trim()}%`);
       }
 
       const { data, error: err } = await query.order("data_saida", { ascending: false });
@@ -309,17 +316,19 @@ export function CleaningOrdersTable() {
     const daySelected = dayOrders.filter((o) => selected.has(o.id)).map((o) => o.id);
     const retDate = bulkReturnDate[date]?.trim();
     const nf = bulkNF[date]?.trim();
+    const nfSaida = bulkNFSaida[date]?.trim();
     if (daySelected.length === 0) {
       toast({ title: "Seleção vazia", description: "Selecione ao menos uma ferramenta do dia para aplicar.", variant: "destructive" });
       return;
     }
-    if (!retDate && !nf) {
-      toast({ title: "Nada a aplicar", description: "Informe Data de Retorno e/ou NF Retorno.", variant: "destructive" });
+    if (!retDate && !nf && !nfSaida) {
+      toast({ title: "Nada a aplicar", description: "Informe Data de Retorno, NF Saída e/ou NF Retorno.", variant: "destructive" });
       return;
     }
     const updateData: any = {};
     if (retDate) updateData.data_retorno = retDate;
     if (nf) updateData.nf_retorno = nf;
+    if (nfSaida) updateData.nf_saida = nfSaida;
     try {
       const { error } = await supabase.from("cleaning_orders").update(updateData).in("id", daySelected);
       if (error) throw error;
@@ -327,6 +336,7 @@ export function CleaningOrdersTable() {
       // Limpa somente os inputs (opcional manter)
       setBulkReturnDate((prev) => ({ ...prev, [date]: retDate || "" }));
       setBulkNF((prev) => ({ ...prev, [date]: nf || "" }));
+      setBulkNFSaida((prev) => ({ ...prev, [date]: nfSaida || "" }));
       loadOrders();
     } catch (err: any) {
       toast({ title: "Erro ao aplicar", description: err?.message ?? String(err), variant: "destructive" });
@@ -354,7 +364,9 @@ export function CleaningOrdersTable() {
   const handleCellEdit = async (orderId: string, field: string, value: any) => {
     try {
       const updateData: any = {};
-      if (field === "data_retorno") {
+      if (field === "nf_saida") {
+        updateData.nf_saida = value || null;
+      } else if (field === "data_retorno") {
         updateData.data_retorno = value || null;
       } else if (field === "nf_retorno") {
         updateData.nf_retorno = value || null;
@@ -516,7 +528,7 @@ export function CleaningOrdersTable() {
     for (const o of chosen) {
       const nitre = o.nitretacao ? "Sim" : "Não";
       const obs = o.observacoes ? String(o.observacoes) : "-";
-      lines.push(`${formatToolExternal(o.ferramenta, o.sequencia)} | ${fmtDateBR(o.data_saida)} | ${nitre} | ${obs}`);
+      lines.push(`${o.ferramenta} | ${fmtDateBR(o.data_saida)} | ${nitre} | ${obs}`);
     }
     lines.push("");
     lines.push(`Caso necessitem de informação adicional, fico à disposição.`);
@@ -608,7 +620,7 @@ export function CleaningOrdersTable() {
                 Status
               </label>
               <select
-                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                className="h-11 md:h-10 w-full rounded-md border bg-background px-3 text-sm"
                 value={filters.status}
                 onChange={(e) =>
                   setFilters({ ...filters, status: e.target.value as any })
@@ -629,7 +641,7 @@ export function CleaningOrdersTable() {
                 onChange={(e) =>
                   setFilters({ ...filters, dataInicio: e.target.value })
                 }
-                className="h-10 text-sm"
+                className="h-11 md:h-10 text-sm"
               />
             </div>
             <div>
@@ -642,7 +654,7 @@ export function CleaningOrdersTable() {
                 onChange={(e) =>
                   setFilters({ ...filters, dataFim: e.target.value })
                 }
-                className="h-10 text-sm"
+                className="h-11 md:h-10 text-sm"
               />
             </div>
             <div>
@@ -656,7 +668,7 @@ export function CleaningOrdersTable() {
                 onChange={(e) =>
                   setFilters({ ...filters, ferramenta: e.target.value })
                 }
-                className="h-10 text-sm"
+                className="h-11 md:h-10 text-sm"
               />
             </div>
             <div className="flex items-end">
@@ -676,7 +688,7 @@ export function CleaningOrdersTable() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-10 w-10 p-0"
+                  className="h-11 w-11 md:h-10 md:w-10 p-0"
                   title="Dar baixa por NF (XML/PDF)"
                   onClick={() => {
                     fileImportRef.current?.click();
@@ -692,9 +704,10 @@ export function CleaningOrdersTable() {
                       dataInicio: "",
                       dataFim: "",
                       ferramenta: "",
+                      nfSaida: "",
                     })
                   }
-                  className="w-full h-10"
+                  className="w-full h-11 md:h-10"
                 >
                   Limpar
                 </Button>
@@ -736,11 +749,11 @@ export function CleaningOrdersTable() {
       {selected.size > 0 && (
         <Card className="border-2 border-blue-500 bg-blue-50/30">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <span className="font-semibold text-sm">
                 {selected.size} ferramenta(s) selecionada(s)
               </span>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Button
                   size="sm"
                   onClick={handleBatchReturn}
@@ -782,7 +795,7 @@ export function CleaningOrdersTable() {
             return (
               <div key={date} className="border rounded-lg overflow-hidden">
                 {/* Header do Dia */}
-                <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-3 md:px-4 py-3 flex items-center justify-between gap-2 md:gap-3 border-b">
+                <div className="bg-gradient-to-r from-primary/10 to-primary/5 px-3 md:px-4 py-3 flex items-start md:items-center justify-between gap-2 md:gap-3 border-b">
                   <button
                     onClick={() => toggleDay(date)}
                     className="flex items-center gap-2 md:gap-3 flex-1 hover:opacity-80 transition-opacity min-w-0"
@@ -804,6 +817,14 @@ export function CleaningOrdersTable() {
                   {/* Desktop: inputs inline */}
                   <div className="hidden md:flex items-center gap-2">
                     <input
+                      type="text"
+                      placeholder="NF Saída..."
+                      value={bulkNFSaida[date] || ""}
+                      onChange={(e) => setBulkNFSaida((p) => ({ ...p, [date]: e.target.value }))}
+                      className="h-8 text-xs px-2 py-1 border rounded"
+                      title="NF Saída (aplicar aos selecionados)"
+                    />
+                    <input
                       type="date"
                       value={bulkReturnDate[date] || ""}
                       onChange={(e) => setBulkReturnDate((p) => ({ ...p, [date]: e.target.value }))}
@@ -812,7 +833,7 @@ export function CleaningOrdersTable() {
                     />
                     <input
                       type="text"
-                      placeholder="NF..."
+                      placeholder="NF Retorno..."
                       value={bulkNF[date] || ""}
                       onChange={(e) => setBulkNF((p) => ({ ...p, [date]: e.target.value }))}
                       className="h-8 text-xs px-2 py-1 border rounded"
@@ -837,7 +858,7 @@ export function CleaningOrdersTable() {
                   <div className="flex md:hidden items-center gap-1 shrink-0">
                     <Sheet>
                       <SheetTrigger asChild>
-                        <Button size="sm" variant="outline" className="h-8 px-2">
+                        <Button size="sm" variant="outline" className="h-11 px-3">
                           <Edit className="h-4 w-4" />
                         </Button>
                       </SheetTrigger>
@@ -846,6 +867,16 @@ export function CleaningOrdersTable() {
                           <SheetTitle>Preenchimento em Lote - {fmtDateBR(date)}</SheetTitle>
                         </SheetHeader>
                         <div className="space-y-4 mt-4">
+                          <div>
+                            <label className="text-sm font-semibold mb-2 block">NF Saída</label>
+                            <Input
+                              type="text"
+                              placeholder="Ex: 123456"
+                              value={bulkNFSaida[date] || ""}
+                              onChange={(e) => setBulkNFSaida((p) => ({ ...p, [date]: e.target.value }))}
+                              className="h-11"
+                            />
+                          </div>
                           <div>
                             <label className="text-sm font-semibold mb-2 block">Data de Retorno</label>
                             <Input
@@ -876,7 +907,7 @@ export function CleaningOrdersTable() {
                     </Sheet>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="outline" className="h-8 px-2">
+                        <Button size="sm" variant="outline" className="h-11 px-3">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -938,6 +969,7 @@ export function CleaningOrdersTable() {
                             />
                           </th>
                           <th className="px-4 py-3 text-left font-semibold">Ferramenta</th>
+                          <th className="px-4 py-3 text-left font-semibold">NF Saída</th>
                           <th className="px-4 py-3 text-left font-semibold">Retorno</th>
                           <th className="px-4 py-3 text-left font-semibold">NF Retorno</th>
                           <th className="px-4 py-3 text-center font-semibold">Nitretação</th>
@@ -961,7 +993,35 @@ export function CleaningOrdersTable() {
                             </td>
                             <td className="px-4 py-3 font-semibold">
                               {order.ferramenta}
-                              {order.sequencia && ` / ${order.sequencia}`}
+                            </td>
+                            <td className="px-4 py-3 text-xs">
+                              {editingId === order.id && editField === "nf_saida" ? (
+                                <input
+                                  type="text"
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={() => handleCellEdit(order.id, "nf_saida", editValue)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      handleCellEdit(order.id, "nf_saida", editValue);
+                                    }
+                                  }}
+                                  placeholder="NF-..."
+                                  className="w-full px-2 py-1 border rounded text-xs"
+                                  autoFocus
+                                />
+                              ) : (
+                                <span
+                                  onClick={() => {
+                                    setEditingId(order.id);
+                                    setEditField("nf_saida");
+                                    setEditValue(order.nf_saida || "");
+                                  }}
+                                  className="cursor-pointer hover:bg-muted px-2 py-1 rounded block"
+                                >
+                                  {order.nf_saida || "-"}
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-xs">
                               {editingId === order.id && editField === "data_retorno" ? (

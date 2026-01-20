@@ -26,6 +26,7 @@ interface FilterState {
   dataInicio: string;
   dataFim: string;
   ferramenta: string;
+  nfSaida: string;
 }
 
 interface EditingCell {
@@ -54,6 +55,7 @@ export function CleaningOrdersView() {
     dataInicio: "",
     dataFim: "",
     ferramenta: "",
+    nfSaida: "",
   });
   const { toast } = useToast();
 
@@ -88,6 +90,11 @@ export function CleaningOrdersView() {
         query = query.ilike("ferramenta", `%${filters.ferramenta.trim()}%`);
       }
 
+      // Filtro de NF Saída
+      if (filters.nfSaida.trim()) {
+        query = query.ilike("nf_saida", `%${filters.nfSaida.trim()}%`);
+      }
+
       const { data, error: err } = await query.order("data_saida", { ascending: false });
 
       if (err) throw err;
@@ -111,6 +118,7 @@ export function CleaningOrdersView() {
       const { error: err } = await supabase
         .from("cleaning_orders")
         .update({
+          nf_saida: editData.nf_saida || null,
           data_retorno: editData.data_retorno || null,
           nf_retorno: editData.nf_retorno || null,
           nitretacao: editData.nitretacao ?? false,
@@ -218,6 +226,20 @@ export function CleaningOrdersView() {
                 className="h-10 text-sm"
               />
             </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                NF Saída
+              </label>
+              <Input
+                type="text"
+                placeholder="Ex: NF-12345"
+                value={filters.nfSaida}
+                onChange={(e) =>
+                  setFilters({ ...filters, nfSaida: e.target.value })
+                }
+                className="h-10 text-sm"
+              />
+            </div>
             <div className="flex items-end">
               <Button
                 variant="outline"
@@ -227,6 +249,7 @@ export function CleaningOrdersView() {
                     dataInicio: "",
                     dataFim: "",
                     ferramenta: "",
+                    nfSaida: "",
                   })
                 }
                 className="w-full h-10"
@@ -289,6 +312,23 @@ export function CleaningOrdersView() {
                   // Modo edição
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold block mb-1">
+                          NF Saída
+                        </label>
+                        <Input
+                          type="text"
+                          placeholder="Ex: NF-12345"
+                          value={editData.nf_saida || ""}
+                          onChange={(e) =>
+                            setEditData({
+                              ...editData,
+                              nf_saida: e.target.value || null,
+                            })
+                          }
+                          className="h-9 text-sm"
+                        />
+                      </div>
                       <div>
                         <label className="text-xs font-semibold block mb-1">
                           Data Retorno

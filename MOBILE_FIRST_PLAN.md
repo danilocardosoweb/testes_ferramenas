@@ -360,3 +360,378 @@ Considerar a fase de mobile first "boa o suficiente" quando:
 2. Revisar `ManufacturingView.tsx` para converter tabelas em cards.
 3. Criar branches de feature para cada fase.
 4. Atualizar `change_log.md` após cada fase concluída.
+
+---
+
+## 10. Exemplos de Código – Padrões Mobile First
+
+### Padrão 1: Drawer para Sidebar (Fase 2)
+
+#### Antes (Não responsivo)
+```tsx
+// Index.tsx
+<div className="flex flex-col md:flex-row h-screen w-full overflow-hidden">
+  <MatrixSidebar ... />
+  <div className="flex flex-col flex-1">
+    {/* Conteúdo */}
+  </div>
+</div>
+```
+
+#### Depois (Responsivo)
+```tsx
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Menu } from "lucide-react";
+
+export function Index() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  return (
+    <div className="flex flex-col md:flex-row h-screen w-full overflow-hidden">
+      {/* Drawer em mobile */}
+      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+        <SheetContent side="left" className="w-80 p-0">
+          <MatrixSidebar ... />
+        </SheetContent>
+      </Sheet>
+
+      {/* Sidebar em desktop */}
+      <div className="hidden md:flex md:w-80 md:flex-shrink-0 md:border-r md:flex-col">
+        <MatrixSidebar ... />
+      </div>
+
+      {/* Conteúdo principal */}
+      <div className="flex flex-col flex-1">
+        {/* Botão hambúrguer em mobile */}
+        <div className="flex items-center gap-2 p-4 border-b md:hidden">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 hover:bg-accent rounded-md"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <h1 className="text-lg font-bold">Controle de Matrizes</h1>
+        </div>
+
+        {/* Abas de navegação */}
+        <div className="overflow-x-auto border-b">
+          <div className="flex gap-1 p-2">
+            <button
+              onClick={() => setMainView("timeline")}
+              className={cn(
+                "px-3 py-2 rounded-md whitespace-nowrap shrink-0",
+                mainView === "timeline" ? "bg-primary text-white" : "hover:bg-accent"
+              )}
+            >
+              <span className="hidden sm:inline">Timeline</span>
+              <span className="sm:hidden">📋</span>
+            </button>
+            {/* Mais abas */}
+          </div>
+        </div>
+
+        {/* Conteúdo */}
+        <div className="flex-1 overflow-auto">
+          {mainView === "timeline" && <FlowView ... />}
+          {/* Mais views */}
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+### Padrão 2: Cards Responsivos (Fase 3)
+
+#### Antes (Tabela não responsiva)
+```tsx
+// ManufacturingView.tsx
+<table className="w-full">
+  <thead>
+    <tr>
+      <th>Código</th>
+      <th>Fornecedor</th>
+      <th>Prioridade</th>
+      <th>Data Estimada</th>
+      <th>Ações</th>
+    </tr>
+  </thead>
+  <tbody>
+    {records.map(record => (
+      <tr key={record.id}>
+        <td>{record.matrix_code}</td>
+        <td>{record.supplier}</td>
+        <td>{record.priority}</td>
+        <td>{record.estimated_delivery_date}</td>
+        <td>
+          <button onClick={() => moveToNext(record)}>Próximo</button>
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
+```
+
+#### Depois (Responsivo com cards)
+```tsx
+// ManufacturingView.tsx
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useMediaQuery } from "@/hooks/use-media-query";
+
+export function ManufacturingView() {
+  const isMobile = !useMediaQuery("(min-width: 768px)");
+
+  if (isMobile) {
+    return (
+      <div className="space-y-2 p-4">
+        {records.map(record => (
+          <Card key={record.id} className="p-3">
+            <div className="flex justify-between items-start gap-2">
+              <div className="flex-1">
+                <h3 className="font-bold text-sm">{record.matrix_code}</h3>
+                <p className="text-xs text-muted-foreground">{record.supplier}</p>
+              </div>
+              <Badge variant={getPriorityVariant(record.priority)}>
+                {record.priority}
+              </Badge>
+            </div>
+
+            {record.estimated_delivery_date && (
+              <p className="text-xs mt-2">
+                📅 {formatToBR(record.estimated_delivery_date)}
+              </p>
+            )}
+
+            <div className="flex gap-2 mt-3">
+              <Button
+                size="sm"
+                className="flex-1"
+                onClick={() => moveToNext(record)}
+              >
+                Próximo
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => openDetails(record)}
+              >
+                Detalhes
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  // Desktop: tabela
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Fornecedor</th>
+            <th>Prioridade</th>
+            <th>Data Estimada</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {records.map(record => (
+            <tr key={record.id}>
+              <td>{record.matrix_code}</td>
+              <td>{record.supplier}</td>
+              <td>{record.priority}</td>
+              <td>{record.estimated_delivery_date}</td>
+              <td>
+                <button onClick={() => moveToNext(record)}>Próximo</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+```
+
+### Padrão 3: Filtros em Sheet (Fase 3)
+
+#### Antes (Filtros laterais)
+```tsx
+<div className="flex gap-4">
+  <div className="w-64 border-r p-4">
+    {/* Filtros */}
+    <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}>
+      <option>Todas</option>
+      <option>Baixa</option>
+      <option>Média</option>
+      <option>Alta</option>
+      <option>Crítica</option>
+    </select>
+  </div>
+  <div className="flex-1">
+    {/* Conteúdo */}
+  </div>
+</div>
+```
+
+#### Depois (Responsivo)
+```tsx
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Filter } from "lucide-react";
+
+export function ManufacturingView() {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const isMobile = !useMediaQuery("(min-width: 768px)");
+
+  const FilterContent = () => (
+    <div className="space-y-4">
+      <div>
+        <label className="text-sm font-medium">Prioridade</label>
+        <select
+          value={priorityFilter}
+          onChange={e => setPriorityFilter(e.target.value)}
+          className="w-full mt-1 p-2 border rounded-md"
+        >
+          <option>Todas</option>
+          <option>Baixa</option>
+          <option>Média</option>
+          <option>Alta</option>
+          <option>Crítica</option>
+        </select>
+      </div>
+      {/* Mais filtros */}
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col md:flex-row gap-4">
+      {/* Sheet em mobile */}
+      {isMobile && (
+        <>
+          <Button
+            onClick={() => setFiltersOpen(true)}
+            variant="outline"
+            className="w-full"
+          >
+            <Filter className="h-4 w-4 mr-2" />
+            Filtros
+          </Button>
+
+          <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+            <SheetContent side="bottom" className="h-auto">
+              <SheetHeader>
+                <SheetTitle>Filtros</SheetTitle>
+              </SheetHeader>
+              <FilterContent />
+            </SheetContent>
+          </Sheet>
+        </>
+      )}
+
+      {/* Sidebar em desktop */}
+      {!isMobile && (
+        <div className="w-64 border-r p-4">
+          <FilterContent />
+        </div>
+      )}
+
+      {/* Conteúdo */}
+      <div className="flex-1">
+        {/* Tabela/Cards */}
+      </div>
+    </div>
+  );
+}
+```
+
+### Padrão 4: Gráficos Responsivos (Fase 4)
+
+#### Antes (Sem scroll)
+```tsx
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+
+<ResponsiveContainer width="100%" height={300}>
+  <LineChart data={data}>
+    <CartesianGrid strokeDasharray="3 3" />
+    <XAxis dataKey="name" />
+    <YAxis />
+    <Tooltip />
+    <Legend />
+    <Line type="monotone" dataKey="value" stroke="#8884d8" />
+  </LineChart>
+</ResponsiveContainer>
+```
+
+#### Depois (Responsivo com scroll)
+```tsx
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+
+<div className="overflow-x-auto">
+  <div className="min-w-[300px] md:min-w-0">
+    <ResponsiveContainer width="100%" height={300}>
+      <LineChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="name" />
+        <YAxis />
+        <Tooltip />
+        <Legend />
+        <Line type="monotone" dataKey="value" stroke="#8884d8" />
+      </LineChart>
+    </ResponsiveContainer>
+  </div>
+</div>
+```
+
+### Hook Customizado: useMediaQuery
+
+```typescript
+// src/hooks/use-media-query.ts
+import { useEffect, useState } from "react";
+
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    if (media.matches !== matches) {
+      setMatches(media.matches);
+    }
+
+    const listener = () => setMatches(media.matches);
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
+  }, [matches, query]);
+
+  return matches;
+}
+```
+
+### Uso no componente
+```tsx
+import { useMediaQuery } from "@/hooks/use-media-query";
+
+export function MyComponent() {
+  const isMobile = !useMediaQuery("(min-width: 768px)");
+  const isTablet = useMediaQuery("(min-width: 768px)");
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  return (
+    <div>
+      {isMobile && <p>Você está em mobile</p>}
+      {isTablet && <p>Você está em tablet</p>}
+      {isDesktop && <p>Você está em desktop</p>}
+    </div>
+  );
+}
+```
+
+---
+
+**Nota:** Todos os exemplos usam Tailwind CSS v3 e shadcn/ui, que já estão implementados no projeto.

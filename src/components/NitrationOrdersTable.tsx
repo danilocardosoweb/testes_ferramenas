@@ -19,9 +19,10 @@ interface NitrationOrder {
   ferramenta: string;
   sequencia: string;
   data_saida: string;
-  data_entrada_nitretacao: string | null;
-  data_saida_nitretacao: string | null;
-  observacoes_nitretacao: string | null;
+  data_retorno: string | null;
+  nf_saida: string | null;
+  nf_retorno: string | null;
+  observacoes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -55,6 +56,8 @@ export function NitrationOrdersTable() {
   const [bulkEntrada, setBulkEntrada] = useState<Record<string, string>>({});
   const [bulkSaida, setBulkSaida] = useState<Record<string, string>>({});
   const [bulkObs, setBulkObs] = useState<Record<string, string>>({});
+  const [bulkNFSaida, setBulkNFSaida] = useState<Record<string, string>>({});
+  const [bulkNFRetorno, setBulkNFRetorno] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<FilterState>({
     status: "todas",
     dataInicio: "",
@@ -77,9 +80,9 @@ export function NitrationOrdersTable() {
         .eq("nitretacao", true);
 
       if (filters.status === "em_nitretacao") {
-        query = query.is("data_saida_nitretacao", null);
+        query = query.is("data_retorno", null);
       } else if (filters.status === "concluidas") {
-        query = query.not("data_saida_nitretacao", "is", null);
+        query = query.not("data_retorno", "is", null);
       }
 
       if (filters.dataInicio) {
@@ -102,9 +105,10 @@ export function NitrationOrdersTable() {
           ferramenta: row.ferramenta,
           sequencia: row.sequencia,
           data_saida: row.data_saida,
-          data_entrada_nitretacao: row.data_entrada_nitretacao || null,
-          data_saida_nitretacao: row.data_saida_nitretacao || null,
-          observacoes_nitretacao: row.observacoes_nitretacao || null,
+          data_retorno: row.data_retorno || null,
+          nf_saida: row.nf_saida || null,
+          nf_retorno: row.nf_retorno || null,
+          observacoes: row.observacoes || null,
           created_at: row.created_at,
           updated_at: row.updated_at,
         })) || []
@@ -123,22 +127,28 @@ export function NitrationOrdersTable() {
     const entrada = bulkEntrada[date]?.trim();
     const saida = bulkSaida[date]?.trim();
     const obs = bulkObs[date]?.trim();
+    const nfSaida = bulkNFSaida[date]?.trim();
+    const nfRetorno = bulkNFRetorno[date]?.trim();
     if (daySelected.length === 0) {
       toast({ title: "Seleção vazia", description: "Selecione ao menos uma ferramenta do dia para aplicar.", variant: "destructive" });
       return;
     }
-    if (!entrada && !saida && !obs) {
-      toast({ title: "Nada a aplicar", description: "Informe Entrada/Saída e/ou Observações.", variant: "destructive" });
+    if (!entrada && !saida && !obs && !nfSaida && !nfRetorno) {
+      toast({ title: "Nada a aplicar", description: "Informe Entrada/Saída, NF Saída, NF Retorno e/ou Observações.", variant: "destructive" });
       return;
     }
     const updateData: any = {};
-    if (entrada) updateData.data_entrada_nitretacao = entrada;
-    if (saida) updateData.data_saida_nitretacao = saida;
-    if (obs) updateData.observacoes_nitretacao = obs;
+    if (entrada) updateData.data_saida = entrada;
+    if (saida) updateData.data_retorno = saida;
+    if (obs) updateData.observacoes = obs;
+    if (nfSaida) updateData.nf_saida = nfSaida;
+    if (nfRetorno) updateData.nf_retorno = nfRetorno;
     try {
       const { error } = await supabase.from("cleaning_orders").update(updateData).in("id", daySelected);
       if (error) throw error;
       toast({ title: "Aplicado", description: `Atualizado(s) ${daySelected.length} registro(s) do dia ${fmtDateBR(date)}.` });
+      setBulkNFSaida((prev) => ({ ...prev, [date]: nfSaida || "" }));
+      setBulkNFRetorno((prev) => ({ ...prev, [date]: nfRetorno || "" }));
       loadOrders();
     } catch (err: any) {
       toast({ title: "Erro ao aplicar", description: err?.message ?? String(err), variant: "destructive" });
@@ -166,12 +176,12 @@ export function NitrationOrdersTable() {
   const handleCellEdit = async (orderId: string, field: string, value: any) => {
     try {
       const updateData: any = {};
-      if (field === "data_entrada_nitretacao") {
-        updateData.data_entrada_nitretacao = value || null;
-      } else if (field === "data_saida_nitretacao") {
-        updateData.data_saida_nitretacao = value || null;
-      } else if (field === "observacoes_nitretacao") {
-        updateData.observacoes_nitretacao = value || null;
+      if (field === "data_saida") {
+        updateData.data_saida = value || null;
+      } else if (field === "data_retorno") {
+        updateData.data_retorno = value || null;
+      } else if (field === "observacoes") {
+        updateData.observacoes = value || null;
       }
 
       const { error: err } = await supabase
@@ -202,7 +212,7 @@ export function NitrationOrdersTable() {
     try {
       const { error: err } = await supabase
         .from("cleaning_orders")
-        .update({ data_saida_nitretacao: today })
+        .update({ data_retorno: today })
         .in("id", Array.from(selected));
 
       if (err) throw err;
@@ -262,7 +272,7 @@ export function NitrationOrdersTable() {
   };
 
   const isLoteComplete = (dayOrders: NitrationOrder[]): boolean => {
-    return dayOrders.every((order) => order.data_saida_nitretacao !== null);
+    return dayOrders.every((order) => order.data_retorno !== null);
   };
 
   const handleFinalizeLote = async (date: string, dayOrders: NitrationOrder[]) => {
@@ -305,8 +315,8 @@ export function NitrationOrdersTable() {
 
   const stats = {
     total: orders.length,
-    emNitretacao: orders.filter((o) => !o.data_saida_nitretacao).length,
-    concluidas: orders.filter((o) => o.data_saida_nitretacao).length,
+    emNitretacao: orders.filter((o) => !o.data_retorno).length,
+    concluidas: orders.filter((o) => o.data_retorno).length,
   };
 
   return (
@@ -457,13 +467,13 @@ export function NitrationOrdersTable() {
           {sortedDates.map((date) => {
             const dayOrders = groupedByDate[date];
             const isExpanded = expandedDays.has(date);
-            const dayEmNitretacao = dayOrders.filter((o) => !o.data_saida_nitretacao).length;
-            const dayConcluidas = dayOrders.filter((o) => o.data_saida_nitretacao).length;
+            const dayEmNitretacao = dayOrders.filter((o) => !o.data_retorno).length;
+            const dayConcluidas = dayOrders.filter((o) => o.data_retorno).length;
 
             return (
               <div key={date} className="border rounded-lg overflow-hidden">
                 {/* Header do Dia */}
-                <div className="bg-gradient-to-r from-orange/10 to-orange/5 px-3 md:px-4 py-3 flex items-center justify-between gap-2 md:gap-3 border-b">
+                <div className="bg-gradient-to-r from-orange/10 to-orange/5 px-3 md:px-4 py-3 flex items-start md:items-center justify-between gap-2 md:gap-3 border-b">
                   <button
                     onClick={() => toggleDay(date)}
                     className="flex items-center gap-2 md:gap-3 flex-1 hover:opacity-80 transition-opacity min-w-0"
@@ -483,7 +493,15 @@ export function NitrationOrdersTable() {
                     </div>
                   </button>
                   {/* Desktop: inputs inline */}
-                  <div className="hidden md:flex items-center gap-2">
+                  <div className="hidden md:flex items-center gap-2 flex-wrap">
+                    <input
+                      type="text"
+                      placeholder="NF Saída..."
+                      value={bulkNFSaida[date] || ""}
+                      onChange={(e) => setBulkNFSaida((p) => ({ ...p, [date]: e.target.value }))}
+                      className="h-8 text-xs px-2 py-1 border rounded"
+                      title="NF Saída (aplicar aos selecionados)"
+                    />
                     <input
                       type="date"
                       value={bulkEntrada[date] || ""}
@@ -500,11 +518,11 @@ export function NitrationOrdersTable() {
                     />
                     <input
                       type="text"
-                      placeholder="Observações..."
-                      value={bulkObs[date] || ""}
-                      onChange={(e) => setBulkObs((p) => ({ ...p, [date]: e.target.value }))}
+                      placeholder="NF Retorno..."
+                      value={bulkNFRetorno[date] || ""}
+                      onChange={(e) => setBulkNFRetorno((p) => ({ ...p, [date]: e.target.value }))}
                       className="h-8 text-xs px-2 py-1 border rounded"
-                      title="Observações (aplicar aos selecionados)"
+                      title="NF Retorno (aplicar aos selecionados)"
                     />
                     <Button size="sm" variant="outline" onClick={() => handleApplyBulkForDay(date, dayOrders)}>
                       Aplicar aos selecionados
@@ -514,7 +532,7 @@ export function NitrationOrdersTable() {
                   <div className="flex md:hidden items-center gap-1 shrink-0">
                     <Sheet>
                       <SheetTrigger asChild>
-                        <Button size="sm" variant="outline" className="h-8 px-2">
+                        <Button size="sm" variant="outline" className="h-11 px-3">
                           <Edit className="h-4 w-4" />
                         </Button>
                       </SheetTrigger>
@@ -523,6 +541,16 @@ export function NitrationOrdersTable() {
                           <SheetTitle>Preenchimento em Lote - {fmtDateBR(date)}</SheetTitle>
                         </SheetHeader>
                         <div className="space-y-4 mt-4">
+                          <div>
+                            <label className="text-sm font-semibold mb-2 block">NF Saída</label>
+                            <Input
+                              type="text"
+                              placeholder="Ex: 123456"
+                              value={bulkNFSaida[date] || ""}
+                              onChange={(e) => setBulkNFSaida((p) => ({ ...p, [date]: e.target.value }))}
+                              className="h-11"
+                            />
+                          </div>
                           <div>
                             <label className="text-sm font-semibold mb-2 block">Data Entrada Nitretação</label>
                             <Input
@@ -538,6 +566,16 @@ export function NitrationOrdersTable() {
                               type="date"
                               value={bulkSaida[date] || ""}
                               onChange={(e) => setBulkSaida((p) => ({ ...p, [date]: e.target.value }))}
+                              className="h-11"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-semibold mb-2 block">NF Retorno</label>
+                            <Input
+                              type="text"
+                              placeholder="Ex: 123456"
+                              value={bulkNFRetorno[date] || ""}
+                              onChange={(e) => setBulkNFRetorno((p) => ({ ...p, [date]: e.target.value }))}
                               className="h-11"
                             />
                           </div>
@@ -564,7 +602,7 @@ export function NitrationOrdersTable() {
                   <Button
                     onClick={() => handleFinalizeLote(date, dayOrders)}
                     disabled={!isLoteComplete(dayOrders)}
-                    className={`ml-1 whitespace-nowrap ${
+                    className={`ml-1 whitespace-nowrap h-11 md:h-9 px-3 ${
                       isLoteComplete(dayOrders)
                         ? "bg-green-600 hover:bg-green-700"
                         : "bg-gray-400 cursor-not-allowed"
@@ -618,7 +656,7 @@ export function NitrationOrdersTable() {
                           <tr
                             key={order.id}
                             className={`border-b hover:bg-muted/30 transition-colors ${
-                              order.data_saida_nitretacao ? "bg-green-50/20" : "bg-orange-50/10"
+                              order.data_retorno ? "bg-green-50/20" : "bg-orange-50/10"
                             }`}
                           >
                             <td className="px-4 py-3">
@@ -632,15 +670,15 @@ export function NitrationOrdersTable() {
                               {order.sequencia && ` / ${order.sequencia}`}
                             </td>
                             <td className="px-4 py-3 text-xs">
-                              {editingId === order.id && editField === "data_entrada_nitretacao" ? (
+                              {editingId === order.id && editField === "data_saida" ? (
                                 <input
                                   type="date"
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={() => handleCellEdit(order.id, "data_entrada_nitretacao", editValue)}
+                                  onBlur={() => handleCellEdit(order.id, "data_saida", editValue)}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") {
-                                      handleCellEdit(order.id, "data_entrada_nitretacao", editValue);
+                                      handleCellEdit(order.id, "data_saida", editValue);
                                     }
                                   }}
                                   className="w-full px-2 py-1 border rounded text-xs"
@@ -650,25 +688,25 @@ export function NitrationOrdersTable() {
                                 <span
                                   onClick={() => {
                                     setEditingId(order.id);
-                                    setEditField("data_entrada_nitretacao");
-                                    setEditValue(order.data_entrada_nitretacao || "");
+                                    setEditField("data_saida");
+                                    setEditValue(order.data_saida || "");
                                   }}
                                   className="cursor-pointer hover:bg-muted px-2 py-1 rounded block"
                                 >
-                                  {fmtDateBR(order.data_entrada_nitretacao)}
+                                  {fmtDateBR(order.data_saida)}
                                 </span>
                               )}
                             </td>
                             <td className="px-4 py-3 text-xs">
-                              {editingId === order.id && editField === "data_saida_nitretacao" ? (
+                              {editingId === order.id && editField === "data_retorno" ? (
                                 <input
                                   type="date"
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={() => handleCellEdit(order.id, "data_saida_nitretacao", editValue)}
+                                  onBlur={() => handleCellEdit(order.id, "data_retorno", editValue)}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") {
-                                      handleCellEdit(order.id, "data_saida_nitretacao", editValue);
+                                      handleCellEdit(order.id, "data_retorno", editValue);
                                     }
                                   }}
                                   className="w-full px-2 py-1 border rounded text-xs"
@@ -678,25 +716,25 @@ export function NitrationOrdersTable() {
                                 <span
                                   onClick={() => {
                                     setEditingId(order.id);
-                                    setEditField("data_saida_nitretacao");
-                                    setEditValue(order.data_saida_nitretacao || "");
+                                    setEditField("data_retorno");
+                                    setEditValue(order.data_retorno || "");
                                   }}
                                   className="cursor-pointer hover:bg-muted px-2 py-1 rounded block"
                                 >
-                                  {fmtDateBR(order.data_saida_nitretacao)}
+                                  {fmtDateBR(order.data_retorno)}
                                 </span>
                               )}
                             </td>
                             <td className="px-4 py-3 text-xs max-w-xs truncate">
-                              {editingId === order.id && editField === "observacoes_nitretacao" ? (
+                              {editingId === order.id && editField === "observacoes" ? (
                                 <input
                                   type="text"
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={() => handleCellEdit(order.id, "observacoes_nitretacao", editValue)}
+                                  onBlur={() => handleCellEdit(order.id, "observacoes", editValue)}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") {
-                                      handleCellEdit(order.id, "observacoes_nitretacao", editValue);
+                                      handleCellEdit(order.id, "observacoes", editValue);
                                     }
                                   }}
                                   placeholder="Observações..."
@@ -707,13 +745,13 @@ export function NitrationOrdersTable() {
                                 <span
                                   onClick={() => {
                                     setEditingId(order.id);
-                                    setEditField("observacoes_nitretacao");
-                                    setEditValue(order.observacoes_nitretacao || "");
+                                    setEditField("observacoes");
+                                    setEditValue(order.observacoes || "");
                                   }}
                                   className="cursor-pointer hover:bg-muted px-2 py-1 rounded block"
-                                  title={order.observacoes_nitretacao || ""}
+                                  title={order.observacoes || ""}
                                 >
-                                  {order.observacoes_nitretacao || "-"}
+                                  {order.observacoes || "-"}
                                 </span>
                               )}
                             </td>
@@ -747,7 +785,7 @@ export function NitrationOrdersTable() {
                   <div className="md:hidden space-y-2 p-3">
                     {dayOrders.map((order) => (
                       <Card key={order.id} className={`border-l-4 ${
-                        order.data_saida_nitretacao ? "border-l-green-500 bg-green-50/20" : "border-l-orange-500 bg-orange-50/10"
+                        order.data_retorno ? "border-l-green-500 bg-green-50/20" : "border-l-orange-500 bg-orange-50/10"
                       }`}>
                         <CardContent className="p-3 space-y-3">
                           {/* Header do Card */}
@@ -794,22 +832,22 @@ export function NitrationOrdersTable() {
                               <span
                                 onClick={() => {
                                   setEditingId(order.id);
-                                  setEditField("data_entrada_nitretacao");
-                                  setEditValue(order.data_entrada_nitretacao || "");
+                                  setEditField("data_saida");
+                                  setEditValue(order.data_saida || "");
                                 }}
                                 className="font-medium text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
                               >
-                                {editingId === order.id && editField === "data_entrada_nitretacao" ? (
+                                {editingId === order.id && editField === "data_saida" ? (
                                   <input
                                     type="date"
                                     value={editValue}
                                     onChange={(e) => setEditValue(e.target.value)}
-                                    onBlur={() => handleCellEdit(order.id, "data_entrada_nitretacao", editValue)}
+                                    onBlur={() => handleCellEdit(order.id, "data_saida", editValue)}
                                     className="w-full px-2 py-1 border rounded text-xs"
                                     autoFocus
                                   />
                                 ) : (
-                                  fmtDateBR(order.data_entrada_nitretacao)
+                                  fmtDateBR(order.data_saida)
                                 )}
                               </span>
                             </div>
@@ -818,48 +856,48 @@ export function NitrationOrdersTable() {
                               <span
                                 onClick={() => {
                                   setEditingId(order.id);
-                                  setEditField("data_saida_nitretacao");
-                                  setEditValue(order.data_saida_nitretacao || "");
+                                  setEditField("data_retorno");
+                                  setEditValue(order.data_retorno || "");
                                 }}
                                 className="font-medium text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
                               >
-                                {editingId === order.id && editField === "data_saida_nitretacao" ? (
+                                {editingId === order.id && editField === "data_retorno" ? (
                                   <input
                                     type="date"
                                     value={editValue}
                                     onChange={(e) => setEditValue(e.target.value)}
-                                    onBlur={() => handleCellEdit(order.id, "data_saida_nitretacao", editValue)}
+                                    onBlur={() => handleCellEdit(order.id, "data_retorno", editValue)}
                                     className="w-full px-2 py-1 border rounded text-xs"
                                     autoFocus
                                   />
                                 ) : (
-                                  fmtDateBR(order.data_saida_nitretacao)
+                                  fmtDateBR(order.data_retorno)
                                 )}
                               </span>
                             </div>
-                            {order.observacoes_nitretacao && (
+                            {order.observacoes && (
                               <div className="pt-2 border-t">
                                 <p className="text-xs text-muted-foreground mb-1">Observações:</p>
                                 <p
                                   onClick={() => {
                                     setEditingId(order.id);
-                                    setEditField("observacoes_nitretacao");
-                                    setEditValue(order.observacoes_nitretacao || "");
+                                    setEditField("observacoes");
+                                    setEditValue(order.observacoes || "");
                                   }}
                                   className="text-xs cursor-pointer hover:bg-muted px-2 py-1 rounded"
                                 >
-                                  {editingId === order.id && editField === "observacoes_nitretacao" ? (
+                                  {editingId === order.id && editField === "observacoes" ? (
                                     <input
                                       type="text"
                                       value={editValue}
                                       onChange={(e) => setEditValue(e.target.value)}
-                                      onBlur={() => handleCellEdit(order.id, "observacoes_nitretacao", editValue)}
+                                      onBlur={() => handleCellEdit(order.id, "observacoes", editValue)}
                                       placeholder="Observações..."
                                       className="w-full px-2 py-1 border rounded text-xs"
                                       autoFocus
                                     />
                                   ) : (
-                                    order.observacoes_nitretacao
+                                    order.observacoes
                                   )}
                                 </p>
                               </div>
