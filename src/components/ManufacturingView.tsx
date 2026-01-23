@@ -737,24 +737,69 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
         const toISO = (d: Date) => d.toISOString().split("T")[0];
 
+        const fetchAll = async <T,>(
+          queryFactory: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>,
+          pageSize = 1000
+        ): Promise<{ data: T[]; error: any }>
+        => {
+          const all: T[] = [];
+          let from = 0;
+
+          while (true) {
+            const to = from + pageSize - 1;
+            const { data, error } = await queryFactory(from, to);
+            if (error) return { data: all, error };
+            const chunk = data || [];
+            all.push(...chunk);
+            if (chunk.length < pageSize) break;
+            from += pageSize;
+          }
+
+          return { data: all, error: null };
+        };
+
         // Buscar dados de produção
-        const { data: producaoData } = await supabase
-          .from("analysis_producao")
-          .select("payload, produced_on")
-          .gte("produced_on", toISO(date24mAgo))
-          .limit(100000);
+        const { data: producaoData, error: prodError } = await fetchAll<any>((from, to) =>
+          supabase
+            .from("analysis_producao")
+            .select("payload, produced_on")
+            .gte("produced_on", toISO(date24mAgo))
+            .range(from, to)
+        );
 
         // Buscar dados de carteira (pedidos/clientes)
-        const { data: carteiraData } = await supabase
-          .from("analysis_carteira_flat")
-          .select("ferramenta, cliente, pedido_kg, data_implant")
-          .limit(100000);
+        const { data: carteiraData, error: cartError } = await fetchAll<any>((from, to) =>
+          supabase
+            .from("analysis_carteira_flat")
+            .select("ferramenta, cliente, pedido_kg, data_implant")
+            .range(from, to)
+        );
 
         // Buscar dados de ferramentas (sequências e capacidade)
-        const { data: ferramentasData } = await supabase
-          .from("analysis_ferramentas")
-          .select("payload")
-          .limit(100000);
+        const { data: ferramentasData, error: ferrError } = await fetchAll<any>((from, to) =>
+          supabase
+            .from("analysis_ferramentas")
+            .select("payload")
+            .range(from, to)
+        );
+
+        // Debug logs
+        console.log("[EXPORT] Dados de Produção:", {
+          count: producaoData?.length || 0,
+          error: prodError?.message,
+          sample: producaoData?.[0]
+        });
+        console.log("[EXPORT] Dados de Carteira:", {
+          count: carteiraData?.length || 0,
+          error: cartError?.message,
+          sample: carteiraData?.[0]
+        });
+        console.log("[EXPORT] Dados de Ferramentas:", {
+          count: ferramentasData?.length || 0,
+          error: ferrError?.message,
+          sample: ferramentasData?.[0]
+        });
+        console.log("[EXPORT] Códigos buscados (needRecords):", uniqueCodes);
 
         // Função para normalizar código para padrão da base (ex: "VZ-0006", "TEF-007")
         const normalizeCodeForIndex = (code: string): string => {
@@ -771,6 +816,53 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           }
           return c;
         };
+
+        // Função para buscar código em um dicionário com múltiplas variações
+        // Importante: NÃO usar match parcial por prefixo (ex: "TP") porque isso pode casar a ferramenta errada.
+        const findCodeInDict = (searchCode: string, dict: Record<string, any>): any => {
+          const normalized = normalizeCodeForIndex(searchCode);
+
+          // Tenta 1: Código normalizado exato (padrão MRP, ex: "TP-0157")
+          if (dict[normalized]) return dict[normalized];
+
+          // Tenta 2: Sem hífen (compatibilidade, ex: "TP0157")
+          const noHyphen = normalized.replace("-", "");
+          if (noHyphen) {
+            for (const key of Object.keys(dict)) {
+              if (key.replace("-", "") === noHyphen) {
+                return dict[key];
+              }
+            }
+          }
+
+          return null;
+        };
+
+        // Log de códigos brutos extraídos dos dados
+        const codigosBrutosProducao = (producaoData || []).slice(0, 5).map((row: any) => ({
+          raw: row.payload?.Matriz || row.payload?.Ferramenta || row.payload?.ferramenta,
+          normalized: normalizeCodeForIndex(row.payload?.Matriz || row.payload?.Ferramenta || row.payload?.ferramenta || "")
+        }));
+        const codigosBrutosCarteira = (carteiraData || []).slice(0, 5).map((row: any) => ({
+          raw: row.ferramenta,
+          normalized: normalizeCodeForIndex(row.ferramenta || "")
+        }));
+        const codigosBrutosFerramentas = (ferramentasData || []).slice(0, 5).map((row: any) => ({
+          raw: row.payload?.Matriz || row.payload?.matriz,
+          normalized: normalizeCodeForIndex(row.payload?.Matriz || row.payload?.matriz || "")
+        }));
+        
+        console.log("[EXPORT] Códigos brutos vs normalizados:", {
+          producao: codigosBrutosProducao,
+          carteira: codigosBrutosCarteira,
+          ferramentas: codigosBrutosFerramentas
+        });
+
+        // Log de normalização
+        console.log("[EXPORT] Códigos normalizados:", uniqueCodes.map(code => ({
+          original: code,
+          normalized: normalizeCodeForIndex(code)
+        })));
 
         // Processar dados de produção por ferramenta
         type ProdByTool = {
@@ -805,8 +897,17 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           if (prodDate >= date12mAgo) prodByTool[matriz].total12m += peso;
           if (prodDate >= date6mAgo) prodByTool[matriz].total6m += peso;
         });
-        
 
+        console.log("[EXPORT] Produção agregada por ferramenta:", Object.keys(prodByTool).slice(0, 10));
+        console.log("[EXPORT] Amostra de dados de produção:", {
+          total: Object.keys(prodByTool).length,
+          sample: Object.entries(prodByTool).slice(0, 3).map(([k, v]) => ({
+            codigo: k,
+            total12m: v.total12m,
+            total6m: v.total6m
+          }))
+        });
+        
         // Processar dados de carteira por ferramenta
         type CarteiraByTool = {
           totalPedido: number;
@@ -838,7 +939,17 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
             }
           }
         });
-        
+
+        console.log("[EXPORT] Carteira agregada por ferramenta:", Object.keys(carteiraByTool).slice(0, 10));
+        console.log("[EXPORT] Amostra de dados de carteira:", {
+          total: Object.keys(carteiraByTool).length,
+          sample: Object.entries(carteiraByTool).slice(0, 3).map(([k, v]) => ({
+            codigo: k,
+            totalPedido: v.totalPedido,
+            lastOrderDate: v.lastOrderDate,
+            clientesUnicos: Object.keys(v.clienteVolumes).length
+          }))
+        });
 
         // Processar dados de ferramentas (sequências ativas e capacidade)
         type FerrByTool = {
@@ -868,8 +979,35 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           ferrByTool[matriz].produzidoTotal += qteProd;
           if (isAtiva) {
             ferrByTool[matriz].seqAtivas += 1;
-            ferrByTool[matriz].capacidadeTotal += CAP_POR_SEQ;
           }
+
+          // Capacidade total do relatório deve refletir o padrão do MRP por sequência cadastrada,
+          // independente de estar marcada como ativa.
+          ferrByTool[matriz].capacidadeTotal = ferrByTool[matriz].seqTotal * CAP_POR_SEQ;
+        });
+
+        console.log("[EXPORT] Ferramentas agregadas por ferramenta:", Object.keys(ferrByTool).slice(0, 10));
+        console.log("[EXPORT] Amostra de dados de ferramentas:", {
+          total: Object.keys(ferrByTool).length,
+          sample: Object.entries(ferrByTool).slice(0, 3).map(([k, v]) => ({
+            codigo: k,
+            seqAtivas: v.seqAtivas,
+            seqTotal: v.seqTotal,
+            capacidadeTotal: v.capacidadeTotal
+          }))
+        });
+
+        // Verificar match entre códigos buscados e dados encontrados
+        const normalizedSearchCodes = uniqueCodes.map(normalizeCodeForIndex);
+        const foundInProd = normalizedSearchCodes.filter(code => prodByTool[code]);
+        const foundInCart = normalizedSearchCodes.filter(code => carteiraByTool[code]);
+        const foundInFerr = normalizedSearchCodes.filter(code => ferrByTool[code]);
+        
+        console.log("[EXPORT] Match de códigos:", {
+          buscados: normalizedSearchCodes,
+          encontradosEmProd: foundInProd,
+          encontradosEmCart: foundInCart,
+          encontradosEmFerr: foundInFerr
         });
 
 
@@ -904,12 +1042,32 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           "Justificativa",
         ];
 
-        const histRows = needRecords.map((record) => {
+        // Função para converter código do formato do app (ex: "F-TP0157/016") para o padrão MRP do relatório (ex: "TP-0157")
+        const formatCodeForExcel = (appCode: string): string => {
+          return normalizeCodeForIndex(appCode);
+        };
+
+        const histRows = needRecords.map((record, idx) => {
           const codeBase = normalizeCodeForIndex(record.matrix_code);
+          const codeExcel = formatCodeForExcel(record.matrix_code);
           
-          const prod = prodByTool[codeBase] || { total24m: 0, total12m: 0, total6m: 0, monthlyProd: {} };
-          const cart = carteiraByTool[codeBase] || { totalPedido: 0, lastOrderDate: null, clienteVolumes: {} };
-          const ferr = ferrByTool[codeBase] || { seqAtivas: 0, seqTotal: 0, produzidoTotal: 0, capacidadeTotal: 0 };
+          // Buscar dados com fallback para múltiplas variações de código
+          const prod = findCodeInDict(record.matrix_code, prodByTool) || { total24m: 0, total12m: 0, total6m: 0, monthlyProd: {} };
+          const cart = findCodeInDict(record.matrix_code, carteiraByTool) || { totalPedido: 0, lastOrderDate: null, clienteVolumes: {} };
+          const ferr = findCodeInDict(record.matrix_code, ferrByTool) || { seqAtivas: 0, seqTotal: 0, produzidoTotal: 0, capacidadeTotal: 0 };
+
+          // Log para as primeiras 3 linhas
+          if (idx < 3) {
+            console.log(`[EXPORT] Linha ${idx + 1} - ${record.matrix_code}:`, {
+              codeBase,
+              prodFound: !!findCodeInDict(record.matrix_code, prodByTool),
+              cartFound: !!findCodeInDict(record.matrix_code, carteiraByTool),
+              ferrFound: !!findCodeInDict(record.matrix_code, ferrByTool),
+              prod: prod.total12m,
+              cart: cart.totalPedido,
+              ferr: ferr.seqTotal
+            });
+          }
 
           // Calcular médias mensais
           const avg6m = prod.total6m / 6;
@@ -918,7 +1076,9 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
 
           // Calcular capacidade e desgaste
           const capRestante = Math.max(0, ferr.capacidadeTotal - ferr.produzidoTotal);
-          const desgastePerc = ferr.capacidadeTotal > 0 ? (ferr.produzidoTotal / ferr.capacidadeTotal) * 100 : 0;
+          const desgastePerc = ferr.capacidadeTotal > 0
+            ? Math.min(100, (ferr.produzidoTotal / ferr.capacidadeTotal) * 100)
+            : 0;
 
           // Calcular tendência (média 6m vs média 12m)
           let tendencia = "-";
@@ -947,8 +1107,8 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           const top2 = sortedClientes[1] || ["-", 0];
           const top3 = sortedClientes[2] || ["-", 0];
 
-          const formatNum = (n: number) => n > 0 ? n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
-          const formatPerc = (n: number) => n > 0 ? `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : "-";
+          const formatNum = (n: number) => Number.isFinite(n) ? n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+          const formatPerc = (n: number) => Number.isFinite(n) ? `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : "-";
           const formatInt = (n: number) => n > 0 ? n.toString() : "-";
           const formatDate = (d: string | null) => {
             if (!d) return "-";
@@ -957,7 +1117,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           };
 
           return {
-            "Código": codeBase,
+            "Código": codeExcel,
             "Tipo": record.manufacturing_type === "nova" ? "Nova" : "Reposição",
             "Perfil": record.profile_type === "tubular" ? "Tubular" : "Sólido",
             "Fornecedor": record.supplier === "Outro" ? record.custom_supplier : record.supplier,
