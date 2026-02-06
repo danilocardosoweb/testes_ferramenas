@@ -913,6 +913,9 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           totalPedido: number;
           lastOrderDate: string | null;
           clienteVolumes: Record<string, number>; // cliente -> kg total
+          clienteDates: Record<string, string | null>; // cliente -> última data de implantação
+          clienteLast: Record<string, { date: string | null; volume: number }>; // pedido mais recente do cliente
+          seenKeys: Record<string, boolean>; // dedupe por (cliente,ferramenta,data_implant,pedido_kg)
         };
         const carteiraByTool: Record<string, CarteiraByTool> = {};
 
@@ -927,13 +930,23 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           const dataImpl = row.data_implant ? String(row.data_implant).slice(0, 10) : null;
 
           if (!carteiraByTool[ferr]) {
-            carteiraByTool[ferr] = { totalPedido: 0, lastOrderDate: null, clienteVolumes: {} };
+            carteiraByTool[ferr] = { totalPedido: 0, lastOrderDate: null, clienteVolumes: {}, clienteDates: {}, clienteLast: {}, seenKeys: {} };
           }
 
-          carteiraByTool[ferr].totalPedido += pedidoKg;
-          carteiraByTool[ferr].clienteVolumes[cliente] = (carteiraByTool[ferr].clienteVolumes[cliente] || 0) + pedidoKg;
+          // Deduplicação de linhas idênticas
+          const dedupeKey = `${cliente}|${ferr}|${dataImpl || "NULL"}|${pedidoKg.toFixed(2)}`;
+          if (!carteiraByTool[ferr].seenKeys[dedupeKey]) {
+            carteiraByTool[ferr].seenKeys[dedupeKey] = true;
+            carteiraByTool[ferr].totalPedido += pedidoKg;
+            carteiraByTool[ferr].clienteVolumes[cliente] = (carteiraByTool[ferr].clienteVolumes[cliente] || 0) + pedidoKg;
+          }
 
           if (dataImpl) {
+            const currentDate = carteiraByTool[ferr].clienteDates[cliente];
+            if (!currentDate || dataImpl > currentDate) {
+              carteiraByTool[ferr].clienteDates[cliente] = dataImpl;
+              carteiraByTool[ferr].clienteLast[cliente] = { date: dataImpl, volume: pedidoKg };
+            }
             if (!carteiraByTool[ferr].lastOrderDate || dataImpl > carteiraByTool[ferr].lastOrderDate) {
               carteiraByTool[ferr].lastOrderDate = dataImpl;
             }
@@ -950,6 +963,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
             clientesUnicos: Object.keys(v.clienteVolumes).length
           }))
         });
+
+        if (carteiraByTool["TLG-048"]) {
+          console.log("[EXPORT] TLG-048 carteira:", carteiraByTool["TLG-048"]);
+        }
 
         // Processar dados de ferramentas (sequências ativas e capacidade)
         type FerrByTool = {
@@ -1033,12 +1050,60 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           "Data EOL Estimada",
           "Total Pedidos Carteira (kg)",
           "Data Último Pedido",
+          "Último Cliente 1",
+          "Vol. Últ. 1 (kg)",
+          "Data Últ. 1",
+          "Último Cliente 2",
+          "Vol. Últ. 2 (kg)",
+          "Data Últ. 2",
+          "Último Cliente 3",
+          "Vol. Últ. 3 (kg)",
+          "Data Últ. 3",
           "Principal Comprador",
           "Vol. Principal (kg)",
           "2º Comprador",
           "Vol. 2º (kg)",
           "3º Comprador",
           "Vol. 3º (kg)",
+          "Justificativa",
+        ];
+
+        const histCategories = [
+          "Identificação",
+          "Identificação",
+          "Identificação",
+          "Identificação",
+          "Prioridade",
+          "Capacidade",
+          "Capacidade",
+          "Capacidade",
+          "Capacidade",
+          "Capacidade",
+          "Desgaste",
+          "Produção",
+          "Produção",
+          "Produção",
+          "Produção",
+          "Demanda",
+          "Demanda",
+          "Demanda",
+          "Carteira",
+          "Carteira",
+          "Últimos Clientes",
+          "Últimos Clientes",
+          "Últimos Clientes",
+          "Últimos Clientes",
+          "Últimos Clientes",
+          "Últimos Clientes",
+          "Últimos Clientes",
+          "Últimos Clientes",
+          "Últimos Clientes",
+          "Maiores Compradores",
+          "Maiores Compradores",
+          "Maiores Compradores",
+          "Maiores Compradores",
+          "Maiores Compradores",
+          "Maiores Compradores",
           "Justificativa",
         ];
 
@@ -1099,13 +1164,31 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
             dataEOL = `${String(eolDate.getDate()).padStart(2, "0")}/${String(eolDate.getMonth() + 1).padStart(2, "0")}/${eolDate.getFullYear()}`;
           }
 
-          // Top 3 compradores
-          const sortedClientes = Object.entries(cart.clienteVolumes)
+          // Top 3 por volume (maiores)
+          const topVolume = Object.entries(cart.clienteVolumes)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 3);
-          const top1 = sortedClientes[0] || ["-", 0];
-          const top2 = sortedClientes[1] || ["-", 0];
-          const top3 = sortedClientes[2] || ["-", 0];
+          const top1 = topVolume[0] || ["-", 0];
+          const top2 = topVolume[1] || ["-", 0];
+          const top3 = topVolume[2] || ["-", 0];
+
+          // Últimos 3 por data de implantação
+          const lastEntries = Object.entries(cart.clienteLast || {}) as Array<[
+            string,
+            { date?: string | null; volume?: number }
+          ]>;
+          const lastClientes = lastEntries
+            .map(([cliente, info]) => ({
+              cliente,
+              volume: info?.volume ?? 0,
+              lastDate: info?.date || ""
+            }))
+            .filter(c => c.lastDate)
+            .sort((a, b) => (b.lastDate || "").localeCompare(a.lastDate || ""))
+            .slice(0, 3);
+          const last1 = lastClientes[0] || { cliente: "-", volume: 0, lastDate: "" };
+          const last2 = lastClientes[1] || { cliente: "-", volume: 0, lastDate: "" };
+          const last3 = lastClientes[2] || { cliente: "-", volume: 0, lastDate: "" };
 
           const formatNum = (n: number) => Number.isFinite(n) ? n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
           const formatPerc = (n: number) => Number.isFinite(n) ? `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : "-";
@@ -1137,6 +1220,15 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
             "Data EOL Estimada": dataEOL,
             "Total Pedidos Carteira (kg)": formatNum(cart.totalPedido),
             "Data Último Pedido": formatDate(cart.lastOrderDate),
+            "Último Cliente 1": last1.cliente,
+            "Vol. Últ. 1 (kg)": formatNum(last1.volume),
+            "Data Últ. 1": formatDate(last1.lastDate || null),
+            "Último Cliente 2": last2.cliente,
+            "Vol. Últ. 2 (kg)": formatNum(last2.volume),
+            "Data Últ. 2": formatDate(last2.lastDate || null),
+            "Último Cliente 3": last3.cliente,
+            "Vol. Últ. 3 (kg)": formatNum(last3.volume),
+            "Data Últ. 3": formatDate(last3.lastDate || null),
             "Principal Comprador": top1[0],
             "Vol. Principal (kg)": formatNum(top1[1] as number),
             "2º Comprador": top2[0],
@@ -1147,13 +1239,23 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           };
         });
 
-        const histWorksheet = XLSX.utils.aoa_to_sheet([histHeaders]);
+        const histWorksheet = XLSX.utils.aoa_to_sheet([histCategories, histHeaders]);
         if (histRows.length) {
-          XLSX.utils.sheet_add_json(histWorksheet, histRows, { origin: "A2", skipHeader: true });
+          XLSX.utils.sheet_add_json(histWorksheet, histRows, { origin: "A3", skipHeader: true });
         }
 
-        // Ajustar largura das colunas
-        histWorksheet["!cols"] = histHeaders.map(() => ({ wch: 18 }));
+        // Ajustar largura das colunas com destaque por seção
+        const colWidths = [
+          12, 10, 10, 14, 11, // identificação/prioridade
+          10, 10, 16, 16, 18, 12, // capacidade
+          18, 18, 18, 18, // produção
+          12, 16, 16, // demanda
+          18, 14, // carteira
+          18, 14, 14, 18, 14, 14, 18, 14, 14, // últimos clientes
+          18, 14, 18, 14, 18, 14, // maiores
+          24 // justificativa
+        ];
+        histWorksheet["!cols"] = colWidths.map(w => ({ wch: w }));
 
         XLSX.utils.book_append_sheet(workbook, histWorksheet, "Histórico Produção");
 
