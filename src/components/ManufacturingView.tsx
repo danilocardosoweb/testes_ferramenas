@@ -740,8 +740,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         const fetchAll = async <T,>(
           queryFactory: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>,
           pageSize = 1000
-        ): Promise<{ data: T[]; error: any }>
-        => {
+        ): Promise<{ data: T[]; error: any }> => {
           const all: T[] = [];
           let from = 0;
 
@@ -1037,6 +1036,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           "Prioridade",
           "Seq. Ativas",
           "Seq. Total",
+          "Média por Ferramenta (kg)",
           "Produzido Total (kg)",
           "Capacidade Total (kg)",
           "Capacidade Restante (kg)",
@@ -1065,45 +1065,6 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           "Vol. 2º (kg)",
           "3º Comprador",
           "Vol. 3º (kg)",
-          "Justificativa",
-        ];
-
-        const histCategories = [
-          "Identificação",
-          "Identificação",
-          "Identificação",
-          "Identificação",
-          "Prioridade",
-          "Capacidade",
-          "Capacidade",
-          "Capacidade",
-          "Capacidade",
-          "Capacidade",
-          "Desgaste",
-          "Produção",
-          "Produção",
-          "Produção",
-          "Produção",
-          "Demanda",
-          "Demanda",
-          "Demanda",
-          "Carteira",
-          "Carteira",
-          "Últimos Clientes",
-          "Últimos Clientes",
-          "Últimos Clientes",
-          "Últimos Clientes",
-          "Últimos Clientes",
-          "Últimos Clientes",
-          "Últimos Clientes",
-          "Últimos Clientes",
-          "Últimos Clientes",
-          "Maiores Compradores",
-          "Maiores Compradores",
-          "Maiores Compradores",
-          "Maiores Compradores",
-          "Maiores Compradores",
-          "Maiores Compradores",
           "Justificativa",
         ];
 
@@ -1173,11 +1134,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           const top3 = topVolume[2] || ["-", 0];
 
           // Últimos 3 por data de implantação
-          const lastEntries = Object.entries(cart.clienteLast || {}) as Array<[
-            string,
-            { date?: string | null; volume?: number }
-          ]>;
-          const lastClientes = lastEntries
+          const lastClientes = Object.entries(cart.clienteLast || {})
             .map(([cliente, info]) => ({
               cliente,
               volume: info?.volume ?? 0,
@@ -1207,6 +1164,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
             "Prioridade": record.priority === "critical" ? "Crítica" : record.priority === "high" ? "Alta" : record.priority === "medium" ? "Média" : "Baixa",
             "Seq. Ativas": formatInt(ferr.seqAtivas),
             "Seq. Total": formatInt(ferr.seqTotal),
+            "Média por Ferramenta (kg)": ferr.seqTotal > 0 ? formatNum(ferr.produzidoTotal / ferr.seqTotal) : "-",
             "Produzido Total (kg)": formatNum(ferr.produzidoTotal),
             "Capacidade Total (kg)": formatNum(ferr.capacidadeTotal),
             "Capacidade Restante (kg)": formatNum(capRestante),
@@ -1239,23 +1197,13 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           };
         });
 
-        const histWorksheet = XLSX.utils.aoa_to_sheet([histCategories, histHeaders]);
+        const histWorksheet = XLSX.utils.aoa_to_sheet([histHeaders]);
         if (histRows.length) {
-          XLSX.utils.sheet_add_json(histWorksheet, histRows, { origin: "A3", skipHeader: true });
+          XLSX.utils.sheet_add_json(histWorksheet, histRows, { origin: "A2", skipHeader: true });
         }
 
-        // Ajustar largura das colunas com destaque por seção
-        const colWidths = [
-          12, 10, 10, 14, 11, // identificação/prioridade
-          10, 10, 16, 16, 18, 12, // capacidade
-          18, 18, 18, 18, // produção
-          12, 16, 16, // demanda
-          18, 14, // carteira
-          18, 14, 14, 18, 14, 14, 18, 14, 14, // últimos clientes
-          18, 14, 18, 14, 18, 14, // maiores
-          24 // justificativa
-        ];
-        histWorksheet["!cols"] = colWidths.map(w => ({ wch: w }));
+        // Ajustar largura das colunas
+        histWorksheet["!cols"] = histHeaders.map(() => ({ wch: 18 }));
 
         XLSX.utils.book_append_sheet(workbook, histWorksheet, "Histórico Produção");
 
