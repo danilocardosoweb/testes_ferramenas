@@ -122,6 +122,9 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     message: string;
   }>({ status: '', message: '' });
   const [isUploading, setIsUploading] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<ManufacturingRecord | null>(null);
   const [renamingAttachmentId, setRenamingAttachmentId] = useState<string | null>(null);
 
@@ -402,6 +405,40 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
     return `F-${base}/${s}`;
   }, []);
 
+  // Obter a última sequência de uma ferramenta
+  const getLastSequence = useCallback((tool: ToolSuggestion): string | null => {
+    if (!tool.sequences || tool.sequences.length === 0) return null;
+    // Ordenar sequências numericamente e pegar a última
+    const sorted = [...tool.sequences].sort((a, b) => {
+      const numA = parseInt(a.seq, 10);
+      const numB = parseInt(b.seq, 10);
+      return numA - numB;
+    });
+    return sorted[sorted.length - 1].seq;
+  }, []);
+
+  // Incrementar sequência para reposição
+  const getNextSequence = useCallback((lastSeq: string | null): string => {
+    if (!lastSeq) return '001';
+    const num = parseInt(lastSeq, 10);
+    return String(num + 1).padStart(3, '0');
+  }, []);
+
+  // Obter volume produzido de uma sequência específica
+  const getSequenceVolume = useCallback((tool: ToolSuggestion, seq: string): number => {
+    const seqData = tool.sequences.find(s => s.seq === seq);
+    return seqData ? seqData.qteProd : 0;
+  }, []);
+
+  // Detectar tipo de perfil baseado no código da ferramenta
+  const detectProfileType = useCallback((code: string): "tubular" | "solido" | "" => {
+    if (!code) return "";
+    const upper = code.toUpperCase();
+    // Heurística: se contém "TUB" ou "TUBULAR" é tubular, caso contrário sólido
+    if (upper.includes("TUB")) return "tubular";
+    return "solido";
+  }, []);
+
   // Filtrar sugestões conforme usuário digita
   const filterSuggestions = useCallback((searchText: string) => {
     if (!searchText || searchText.length < 2) {
@@ -662,8 +699,32 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
   };
 
   const handleExportToExcel = async () => {
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportDialogOpen(true);
     setLoading(true);
+
+    // Função para animar progresso gradualmente
+    const animateProgress = (from: number, to: number, duration: number) => {
+      return new Promise<void>((resolve) => {
+        const startTime = Date.now();
+        const interval = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(from + ((to - from) * elapsed) / duration, to);
+          setExportProgress(Math.round(progress));
+          if (elapsed >= duration) {
+            clearInterval(interval);
+            setExportProgress(Math.round(to));
+            resolve();
+          }
+        }, 50);
+      });
+    };
+
     try {
+      // Etapa 1: Filtrando registros (0% -> 15%)
+      await animateProgress(0, 15, 1000);
+      
       const filtered = records.filter((record) => {
         const createdAt = new Date(record.created_at);
         const year = createdAt.getFullYear();
@@ -674,6 +735,9 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         const matchPriority = !filterPriority || filterPriority === " " || filterPriority === "" || record.priority === filterPriority;
         return matchYear && matchMonth && matchSupplier && matchPriority;
       });
+      
+      // Etapa 2: Criando abas de status (15% -> 30%)
+      await animateProgress(15, 30, 800);
 
       const headers = [
         "Código",
@@ -719,6 +783,9 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         }
         XLSX.utils.book_append_sheet(workbook, worksheet, label);
       });
+
+      // Etapa 3: Buscando dados de produção (30% -> 50%)
+      await animateProgress(30, 50, 2000);
 
       // ========== NOVA ABA: Histórico de Produção (somente ferramentas em Necessidade) ==========
       const needRecords = filtered.filter((r) => r.status === "need");
@@ -1065,6 +1132,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           "Vol. 2º (kg)",
           "3º Comprador",
           "Vol. 3º (kg)",
+          "Análise com AI",
           "Justificativa",
         ];
 
@@ -1072,6 +1140,29 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         const formatCodeForExcel = (appCode: string): string => {
           return normalizeCodeForIndex(appCode);
         };
+
+        // Buscar observações de lote (paradas) para análise AI
+        const { data: allProducaoData } = await fetchAll<any>((from, to) => 
+          supabase
+            .from("analysis_producao")
+            .select("payload")
+            .range(from, to) as any
+        );
+
+        // Mapear observações de lote por ferramenta
+        const observacoesPorFerramenta: Record<string, string[]> = {};
+        (allProducaoData || []).forEach((row: any) => {
+          const ferramenta = (row.payload?.Matriz || "").toString().toUpperCase().trim();
+          const obsLote = row.payload?.["Observação Lote"] || row.payload?.["Observacao Lote"];
+          if (ferramenta && obsLote && String(obsLote).trim()) {
+            if (!observacoesPorFerramenta[ferramenta]) {
+              observacoesPorFerramenta[ferramenta] = [];
+            }
+            observacoesPorFerramenta[ferramenta].push(String(obsLote).trim());
+          }
+        });
+
+        setExportProgress(50);
 
         const histRows = needRecords.map((record, idx) => {
           const codeBase = normalizeCodeForIndex(record.matrix_code);
@@ -1081,6 +1172,10 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           const prod = findCodeInDict(record.matrix_code, prodByTool) || { total24m: 0, total12m: 0, total6m: 0, monthlyProd: {} };
           const cart = findCodeInDict(record.matrix_code, carteiraByTool) || { totalPedido: 0, lastOrderDate: null, clienteVolumes: {} };
           const ferr = findCodeInDict(record.matrix_code, ferrByTool) || { seqAtivas: 0, seqTotal: 0, produzidoTotal: 0, capacidadeTotal: 0 };
+          
+          // Obter observações de paradas para esta ferramenta
+          const obsParadas = observacoesPorFerramenta[codeBase] || [];
+          const ultimas10Paradas = obsParadas.slice(-10);
 
           // Log para as primeiras 3 linhas
           if (idx < 3) {
@@ -1156,6 +1251,72 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
             return `${day}/${m}/${y}`;
           };
 
+          // Gerar análise AI baseada nas métricas e paradas reais
+          const gerarAnaliseAI = (): string => {
+            const analises: string[] = [];
+
+            // Análise 1: Paradas recentes (últimas 10)
+            if (ultimas10Paradas.length > 0) {
+              // Contar tipos de parada
+              const paradasPorTipo: Record<string, number> = {};
+              ultimas10Paradas.forEach(parada => {
+                const lower = parada.toLowerCase();
+                if (lower.includes('trinca') || lower.includes('trincado')) {
+                  paradasPorTipo['trinca'] = (paradasPorTipo['trinca'] || 0) + 1;
+                } else if (lower.includes('desgaste') || lower.includes('desgastado')) {
+                  paradasPorTipo['desgaste'] = (paradasPorTipo['desgaste'] || 0) + 1;
+                } else if (lower.includes('quebra') || lower.includes('quebrado')) {
+                  paradasPorTipo['quebra'] = (paradasPorTipo['quebra'] || 0) + 1;
+                } else if (lower.includes('problema') || lower.includes('defeito')) {
+                  paradasPorTipo['problema'] = (paradasPorTipo['problema'] || 0) + 1;
+                } else if (lower.includes('acabamento') || lower.includes('dimensionamento')) {
+                  paradasPorTipo['acabamento'] = (paradasPorTipo['acabamento'] || 0) + 1;
+                } else if (lower.includes('risco')) {
+                  paradasPorTipo['risco'] = (paradasPorTipo['risco'] || 0) + 1;
+                }
+              });
+
+              const tiposOrdenados = Object.entries(paradasPorTipo).sort((a, b) => b[1] - a[1]);
+              if (tiposOrdenados.length > 0) {
+                const [tipoMain, countMain] = tiposOrdenados[0];
+                analises.push(`Paradas recentes: ${ultimas10Paradas.length} observações nos últimos registros. Principal problema: ${tipoMain} (${countMain} ocorrências). Reposição recomendada para evitar continuidade de falhas.`);
+              }
+            }
+
+            // Análise 2: Desgaste
+            if (desgastePerc >= 80) {
+              analises.push(`Desgaste crítico (${desgastePerc.toFixed(0)}%): Ferramenta próxima do fim de vida útil. Reposição urgente necessária.`);
+            } else if (desgastePerc >= 60) {
+              analises.push(`Desgaste elevado (${desgastePerc.toFixed(0)}%): Ferramenta em fase avançada. Agendar reposição em breve.`);
+            }
+
+            // Análise 3: Tendência de demanda
+            if (tendencia.includes("Crescendo")) {
+              analises.push(`Demanda crescente: Aumento de ${((avg6m / avg12m - 1) * 100).toFixed(0)}% na produção. Reposição estratégica para atender crescimento.`);
+            } else if (tendencia.includes("Caindo")) {
+              analises.push(`Demanda decrescente: Redução de ${((1 - avg6m / avg12m) * 100).toFixed(0)}% na produção. Avaliar necessidade de reposição.`);
+            }
+
+            // Análise 4: Capacidade restante
+            if (capRestante < avg12m * 3) {
+              analises.push(`Capacidade limitada: Apenas ${mesesCobertura?.toFixed(1) || "0"} meses de cobertura. Reposição necessária para manter continuidade.`);
+            }
+
+            // Análise 5: Sequências ativas
+            if (ferr.seqAtivas === 0) {
+              analises.push(`Sem sequências ativas: Todas inativas. Reposição recomendada para retomar produção.`);
+            } else if (ferr.seqAtivas === 1) {
+              analises.push(`Única sequência ativa: Risco crítico de parada total. Reposição preventiva urgente.`);
+            }
+
+            // Retornar análise consolidada
+            if (analises.length === 0) {
+              return "Ferramenta em operação normal. Monitorar periodicamente.";
+            }
+
+            return analises.join(" | ");
+          };
+
           return {
             "Código": codeExcel,
             "Tipo": record.manufacturing_type === "nova" ? "Nova" : "Reposição",
@@ -1193,6 +1354,7 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
             "Vol. 2º (kg)": formatNum(top2[1] as number),
             "3º Comprador": top3[0],
             "Vol. 3º (kg)": formatNum(top3[1] as number),
+            "Análise com AI": gerarAnaliseAI(),
             "Justificativa": record.justification || "-",
           };
         });
@@ -1304,12 +1466,28 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
         }
       }
 
+      // Etapa 4: Processando análises AI (50% -> 75%)
+      await animateProgress(50, 75, 1500);
+
+      // Etapa 5: Gerando arquivo Excel (75% -> 95%)
+      await animateProgress(75, 95, 1500);
+      
       XLSX.writeFile(workbook, `matrizes_confecao_${new Date().toISOString().split("T")[0]}.xlsx`);
+
+      // Etapa 6: Finalizando (95% -> 100%)
+      await animateProgress(95, 100, 800);
+
+      setTimeout(() => {
+        setIsExporting(false);
+        setExportDialogOpen(false);
+      }, 500);
 
       toast.success(`Exportado com sucesso: ${filtered.length} registro(s) exportado(s)`);
     } catch (err: any) {
       console.error("Erro ao exportar:", err);
       toast.error(`Erro ao exportar: ${String(err?.message || err)}`);
+      setIsExporting(false);
+      setExportDialogOpen(false);
     } finally {
       setLoading(false);
     }
@@ -1809,19 +1987,32 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                               onClick={() => {
                                 // Se for MATRIZ, aplicar máscara F-<BASE>/<SEQ> usando a 1ª ativa
                                 const firstActive = tool.sequences.find(s => s.isActive)?.seq;
+                                const lastSeq = getLastSequence(tool);
+                                const isReposicao = formData.manufacturingType === 'reposicao';
+                                const seqToUse = isReposicao ? getNextSequence(lastSeq) : firstActive;
                                 const masked = formData.itemCategory === 'matriz'
-                                  ? formatMatrixCode(tool.code, firstActive)
+                                  ? formatMatrixCode(tool.code, seqToUse)
                                   : tool.code;
                                 const activeCount = tool.sequences.filter(s => s.isActive).length;
+                                const replacedMatrixCode = isReposicao && lastSeq 
+                                  ? formatMatrixCode(tool.code, lastSeq)
+                                  : '';
+                                // Volume produzido: usar apenas da última sequência (matriz substituída) se for reposição
+                                const volumeToUse = isReposicao && lastSeq 
+                                  ? getSequenceVolume(tool, lastSeq)
+                                  : tool.volumeProduced;
+                                const detectedProfile = detectProfileType(tool.code);
                                 setFormData({
                                   ...formData,
                                   matrixCode: masked,
+                                  replacedMatrix: replacedMatrixCode,
                                   accessoryCode: "",
                                   accessoryType: "",
                                   supplier: mappedSupplier,
                                   customSupplier: mappedSupplier === "Outro" ? (tool.supplier || "") : "",
-                                  packageSize: mappedPackage,
-                                  volumeProduced: tool.volumeProduced ? Math.round(tool.volumeProduced).toString() : "",
+                                  profileType: detectedProfile,
+                                  packageSize: mappedPackage || "",
+                                  volumeProduced: volumeToUse ? Math.round(volumeToUse).toString() : "",
                                   holeCount: tool.holeCount != null ? String(tool.holeCount) : formData.holeCount,
                                   technicalNotes: activeCount > 0 ? `Sequências ativas: ${activeCount}` : formData.technicalNotes,
                                 });
@@ -1857,19 +2048,32 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                           className="flex items-center justify-between bg-green-50 rounded px-2 py-1 border border-green-200 hover:bg-green-100 cursor-pointer"
                                           onClick={(e) => {
                                             e.stopPropagation();
+                                            const lastSeq = getLastSequence(tool);
+                                            const isReposicao = formData.manufacturingType === 'reposicao';
+                                            const seqToUse = isReposicao ? getNextSequence(lastSeq) : seqInfo.seq;
                                             const masked = formData.itemCategory === 'matriz'
-                                              ? formatMatrixCode(tool.code, seqInfo.seq)
+                                              ? formatMatrixCode(tool.code, seqToUse)
                                               : tool.code;
                                             const activeCount = tool.sequences.filter(s => s.isActive).length;
+                                            const replacedMatrixCode = isReposicao && lastSeq 
+                                              ? formatMatrixCode(tool.code, lastSeq)
+                                              : '';
+                                            // Volume produzido: usar apenas da última sequência (matriz substituída) se for reposição
+                                            const volumeToUse = isReposicao && lastSeq 
+                                              ? getSequenceVolume(tool, lastSeq)
+                                              : tool.volumeProduced;
+                                            const detectedProfile = detectProfileType(tool.code);
                                             setFormData({
                                               ...formData,
                                               matrixCode: masked,
+                                              replacedMatrix: replacedMatrixCode,
                                               accessoryCode: "",
                                               accessoryType: "",
                                               supplier: mappedSupplier,
                                               customSupplier: mappedSupplier === 'Outro' ? (tool.supplier || '') : '',
-                                              packageSize: mappedPackage,
-                                              volumeProduced: tool.volumeProduced ? Math.round(tool.volumeProduced).toString() : '',
+                                              profileType: detectedProfile,
+                                              packageSize: mappedPackage || '',
+                                              volumeProduced: volumeToUse ? Math.round(volumeToUse).toString() : '',
                                               holeCount: tool.holeCount != null ? String(tool.holeCount) : formData.holeCount,
                                               technicalNotes: activeCount > 0 ? `Sequências ativas: ${activeCount}` : formData.technicalNotes,
                                             });
@@ -1905,55 +2109,66 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
                                         >
                                           {openInactive[tool.code] ? "Ocultar" : "Mostrar"} {inactiveCount} inativa{inactiveCount > 1 ? "s" : ""}
                                         </button>
-                                        {openInactive[tool.code] && (
-                                          <div className="flex flex-col gap-1 mt-1">
-                                            {(() => {
-                                              // Ordena numericamente e mantém apenas as 5 maiores sequências
-                                              const sorted = [...inactiveSeqs].sort((a, b) => {
-                                                const na = parseInt(a.seq, 10);
-                                                const nb = parseInt(b.seq, 10);
-                                                if (!isNaN(na) && !isNaN(nb)) return na - nb;
-                                                return a.seq.localeCompare(b.seq);
-                                              });
-                                              const start = Math.max(0, sorted.length - 5);
-                                              const last5 = sorted.slice(start);
-                                              return last5.map((seqInfo) => (
-                                              <div
-                                                key={`ina-${seqInfo.seq}`}
-                                                className="flex items-center justify-between bg-gray-50 rounded px-2 py-1 border border-gray-200 hover:bg-gray-100 cursor-pointer"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  const masked = formData.itemCategory === 'matriz'
-                                                    ? formatMatrixCode(tool.code, seqInfo.seq)
-                                                    : tool.code;
-                                                  const activeCount = tool.sequences.filter(s => s.isActive).length;
-                                                  setFormData({
-                                                    ...formData,
-                                                    matrixCode: masked,
-                                                    accessoryCode: "",
-                                                    accessoryType: "",
-                                                    supplier: mappedSupplier,
-                                                    customSupplier: mappedSupplier === 'Outro' ? (tool.supplier || '') : '',
-                                                    packageSize: mappedPackage,
-                                                    volumeProduced: tool.volumeProduced ? Math.round(tool.volumeProduced).toString() : '',
-                                                    holeCount: tool.holeCount != null ? String(tool.holeCount) : formData.holeCount,
-                                                    technicalNotes: activeCount > 0 ? `Sequências ativas: ${activeCount}` : formData.technicalNotes,
-                                                  });
-                                                  setShowSuggestions(false);
-                                                }}
-                                              >
-                                                <span className="text-[11px] font-semibold text-gray-700">Seq {seqInfo.seq}</span>
-                                                <span className="text-[10px] text-gray-600">
-                                                  {seqInfo.qteProd > 0 ? `${seqInfo.qteProd.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg` : '-'}
-                                                </span>
-                                              </div>
-                                              ));
-                                            })()}
-                                            {inactiveSeqs.length > 5 && (
-                                              <span className="text-[10px] text-gray-600 pl-2">+{inactiveSeqs.length - 5} mais sequências inativas</span>
-                                            )}
-                                          </div>
-                                        )}
+                                        {openInactive[tool.code] && (() => {
+                                          const sorted = [...inactiveSeqs].sort((a, b) => {
+                                            const na = parseInt(a.seq, 10);
+                                            const nb = parseInt(b.seq, 10);
+                                            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                                            return a.seq.localeCompare(b.seq);
+                                          });
+                                          const start = Math.max(0, sorted.length - 5);
+                                          const last5 = sorted.slice(start);
+                                          return (
+                                            <div className="flex flex-col gap-1 mt-1">
+                                              {last5.map((seqInfo) => (
+                                                <div
+                                                  key={`ina-${seqInfo.seq}`}
+                                                  className="flex items-center justify-between bg-gray-50 rounded px-2 py-1 border border-gray-200 hover:bg-gray-100 cursor-pointer"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const lastSeq = getLastSequence(tool);
+                                                    const isReposicao = formData.manufacturingType === 'reposicao';
+                                                    const seqToUse = isReposicao ? getNextSequence(lastSeq) : seqInfo.seq;
+                                                    const masked = formData.itemCategory === 'matriz'
+                                                      ? formatMatrixCode(tool.code, seqToUse)
+                                                      : tool.code;
+                                                    const activeCount = tool.sequences.filter(s => s.isActive).length;
+                                                    const replacedMatrixCode = isReposicao && lastSeq 
+                                                      ? formatMatrixCode(tool.code, lastSeq)
+                                                      : '';
+                                                    const volumeToUse = isReposicao && lastSeq 
+                                                      ? getSequenceVolume(tool, lastSeq)
+                                                      : tool.volumeProduced;
+                                                    const detectedProfile = detectProfileType(tool.code);
+                                                    setFormData({
+                                                      ...formData,
+                                                      matrixCode: masked,
+                                                      replacedMatrix: replacedMatrixCode,
+                                                      accessoryCode: "",
+                                                      accessoryType: "",
+                                                      supplier: mappedSupplier,
+                                                      customSupplier: mappedSupplier === 'Outro' ? (tool.supplier || '') : '',
+                                                      profileType: detectedProfile,
+                                                      packageSize: mappedPackage || '',
+                                                      volumeProduced: volumeToUse ? Math.round(volumeToUse).toString() : '',
+                                                      holeCount: tool.holeCount != null ? String(tool.holeCount) : formData.holeCount,
+                                                      technicalNotes: activeCount > 0 ? `Sequências ativas: ${activeCount}` : formData.technicalNotes,
+                                                    });
+                                                    setShowSuggestions(false);
+                                                  }}
+                                                >
+                                                  <span className="text-[11px] font-semibold text-gray-700">Seq {seqInfo.seq}</span>
+                                                  <span className="text-[10px] text-gray-600">
+                                                    {seqInfo.qteProd > 0 ? `${seqInfo.qteProd.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg` : '-'}
+                                                  </span>
+                                                </div>
+                                              ))}
+                                              {inactiveSeqs.length > 5 && (
+                                                <span className="text-[10px] text-gray-600 pl-2">+{inactiveSeqs.length - 5} mais sequências inativas</span>
+                                              )}
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                     )}
                                   </div>
@@ -2015,7 +2230,25 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
               )}
               <div>
                 <Label className="text-xs font-semibold">Tipo Confecção <span className="text-red-500">*</span></Label>
-                <Select value={formData.manufacturingType} onValueChange={(value) => setFormData({ ...formData, manufacturingType: value as "nova" | "reposicao" })}>
+                <Select value={formData.manufacturingType} onValueChange={(value) => {
+                  const newType = value as "nova" | "reposicao";
+                  // Se mudou para reposição e já tem código de matriz, atualizar sequência automaticamente
+                  let updatedFormData = { ...formData, manufacturingType: newType };
+                  if (newType === 'reposicao' && formData.matrixCode && formData.itemCategory === 'matriz') {
+                    // Extrair base do código atual
+                    const codeMatch = formData.matrixCode.match(/F-([A-Z0-9]+)\/(\d+)/);
+                    if (codeMatch) {
+                      const baseCode = codeMatch[1];
+                      const currentSeq = codeMatch[2];
+                      const nextSeq = String(parseInt(currentSeq, 10) + 1).padStart(3, '0');
+                      updatedFormData.matrixCode = `F-${baseCode}/${nextSeq}`;
+                      updatedFormData.replacedMatrix = `F-${baseCode}/${currentSeq}`;
+                    }
+                  } else if (newType === 'nova') {
+                    updatedFormData.replacedMatrix = '';
+                  }
+                  setFormData(updatedFormData);
+                }}>
                   <SelectTrigger className="h-7 text-xs">
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
@@ -3520,6 +3753,41 @@ export function ManufacturingView({ onSuccess, isAdmin = false }: ManufacturingV
           >
             {isUpdatingDate ? 'Atualizando...' : 'Atualizar Data'}
           </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* Diálogo de Progresso de Exportação */}
+    <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Gerando Relatório Excel</DialogTitle>
+          <DialogDescription>
+            Aguarde enquanto o arquivo está sendo processado...
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span>Progresso</span>
+              <span className="font-semibold">{exportProgress}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-blue-600 h-full transition-all duration-300 ease-out"
+                style={{ width: `${exportProgress}%` }}
+              />
+            </div>
+          </div>
+          
+          <div className="space-y-2 text-sm text-gray-600">
+            {exportProgress < 20 && <p>📋 Filtrando registros...</p>}
+            {exportProgress >= 20 && exportProgress < 40 && <p>📊 Processando dados de produção...</p>}
+            {exportProgress >= 40 && exportProgress < 60 && <p>📈 Calculando métricas...</p>}
+            {exportProgress >= 60 && exportProgress < 80 && <p>🤖 Gerando análises com AI...</p>}
+            {exportProgress >= 80 && exportProgress < 100 && <p>💾 Salvando arquivo...</p>}
+            {exportProgress === 100 && <p>✅ Arquivo gerado com sucesso!</p>}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
