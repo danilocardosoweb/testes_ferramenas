@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { getStatusFromLastEvent, daysSinceLastEvent, getCounts, computeDurations } from "@/utils/metrics";
 import { v4 as uuidv4 } from "uuid";
+import { formatToBR } from "@/utils/dateUtils";
 // getAuditLogs removido (Relatório de Log desabilitado)
 // Relatório de Log desabilitado: removidos Select/Dialog
 
@@ -30,7 +31,7 @@ export const ImportExport = ({ matrices, onImport }: ImportExportProps) => {
       prioridade: m.priority ?? "",
       responsavel: m.responsible ?? "",
       pasta: m.folder ?? "",
-      data_recebimento: new Date(m.receivedDate).toLocaleDateString("pt-BR"),
+      data_recebimento: formatToBR(m.receivedDate),
       status_atual: getStatusFromLastEvent(m),
       dias_sem_evento: daysSinceLastEvent(m),
     }));
@@ -41,7 +42,7 @@ export const ImportExport = ({ matrices, onImport }: ImportExportProps) => {
         id_evento: e.id,
         id_matriz: m.id,
         codigo_matriz: m.code,
-        data: new Date(e.date).toLocaleDateString("pt-BR"),
+        data: formatToBR(e.date),
         tipo: e.type,
         responsavel: e.responsible ?? "",
         local: e.location ?? "",

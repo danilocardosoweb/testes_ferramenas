@@ -40,7 +40,7 @@ export const QuickEventEditModal = ({
     try {
       setSaving(true);
       const updates: Partial<MatrixEvent> = {
-        testStatus: testStatus || undefined,
+        testStatus: (testStatus || undefined) as "Aprovado" | "Reprovado" | "Reprovado para Garantia" | undefined,
         observations: observations || undefined,
       };
       await onUpdateEvent(matrix.id, event.id, updates);
@@ -73,9 +73,9 @@ export const QuickEventEditModal = ({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Sem status</SelectItem>
-                <SelectItem value="Aprovado">Aprovado</SelectItem>
-                <SelectItem value="Reprovado">Reprovado</SelectItem>
-                <SelectItem value="Pendente">Pendente</SelectItem>
+                <SelectItem value="Aprovado">✅ Aprovado</SelectItem>
+                <SelectItem value="Reprovado">❌ Reprovado (Retestes)</SelectItem>
+                <SelectItem value="Reprovado para Garantia">⚠️ Reprovado (Devolução ao Fornecedor)</SelectItem>
               </SelectContent>
             </Select>
           </div>

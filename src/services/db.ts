@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabaseClient';
 import { Matrix, MatrixEvent } from '@/types';
+import { normalizeMatrixCode } from '@/utils/matrixLifecycle';
 
 // Helpers
 const table = {
@@ -102,23 +103,43 @@ export async function getFolderIdByName(name: string): Promise<string> {
   return ins.data!.id as string;
 }
 
+async function listAllEvents(): Promise<any[]> {
+  const pageSize = 1000;
+  const rows: any[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from(table.events)
+      .select('*')
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
+}
+
 // MATRICES
 export async function listMatrices(): Promise<Matrix[]> {
   // Busca pastas (id->name), matrizes e eventos, e junta no cliente
-  const [foldersRes, mres, eres] = await Promise.all([
+  const [foldersRes, mres, eventRows] = await Promise.all([
     supabase.from(table.folders).select('id, name'),
     supabase.from(table.matrices).select('*').order('received_date', { ascending: true }),
-    supabase.from(table.events).select('*').order('date', { ascending: true }),
+    listAllEvents(),
   ]);
   if (foldersRes.error) throw foldersRes.error;
   if (mres.error) throw mres.error;
-  if (eres.error) throw eres.error;
 
   const folderMap = new Map<string, string>();
   (foldersRes.data || []).forEach((f: any) => folderMap.set(f.id, f.name));
 
   const eventsByMatrix = new Map<string, MatrixEvent[]>();
-  for (const e of eres.data || []) {
+  for (const e of eventRows) {
     const arr = eventsByMatrix.get(e.matrix_id) || [];
     arr.push({
       id: e.id,
@@ -149,6 +170,18 @@ export async function listMatrices(): Promise<Matrix[]> {
 }
 
 export async function createMatrix(data: { code: string; receivedDate: string; folderId?: string | null; priority?: string | null; responsible?: string | null; }): Promise<string> {
+  const normalizedCode = normalizeMatrixCode(data.code);
+  if (normalizedCode) {
+    const { data: existing, error: lookupError } = await supabase
+      .from(table.matrices)
+      .select('id, code');
+    if (lookupError) throw lookupError;
+    const duplicate = (existing || []).find((matrix) => normalizeMatrixCode(matrix.code) === normalizedCode);
+    if (duplicate) {
+      throw new Error(`A ferramenta ${normalizedCode} já está cadastrada.`);
+    }
+  }
+
   const payload = {
     code: data.code,
     received_date: data.receivedDate,
@@ -215,6 +248,25 @@ export async function deleteEvent(eventId: string): Promise<void> {
   const { error } = await supabase.from(table.events).delete().eq('id', eventId);
   if (error) throw error;
   await logAudit('event.delete', 'Event', eventId, null);
+}
+
+// REPROVAÇÃO PARA GARANTIA
+export async function createRejectedMatrixRecord(matrixCode: string, matrixId?: string | null, reason?: string): Promise<void> {
+  const payload = {
+    matrix_code: matrixCode,
+    matrix_id: matrixId ?? null,
+    manufacturing_type: 'reposicao',
+    profile_type: 'tubular',
+    status: 'rejected',
+    supplier: 'Fornecedor',
+    priority: 'high',
+    justification: reason ?? 'Reprovado para devolução ao fornecedor - Garantia',
+    created_at: new Date().toISOString(),
+    moved_to_approved_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('manufacturing_records').insert(payload);
+  if (error) throw error;
+  await logAudit('manufacturing_record.create_rejected', 'ManufacturingRecord', null, payload);
 }
 
 // EVENT FILES (somente metadados; upload real vai no Storage)

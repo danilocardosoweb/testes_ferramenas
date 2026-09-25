@@ -1,6 +1,8 @@
 import { Matrix, MatrixEvent } from "@/types";
+import { isApprovalEvent, isMatrixApproved } from "@/utils/matrixLifecycle";
 
 export const getStatusFromLastEvent = (matrix: Matrix): string => {
+  if (isMatrixApproved(matrix)) return "Aprovada";
   if (!matrix.events || matrix.events.length === 0) return "Sem eventos";
   const last = matrix.events[matrix.events.length - 1];
   switch (last.type) {
@@ -65,7 +67,7 @@ export const getCounts = (matrix: Matrix) => {
   const rejects = events.filter((e) => {
     const type = normalize(e.type);
     const normalizedNoAccent = removeAccents(type);
-    return type.includes("reprov") || normalizedNoAccent.includes("reprov") || e.testStatus === "Reprovado";
+    return type.includes("reprov") || normalizedNoAccent.includes("reprov") || e.testStatus === "Reprovado" || e.testStatus === "Reprovado para Garantia";
   }).length;
 
   const fixes = events.filter((e) => {
@@ -78,11 +80,7 @@ export const getCounts = (matrix: Matrix) => {
     );
   }).length;
 
-  const approvals = events.filter((e) => {
-    const type = normalize(e.type);
-    const normalizedNoAccent = removeAccents(type);
-    return type.includes("aprov") || normalizedNoAccent.includes("aprov") || e.testStatus === "Aprovado";
-  }).length;
+  const approvals = events.filter(isApprovalEvent).length;
 
   return { tests, rejects, fixes, approvals };
 };

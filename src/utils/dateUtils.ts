@@ -11,11 +11,31 @@ export const addHours = (date: Date, hours: number): Date => {
   return result;
 };
 
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Converte uma data de calendário (YYYY-MM-DD) sem aplicar fuso horário.
+ * O horário de meio-dia evita mudanças de dia em cálculos locais.
+ */
+export const parseDateOnlyLocal = (date: Date | string): Date => {
+  if (date instanceof Date) return new Date(date);
+  const clean = String(date).trim().split("T")[0];
+  const match = clean.match(DATE_ONLY_PATTERN);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+  }
+  return new Date(date);
+};
+
 /**
  * Converte uma data para o fuso horário local no formato ISO (YYYY-MM-DD)
  */
 export const toLocalISOString = (date: Date | string): string => {
-  const d = typeof date === 'string' ? new Date(date) : new Date(date);
+  if (typeof date === "string") {
+    const clean = date.trim().split("T")[0];
+    if (DATE_ONLY_PATTERN.test(clean)) return clean;
+  }
+  const d = parseDateOnlyLocal(date);
   if (isNaN(d.getTime())) return ''; // Retorna string vazia para datas inválidas
   
   const year = d.getFullYear();
@@ -30,7 +50,12 @@ export const toLocalISOString = (date: Date | string): string => {
  */
 export const formatToBR = (date: Date | string): string => {
   try {
-    const d = typeof date === 'string' ? new Date(date) : new Date(date);
+    if (typeof date === "string") {
+      const clean = date.trim().split("T")[0];
+      const match = clean.match(DATE_ONLY_PATTERN);
+      if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+    }
+    const d = parseDateOnlyLocal(date);
     if (isNaN(d.getTime())) return 'Data inválida';
     
     return d.toLocaleDateString('pt-BR');

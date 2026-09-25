@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Tag, Upload, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { formatToBR } from "@/utils/dateUtils";
 
 interface EventDetailDialogProps {
   open: boolean;
@@ -67,6 +68,19 @@ export const EventDetailDialog = ({
     if (!matrix || !event) return;
     try {
       setSaving(true);
+
+      // Se o status for "Reprovado para Garantia", criar registro de reprovação
+      if (patch.testStatus === "Reprovado para Garantia") {
+        try {
+          const { createRejectedMatrixRecord } = await import("@/services/db");
+          await createRejectedMatrixRecord(matrix.code, matrix.id, "Reprovado para devolução ao fornecedor - Garantia");
+          toast({ title: "Ferramenta movida para reprovação", description: "A ferramenta foi registrada como reprovada para garantia" });
+        } catch (err) {
+          console.error("Erro ao criar registro de reprovação:", err);
+          toast({ title: "Aviso", description: "Status atualizado, mas houve erro ao registrar a reprovação", variant: "destructive" });
+        }
+      }
+
       await onUpdateEvent(matrix.id, event.id, patch);
     } finally {
       setSaving(false);
@@ -163,7 +177,7 @@ export const EventDetailDialog = ({
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Calendar className="h-3 w-3" />
-              {new Date(event.date).toLocaleDateString("pt-BR")}
+              {formatToBR(event.date)}
             </div>
             {event.location && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -195,7 +209,7 @@ export const EventDetailDialog = ({
                 onValueChange={(value) => {
                   const newStatus = value === "none" ? "" : value;
                   setTestStatus(newStatus);
-                  savePartial({ testStatus: newStatus as "Aprovado" | "Reprovado" });
+                  savePartial({ testStatus: newStatus as "Aprovado" | "Reprovado" | "Reprovado para Garantia" });
                 }}
               >
                 <SelectTrigger className="mt-2">
@@ -203,7 +217,9 @@ export const EventDetailDialog = ({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Sem status</SelectItem>
-                  <SelectItem value="Reprovado">Reprovado</SelectItem>
+                  <SelectItem value="Aprovado">✅ Aprovado</SelectItem>
+                  <SelectItem value="Reprovado">❌ Reprovado (Retestes)</SelectItem>
+                  <SelectItem value="Reprovado para Garantia">⚠️ Reprovado (Devolução ao Fornecedor)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

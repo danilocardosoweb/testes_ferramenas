@@ -12,6 +12,7 @@ import { Clock, CheckCircle, AlertTriangle, ArrowLeftRight, Calendar, Play, Tras
 import { useToast } from "@/hooks/use-toast";
 import { updateEvent as sbUpdateEvent } from "@/services/db";
 import { supabase } from "@/lib/supabaseClient";
+import { formatToBR } from "@/utils/dateUtils";
 import {
   addToTestingQueue,
   listTestingQueue,
@@ -406,7 +407,7 @@ export function TestingView({ matrices, onTestCompleted, onUpdateEvent, onRefres
           {/* Linha compacta: início • decorrido */}
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <div className="truncate">
-              {new Date(testEvent.date).toLocaleDateString("pt-BR")}
+              {formatToBR(testEvent.date)}
               {testEvent.createdAt && (
                 <span className="ml-1">{new Date(testEvent.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
               )}

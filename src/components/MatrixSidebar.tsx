@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { daysSinceLastEvent } from "@/utils/metrics";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { formatToBR } from "@/utils/dateUtils";
 
 const getStatusFromLastEvent = (matrix: Matrix): string => {
   if (!matrix.events || matrix.events.length === 0) return "Sem eventos";
@@ -291,7 +292,7 @@ export const MatrixSidebar = ({
                                           <PriorityBadge level={matrix.priority} />
                                         </div>
                                         <div className="text-xs text-sidebar-foreground/70 break-words">
-                                          Receb.: {new Date(matrix.receivedDate).toLocaleDateString("pt-BR")} • Último: {matrix.events.length > 0 ? new Date(matrix.events[matrix.events.length - 1].date).toLocaleDateString("pt-BR") : "-"}
+                                          Receb.: {formatToBR(matrix.receivedDate)} • Último: {matrix.events.length > 0 ? formatToBR(matrix.events[matrix.events.length - 1].date) : "-"}
                                         </div>
                                       </div>
                                       <DropdownMenu>
@@ -356,7 +357,7 @@ export const MatrixSidebar = ({
                               <PriorityBadge level={matrix.priority} />
                             </div>
                             <div className="text-xs text-sidebar-foreground/70 break-words">
-                              Receb.: {new Date(matrix.receivedDate).toLocaleDateString("pt-BR")} • Último: {matrix.events.length > 0 ? new Date(matrix.events[matrix.events.length - 1].date).toLocaleDateString("pt-BR") : "-"}
+                              Receb.: {formatToBR(matrix.receivedDate)} • Último: {matrix.events.length > 0 ? formatToBR(matrix.events[matrix.events.length - 1].date) : "-"}
                             </div>
                           </div>
                           <div className="flex items-center gap-1">

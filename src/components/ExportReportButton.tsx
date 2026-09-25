@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Matrix } from "@/types";
 import { useToast } from "@/hooks/use-toast";
+import { getApprovalEvent, isMatrixApproved } from "@/utils/matrixLifecycle";
 
 interface ExportReportButtonProps {
   matrices: Matrix[];
@@ -15,9 +16,7 @@ export function ExportReportButton({ matrices, className = "" }: ExportReportBut
   const exportToExcel = () => {
     try {
       // Filtra apenas as matrizes aprovadas
-      const approvedMatrices = matrices.filter(matrix => 
-        matrix.events.some(event => event.type === "Aprovado" && event.testStatus === "Aprovado")
-      );
+      const approvedMatrices = matrices.filter(isMatrixApproved);
 
       if (approvedMatrices.length === 0) {
         toast({
@@ -30,7 +29,7 @@ export function ExportReportButton({ matrices, className = "" }: ExportReportBut
 
       // Prepara os dados para a planilha
       const data = approvedMatrices.map(matrix => {
-        const approvalEvent = matrix.events.find(e => e.type === "Aprovado");
+        const approvalEvent = getApprovalEvent(matrix);
         const receptionEvent = matrix.events.find(e => e.type === "Recebimento");
         const testEvent = matrix.events.find(e => e.type === "Testes");
 

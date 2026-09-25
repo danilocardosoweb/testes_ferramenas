@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabaseClient';
 import { Matrix } from '@/types';
+import { isApprovalEvent } from '@/utils/matrixLifecycle';
 
 export interface TestingQueueItem {
   id: string;
@@ -185,7 +186,7 @@ export async function getAvailableMatricesForTesting(): Promise<Matrix[]> {
     .from('matrices')
     .select(`
       id, code, received_date, priority, responsible, folder_id,
-      events ( id, type, date, created_at, comment )
+      events ( id, type, date, created_at, comment, test_status )
     `)
     .order('code');
 
@@ -194,10 +195,16 @@ export async function getAvailableMatricesForTesting(): Promise<Matrix[]> {
   const available: Matrix[] = [];
 
   for (const m of (data as any[]) || []) {
-    const events = (m.events || []) as Array<{ id: string; type: string; date: string; created_at: string; comment?: string }>;
+    const events = (m.events || []) as Array<{ id: string; type: string; date: string; created_at: string; comment?: string; test_status?: string }>;
 
-    // 1) Não pode ter aprovação (evento explícito 'Aprovado')
-    const hasApproval = events.some(e => e.type === 'Aprovado');
+    // Aprovação é terminal, independentemente de eventos operacionais posteriores.
+    const hasApproval = events.some((event) => isApprovalEvent({
+      id: event.id,
+      type: event.type,
+      date: event.date,
+      comment: event.comment || '',
+      testStatus: event.test_status as Matrix['events'][number]['testStatus'],
+    }));
     if (hasApproval) continue;
 
     // 2) Não pode estar com teste ativo 

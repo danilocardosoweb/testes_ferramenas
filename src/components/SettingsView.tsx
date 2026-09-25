@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { User } from "@/types";
+import { User, UserRole } from "@/types";
 import { listUsers, createUser, updateUser, deleteUser, changePassword } from "@/services/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,7 @@ export function SettingsView({ currentUser }: SettingsViewProps) {
   const [formEmail, setFormEmail] = useState("");
   const [formName, setFormName] = useState("");
   const [formPassword, setFormPassword] = useState("");
-  const [formRole, setFormRole] = useState<'admin' | 'editor' | 'viewer'>('viewer');
+  const [formRole, setFormRole] = useState<UserRole>('comercial');
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -160,22 +160,32 @@ export function SettingsView({ currentUser }: SettingsViewProps) {
   const getRoleBadge = (role: string) => {
     switch (role) {
       case 'admin':
-        return <Badge className="bg-red-600">Admin</Badge>;
+        return <Badge className="bg-red-600">Administrador</Badge>;
+      case 'gestor':
       case 'editor':
-        return <Badge className="bg-blue-600">Editor</Badge>;
+        return <Badge className="bg-blue-600">Gestor</Badge>;
+      case 'corretor':
+        return <Badge className="bg-orange-500">Corretor</Badge>;
+      case 'comercial':
+      case 'viewer':
       default:
-        return <Badge variant="secondary">Visualizador</Badge>;
+        return <Badge variant="secondary">Comercial</Badge>;
     }
   };
 
   const getRoleDescription = (role: string) => {
     switch (role) {
       case 'admin':
-        return 'Acesso total ao sistema';
+        return 'Acesso total, incluindo exclusões';
+      case 'gestor':
       case 'editor':
-        return 'Pode editar e criar dados';
+        return 'Pode tudo, exceto exclusões';
+      case 'corretor':
+        return 'Timeline, Limpeza, Aprovadas, Kanban, Em Teste';
+      case 'comercial':
+      case 'viewer':
       default:
-        return 'Apenas visualização';
+        return 'Apenas relatórios e visualizações';
     }
   };
 
@@ -342,9 +352,10 @@ export function SettingsView({ currentUser }: SettingsViewProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="viewer">Visualizador (apenas leitura)</SelectItem>
-                  <SelectItem value="editor">Editor (pode editar)</SelectItem>
-                  <SelectItem value="admin">Admin (acesso total)</SelectItem>
+                  <SelectItem value="admin">Administrador – acesso total + exclusões</SelectItem>
+                  <SelectItem value="gestor">Gestor – tudo exceto exclusões</SelectItem>
+                  <SelectItem value="corretor">Corretor – Timeline, Limpeza, Aprovadas, Kanban, Em Teste</SelectItem>
+                  <SelectItem value="comercial">Comercial – apenas relatórios e visualizações</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -394,9 +405,10 @@ export function SettingsView({ currentUser }: SettingsViewProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="viewer">Visualizador</SelectItem>
-                  <SelectItem value="editor">Editor</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="admin">Administrador – acesso total + exclusões</SelectItem>
+                  <SelectItem value="gestor">Gestor – tudo exceto exclusões</SelectItem>
+                  <SelectItem value="corretor">Corretor – Timeline, Limpeza, Aprovadas, Kanban, Em Teste</SelectItem>
+                  <SelectItem value="comercial">Comercial – apenas relatórios e visualizações</SelectItem>
                 </SelectContent>
               </Select>
             </div>

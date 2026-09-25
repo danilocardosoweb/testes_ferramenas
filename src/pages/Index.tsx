@@ -19,6 +19,11 @@ import { formatToBR } from "@/utils/dateUtils";
 import { MatrixSidebar } from "@/components/MatrixSidebar";
 import { FlowView } from "@/components/FlowView";
 import { MatrixDashboard } from "@/components/MatrixDashboard";
+import {
+  isApprovalEvent,
+  isMatrixActiveForTimeline,
+  isMatrixApproved,
+} from "@/utils/matrixLifecycle";
 import { ApprovedToolsView } from "@/components/ApprovedToolsView";
 import { MatrixSheet, SheetMilestone } from "@/components/MatrixSheet";
 import { MatrixForm } from "@/components/MatrixForm";
@@ -45,6 +50,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 import NotificationsBell from "@/components/NotificationsBell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,7 +90,8 @@ const Index = () => {
   const [timelineSearch, setTimelineSearch] = useState("");
   const timelineSearchInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
-  const isAdmin = authSession?.user?.role === 'admin';
+  const perm = usePermissions(authSession?.user?.role);
+  const isAdmin = perm.isAdmin;
   const [dailyAlertOpen, setDailyAlertOpen] = useState(false);
   const [delayedManufacturing, setDelayedManufacturing] = useState<Array<{ code: string; supplier: string; deliveryDate: string; daysLate: number }>>([]);
   const [stalledTests, setStalledTests] = useState<Array<{ code: string; receivedDate: string; daysInProgress: number; status: string; testCount: number; rejectionNotes: string[] }>>([]);
@@ -240,7 +247,7 @@ const Index = () => {
     return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
   };
 
-  const hasApproval = (m: Matrix) => m.events?.some((e) => e.type.toLowerCase().includes("aprov")) ?? false;
+  const hasApproval = isMatrixApproved;
 
   useEffect(() => {
     const runDailyAlert = async () => {
@@ -356,7 +363,7 @@ const Index = () => {
     
     // Encontra o evento de aprovação mais recente
     const approvalEvents = matrix.events
-      .filter(e => e.type.toLowerCase().includes("aprov"))
+      .filter(isApprovalEvent)
       .sort((a, b) => b.date.localeCompare(a.date));
     
     if (approvalEvents.length === 0) {
@@ -570,7 +577,7 @@ const Index = () => {
   };
 
   const handleMatrixClick = (matrixId: string) => {
-    if (!isAdmin) return;
+    if (!perm.canEdit) return;
     const matrix = matrices.find(m => m.id === matrixId);
     if (matrix) {
       setMatrixEditDialog({ open: true, matrix });
@@ -636,11 +643,18 @@ const Index = () => {
     baseFiltered = baseFiltered.filter((m) => daysSinceLastEvent(m) > STALE_DAYS);
   }
 
-  // Sidebar: sempre sem aprovadas (menu)
-  const sidebarMatrices = baseFiltered.filter((m) => !hasApproval(m));
-  // Main: sem aprovadas apenas para timeline/planilha; dashboard e approved mostram todas conforme a aba
+  // A retirada da Timeline preserva o registro e o histórico, mas o remove das visões operacionais.
+  const activeBaseFiltered = baseFiltered.filter(isMatrixActiveForTimeline);
+  const sidebarMatrices = activeBaseFiltered.filter((m) => !hasApproval(m));
+  const hideInactiveInMain =
+    mainView === "timeline" || mainView === "sheet" || mainView === "dashboard";
+  const visibleBaseFiltered = hideInactiveInMain ? activeBaseFiltered : baseFiltered;
+
+  // Sem aprovadas apenas para timeline/planilha; o dashboard aplica a regra terminal internamente.
   const hideApprovedInMain = mainView === "timeline" || mainView === "sheet";
-  let mainMatrices = hideApprovedInMain ? baseFiltered.filter((m) => !hasApproval(m)) : baseFiltered;
+  let mainMatrices = hideApprovedInMain
+    ? visibleBaseFiltered.filter((m) => !hasApproval(m))
+    : visibleBaseFiltered;
   if (mainView === "timeline" && timelineSearch.trim()) {
     const term = timelineSearch.trim().toLowerCase();
     mainMatrices = mainMatrices.filter((m) => m.code.toLowerCase().includes(term));
@@ -843,109 +857,55 @@ const Index = () => {
         {/* Left: main view */}
         <div className="flex-1 flex flex-col">
           <div className="p-3 border-b flex items-center gap-1.5 md:gap-2 overflow-x-auto">
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "analysis" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => {
-                if (!authSession) {
-                  setShowLoginDialog(true);
-                  toast({ title: "Login necessário", description: "Faça login para acessar esta área", variant: "destructive" });
-                } else {
-                  setMainView("analysis");
-                }
-              }}
-            >Análise</button>
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "manufacturing" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => {
-                if (!authSession) {
-                  setShowLoginDialog(true);
-                  toast({ title: "Login necessário", description: "Faça login para registrar confecções", variant: "destructive" });
-                } else {
-                  setMainView("manufacturing");
-                }
-              }}
-            >Confecção</button>
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "timeline" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => setMainView("timeline")}
-            >Timeline</button>
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "cleaning" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => setMainView("cleaning")}
-            >Limpeza de Ferr.</button>
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "sheet" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => {
-                if (!authSession) {
-                  setShowLoginDialog(true);
-                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
-                } else {
-                  setMainView("sheet");
-                }
-              }}
-            >Planilha</button>
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "dashboard" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => {
-                if (!authSession) {
-                  setShowLoginDialog(true);
-                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
-                } else {
-                  setMainView("dashboard");
-                }
-              }}
-            >Dashboard</button>
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "approved" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => {
-                if (!authSession) {
-                  setShowLoginDialog(true);
-                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
-                } else {
-                  setMainView("approved");
-                }
-              }}
-            >Ferramentas Aprovadas</button>
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "kanban" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => {
-                if (!authSession) {
-                  setShowLoginDialog(true);
-                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
-                } else {
-                  setMainView("kanban");
-                }
-              }}
-            >Kanban</button>
-            <button
-              className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "activity" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-              onClick={() => {
-                if (!authSession) {
-                  setShowLoginDialog(true);
-                  toast({ title: "Login necessário", description: "Faça login para acessar esta funcionalidade", variant: "destructive" });
-                } else {
-                  setMainView("activity");
-                }
-              }}
-            >Histórico</button>
-            {authSession && (
-              <>
-                <button
-                  className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "testing" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-                  onClick={() => setMainView("testing")}
-                >Em Teste</button>
-                {authSession.user.role === 'admin' && (
+            {/* Abas visíveis conforme permissão do role */}
+            {(() => {
+              const navBtn = (view: typeof mainView, label: React.ReactNode, requireLogin = true) => {
+                if (requireLogin && !authSession) return null;
+                if (authSession && !perm.canAccessView(view as any)) return null;
+                return (
                   <button
-                    className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${mainView === "settings" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-                    onClick={() => setMainView("settings")}
-                    title="Configurações"
-                    aria-label="Configurações"
-                  >
-                    <Settings className="h-4 w-4 inline" />
-                  </button>
-                )}
-              </>
-            )}
+                    key={view}
+                    className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${
+                      mainView === view ? "bg-primary text-primary-foreground" : "bg-muted"
+                    }`}
+                    onClick={() => {
+                      if (requireLogin && !authSession) {
+                        setShowLoginDialog(true);
+                        toast({ title: "Login necessário", description: "Faça login para acessar esta área", variant: "destructive" });
+                      } else {
+                        setMainView(view);
+                      }
+                    }}
+                  >{label}</button>
+                );
+              };
+              return (
+                <>
+                  {navBtn("analysis",       "Análise")}
+                  {navBtn("manufacturing",  "Confecção")}
+                  {navBtn("timeline",       "Timeline", false)}
+                  {navBtn("cleaning",       "Limpeza de Ferr.", false)}
+                  {navBtn("sheet",          "Planilha")}
+                  {navBtn("dashboard",      "Dashboard")}
+                  {navBtn("approved",       "Ferramentas Aprovadas")}
+                  {navBtn("kanban",         "Kanban")}
+                  {navBtn("activity",       "Histórico")}
+                  {navBtn("testing",        "Em Teste")}
+                  {authSession && perm.isAdmin && (
+                    <button
+                      className={`px-2 md:px-3 py-1 text-sm md:text-base rounded shrink-0 ${
+                        mainView === "settings" ? "bg-primary text-primary-foreground" : "bg-muted"
+                      }`}
+                      onClick={() => setMainView("settings")}
+                      title="Configurações"
+                      aria-label="Configurações"
+                    >
+                      <Settings className="h-4 w-4 inline" />
+                    </button>
+                  )}
+                </>
+              );
+            })()}
             <div className="ml-2 md:ml-auto flex items-center gap-2 shrink-0">
               {mainView === "timeline" && timelineSearch.trim() && (
                 <Button
@@ -1065,7 +1025,13 @@ const Index = () => {
               <div className="h-full p-3 overflow-auto" onClick={() => setSelectedMatrix(null)}>
                 <MatrixSheet
                   matrices={mainMatrices}
+                  syncMatrices={matrices}
                   onSelectMatrix={(m) => setSelectedMatrix(m)}
+                  onImportCompleted={async () => {
+                    const mats = await sbListMatrices();
+                    setMatrices(mats);
+                    setSelectedMatrix((current) => current ? mats.find((matrix) => matrix.id === current.id) ?? null : null);
+                  }}
                   onSetDate={async (matrixId: string, milestone: SheetMilestone, date: string) => {
                     // Tipos padronizados (novos)
                     const mapNewType = (m: SheetMilestone): { type: string; comment: string } => {

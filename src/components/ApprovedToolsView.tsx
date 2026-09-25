@@ -15,6 +15,8 @@ import { format } from "date-fns";
 import { ptBR } from 'date-fns/locale';
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { formatToBR } from "@/utils/dateUtils";
+import { getApprovalEventFromEvents } from "@/utils/matrixLifecycle";
 
 type Props = {
   matrices: Matrix[];
@@ -25,11 +27,9 @@ type Props = {
 };
 
 // Extrai o primeiro evento de aprovação (mais antigo) com data do evento e de apontamento
-function getApprovalInfo(events: MatrixEvent[]): { date: string; createdAt?: string } | null {
-  const approval = [...events]
-    .filter((e) => e.type.toLowerCase().includes("aprov"))
-    .sort((a, b) => a.date.localeCompare(b.date))[0];
-  return approval ? { date: approval.date, createdAt: approval.createdAt } : null;
+function getApprovalInfo(events: MatrixEvent[]): { date: string; createdAt?: string; isRejected?: boolean } | null {
+  const approval = getApprovalEventFromEvents(events);
+  return approval ? { date: approval.date, createdAt: approval.createdAt, isRejected: approval.testStatus === "Reprovado para Garantia" } : null;
 }
 
 // Agrupa por Ano > Mês (com base na data de aprovação)
@@ -138,14 +138,7 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
     generateExcelReport(filteredMatrices);
   };
   
-  // Função para formatar a data corretamente, ajustando o fuso horário
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    // Ajusta para o fuso horário local
-    const timezoneOffset = date.getTimezoneOffset() * 60000;
-    const localDate = new Date(date.getTime() - timezoneOffset);
-    return localDate.toISOString().split('T')[0].split('-').reverse().join('/');
-  };
+  const formatDate = (dateString: string) => formatToBR(dateString);
 
   // Função que gera o relatório em Excel
   const generateExcelReport = (matricesToExport: Matrix[]) => {
@@ -647,14 +640,16 @@ export const ApprovedToolsView: React.FC<Props> = ({ matrices, onUpdateMatrix, o
                         <ul className="divide-y">
                           {items.map((m) => {
                             const info = getApprovalInfo(m.events)!;
-                            const formatted = new Date(info.date).toLocaleDateString("pt-BR");
+                            const formatted = formatToBR(info.date);
                             const apontado = info.createdAt ? new Date(info.createdAt).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : null;
                             return (
-                              <li key={m.id} className="px-3 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer group" onClick={() => setSelectedTool(m)}>
+                              <li key={m.id} className={`px-3 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer group ${info.isRejected ? 'bg-red-50 border-l-4 border-red-500' : ''}`} onClick={() => setSelectedTool(m)}>
                                 <div className="flex items-center gap-2">
-                                  <span>{m.code}</span>
+                                  {info.isRejected && <span className="text-red-600 font-bold" title="Reprovado para Garantia">⚠️</span>}
+                                  <span className={info.isRejected ? 'text-red-700 font-semibold' : ''}>{m.code}</span>
                                   <span className="text-muted-foreground text-sm">{formatted}</span>
                                   {apontado && <span className="text-muted-foreground text-xs">({apontado})</span>}
+                                  {info.isRejected && <span className="text-red-600 text-xs font-semibold">REPROVADO</span>}
                                   {matrixAttachments[m.id] && (
                                     <div title="Tem anexos">
                                       <Paperclip className="h-4 w-4 text-blue-600" />

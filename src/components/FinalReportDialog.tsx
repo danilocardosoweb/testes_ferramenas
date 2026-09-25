@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Matrix, MatrixEvent } from "@/types";
 import { daysSinceLastEvent, getCounts, computeDurations } from "@/utils/metrics";
+import { formatToBR } from "@/utils/dateUtils";
 import { uploadAttachment, listAttachments, deleteAttachment, renameAttachment, FinalReportAttachments } from "@/services/files";
 import { FileText, Image as ImageIcon, Upload, Trash2, Eye, Pencil, RotateCcw, Loader2 } from "lucide-react";
 import {
@@ -235,7 +236,7 @@ export const FinalReportDialog: React.FC<FinalReportDialogProps> = ({ open, onOp
                       <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">Sem eventos</TableCell></TableRow>
                     ) : eventsSorted.map((ev) => (
                       <TableRow key={ev.id}>
-                        <TableCell>{new Date(ev.date).toLocaleDateString("pt-BR")}</TableCell>
+                        <TableCell>{formatToBR(ev.date)}</TableCell>
                         <TableCell>{ev.type}</TableCell>
                         <TableCell>{ev.comment || "-"}</TableCell>
                         <TableCell>{ev.location || "-"}</TableCell>

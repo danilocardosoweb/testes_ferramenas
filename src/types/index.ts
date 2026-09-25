@@ -10,7 +10,7 @@ export interface MatrixEvent {
   responsible?: string;
   machine?: "P18" | "P19";
   files?: { name: string; type: string; dataUrl: string }[];
-  testStatus?: "Aprovado" | "Reprovado";
+  testStatus?: "Aprovado" | "Reprovado" | "Reprovado para Garantia";
 }
 
 export interface Folder {
@@ -18,11 +18,13 @@ export interface Folder {
   name: string;
 }
 
+export type UserRole = 'admin' | 'gestor' | 'corretor' | 'comercial' | 'editor' | 'viewer';
+
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'editor' | 'viewer';
+  role: UserRole;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

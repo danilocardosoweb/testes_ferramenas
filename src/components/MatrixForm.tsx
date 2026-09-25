@@ -10,6 +10,7 @@ import { Matrix } from "@/types";
 import { listManufacturingRecords, ManufacturingRecord, receiveManufacturingMatrix } from "@/services/manufacturing";
 import { Package, Calendar, AlertCircle, User, Folder, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { formatToBR } from "@/utils/dateUtils";
 
 interface MatrixFormProps {
   onSubmit: (matrix: Matrix) => void;
@@ -188,7 +189,7 @@ export const MatrixForm = ({ onSubmit, onCancel, folders = [], defaultFolder = n
                     const tipo = record.manufacturing_type === 'nova' ? 'Nova' : 'Reposição';
                     const fornecedor = record.supplier === 'Outro' ? record.custom_supplier : record.supplier;
                     const entrega = record.estimated_delivery_date
-                      ? new Date(record.estimated_delivery_date).toLocaleDateString('pt-BR')
+                      ? formatToBR(record.estimated_delivery_date)
                       : "-";
                     return (
                       <option 
@@ -221,7 +222,7 @@ export const MatrixForm = ({ onSubmit, onCancel, folders = [], defaultFolder = n
                   </span>
                   <span className="text-green-700">
                     Entrega: {selectedRecord.estimated_delivery_date
-                      ? new Date(selectedRecord.estimated_delivery_date).toLocaleDateString('pt-BR')
+                      ? formatToBR(selectedRecord.estimated_delivery_date)
                       : 'Não definida'}
                   </span>
                 </div>

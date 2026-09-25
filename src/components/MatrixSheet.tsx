@@ -6,10 +6,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Download, Edit2, Clock, Trash2 } from "lucide-react";
+import { Download, Edit2, Clock, Trash2, Upload } from "lucide-react";
 import { getStatusFromLastEvent, daysSinceLastEvent } from "@/utils/metrics";
 import { QuickEventEditModal } from "./QuickEventEditModal";
+import { MatrixSpreadsheetSyncDialog } from "./MatrixSpreadsheetSyncDialog";
 import * as XLSX from "xlsx";
+import { getApprovalEvent } from "@/utils/matrixLifecycle";
 
 // Helper para formatar data sem problema de fuso horário
 function formatDateBR(dateStr: string): string {
@@ -71,18 +73,21 @@ export type SheetMilestone =
 
 interface MatrixSheetProps {
   matrices: Matrix[];
+  syncMatrices?: Matrix[];
   onSetDate: (matrixId: string, milestone: SheetMilestone, date: string) => Promise<void> | void;
   onSelectMatrix?: (matrix: Matrix) => void;
   onDeleteDate?: (matrixId: string, milestone: SheetMilestone) => Promise<void> | void;
   onUpdateEvent?: (matrixId: string, eventId: string, updates: Partial<MatrixEvent>) => Promise<void> | void;
+  onImportCompleted?: () => Promise<void> | void;
 }
 
-export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate, onUpdateEvent }: MatrixSheetProps) {
+export function MatrixSheet({ matrices, syncMatrices, onSetDate, onSelectMatrix, onDeleteDate, onUpdateEvent, onImportCompleted }: MatrixSheetProps) {
   const [filter, setFilter] = useState("");
   const [folder, setFolder] = useState<string>("__all__");
   const [showCycles, setShowCycles] = useState(false); // recolher/expandir colunas entre teste e correção ext. entrada
   const [testStage, setTestStage] = useState<string>("__all__");
   const [sortMode, setSortMode] = useState<"oldest" | "latest">("oldest");
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [quickEditModal, setQuickEditModal] = useState<{ open: boolean; matrix: Matrix | null; event: MatrixEvent | null }>({ open: false, matrix: null, event: null });
   const sorted = useMemo(() => {
     return [...matrices].sort((a, b) => {
@@ -165,7 +170,7 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate,
       const testDates = testEvents.map(e => formatDateBR(e.date));
       
       // Encontrar data de aprovação
-      const approvalEvent = (matrix.events || []).find(e => e.type === "Aprovado" || /Aprovação/i.test(e.type));
+      const approvalEvent = getApprovalEvent(matrix);
       const approvalDate = approvalEvent ? formatDateBR(approvalEvent.date) : '';
       
       // Calcular dias em andamento (desde o recebimento)
@@ -223,15 +228,26 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate,
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle>Planilha de Datas dos Eventos</CardTitle>
-          <Button 
-            onClick={exportToExcel} 
-            variant="outline" 
-            size="sm"
-            className="h-8 gap-2"
-          >
-            <Download className="h-4 w-4" />
-            Exportar para Excel
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setSyncDialogOpen(true)}
+              variant="outline"
+              size="sm"
+              className="h-8 gap-2 border-emerald-200 text-emerald-800 hover:bg-emerald-50"
+            >
+              <Upload className="h-4 w-4" />
+              Atualizar por planilha
+            </Button>
+            <Button
+              onClick={exportToExcel}
+              variant="outline"
+              size="sm"
+              className="h-8 gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Exportar para Excel
+            </Button>
+          </div>
         </div>
         <div className="mt-2 grid grid-cols-1 md:grid-cols-5 gap-2 items-center">
           <div className="col-span-1">
@@ -333,6 +349,12 @@ export function MatrixSheet({ matrices, onSetDate, onSelectMatrix, onDeleteDate,
         matrix={quickEditModal.matrix}
         event={quickEditModal.event}
         onUpdateEvent={onUpdateEvent || (async () => {})}
+      />
+      <MatrixSpreadsheetSyncDialog
+        open={syncDialogOpen}
+        onOpenChange={setSyncDialogOpen}
+        matrices={syncMatrices ?? matrices}
+        onCompleted={onImportCompleted}
       />
     </Card>
   );
@@ -492,7 +514,7 @@ function Row({ matrix, onSetDate, onSelectMatrix, onDeleteDate, showCycles = fal
         </div>
       </td>
       {/* aprovação */}
-      <td><DateCell value={byType("Aprovado")[0]?.date || ""} onChange={(d) => onSetDate(matrix.id, "approval", d)} /></td>
+      <td><DateCell value={getApprovalEvent(matrix)?.date || ""} onChange={(d) => onSetDate(matrix.id, "approval", d)} /></td>
       {/* status */}
       <td>{status}</td>
     </tr>
